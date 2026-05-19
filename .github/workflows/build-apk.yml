@@ -1,0 +1,63 @@
+name: Build Android APK
+
+on:
+  # 推送到 main 分支时自动触发 & 打 tag 时触发发布
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  # 手动触发
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 构建 APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 检出代码
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 2. 安装 Java JDK（Android 构建必需）
+      - name: 设置 Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # 3. 安装 Flutter SDK
+      - name: 设置 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: 'stable'
+          cache: true
+
+      # 4. 安装项目依赖
+      - name: 安装依赖
+        run: flutter pub get
+
+      # 5. 构建 Release APK
+      - name: 构建 APK
+        run: flutter build apk --release
+
+      # 6. 上传 APK 为 Artifact（每次构建都可下载）
+      - name: 上传 APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+
+      # 7. 打 tag 时自动创建 GitHub Release 并附带 APK
+      - name: 创建 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
