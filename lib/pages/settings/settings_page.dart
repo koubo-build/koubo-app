@@ -324,7 +324,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         child: AppInput(
                           controller: _customWordController,
                           hintText: '输入敏感词',
-                          onSubmitted: (_) => _addCustomWord(),
+                          onChanged: (v) => _addCustomWord(),
                         ),
                       ),
                       const SizedBox(width: AppTheme.spacingSmall),

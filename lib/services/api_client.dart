@@ -269,20 +269,18 @@ class ApiClient {
     required List<Map<String, String>> messages,
     String model = ApiConfig.zhipuModelFlash,
     double temperature = 0.7,
-  }) {
-    return Stream.fromCallable(() async {
-      final apiKey = await StorageUtil.getSecure(ApiConfig.zhipuApiKeyKey);
-      if (apiKey == null || apiKey.isEmpty) {
-        throw Exception('请先配置智谱AI的API Key');
-      }
-      return chatCompletionStream(
-        baseUrl: ApiConfig.zhipuBaseUrl,
-        apiKey: apiKey,
-        model: model,
-        messages: messages,
-        temperature: temperature,
-      );
-    }).asyncExpand((stream) => stream);
+  }) async* {
+    final apiKey = await StorageUtil.getSecure(ApiConfig.zhipuApiKeyKey);
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('请先配置智谱AI的API Key');
+    }
+    yield* chatCompletionStream(
+      baseUrl: ApiConfig.zhipuBaseUrl,
+      apiKey: apiKey,
+      model: model,
+      messages: messages,
+      temperature: temperature,
+    );
   }
 
   // ==================== 硅基流动快捷调用 ====================

@@ -132,7 +132,7 @@ class TtsService {
       );
 
       // 关闭WebSocket
-      await channel.close();
+      await channel.sink.close();
 
       // 保存音频文件
       if (audioData.isEmpty) {
@@ -144,7 +144,7 @@ class TtsService {
 
       return filePath;
     } catch (e) {
-      await channel.close();
+      await channel.sink.close();
       // 如果WebSocket方式失败，回退到HTTP代理方式
       return await _synthesizeEdgeTtsFallback(
         text: text,

@@ -61,7 +61,7 @@ class AppTheme {
         onSurface: textPrimary,
       ),
       // 卡片主题
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: darkCard,
         elevation: 2,
         shape: RoundedRectangleBorder(
@@ -158,7 +158,7 @@ class AppTheme {
         thickness: 1,
       ),
       // 对话框主题
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: darkSurface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radiusLarge),
@@ -192,7 +192,7 @@ class AppTheme {
         onSecondary: Colors.white,
         onSurface: Color(0xFF1A1A2E),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: Colors.white,
         elevation: 2,
         shape: RoundedRectangleBorder(

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -1545,7 +1546,7 @@ class _WaveformPainter extends CustomPainter {
     for (int i = 0; i < waveCount; i++) {
       final x = i * barWidth + barWidth / 2;
       final phase = (i / waveCount * 2 * 3.14159) + animationValue * 2 * 3.14159;
-      final amplitude = (0.3 + 0.7 * (0.5 + 0.5 * (phase.sin()))) * (size.height * 0.35);
+      final amplitude = (0.3 + 0.7 * (0.5 + 0.5 * (math.sin(phase)))) * (size.height * 0.35);
       final barHeight = amplitude;
 
       canvas.drawLine(
