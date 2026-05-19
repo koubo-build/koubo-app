@@ -176,9 +176,7 @@ class RewriteComparePage extends StatelessWidget {
             height: 12,
             decoration: BoxDecoration(
               color: color,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(2),
-              ),
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
           const SizedBox(width: 8),

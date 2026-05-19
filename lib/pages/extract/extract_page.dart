@@ -1475,7 +1475,7 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
               const Spacer(),
               Text(
                 '${rewrittenText.length}字',
-                style: const TextStyle(fontSize: 10, color: AppTheme.accentColor.withOpacity(0.7)),
+                style: TextStyle(fontSize: 10, color: AppTheme.accentColor.withOpacity(0.7)),
               ),
               const SizedBox(width: 4),
               // 字数变化标签

@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:record/record.dart';
+import 'package:record/record.dart' hide RecordState;
 import 'package:permission_handler/permission_handler.dart';
 import '../../config/theme.dart';
 import '../../config/routes.dart';

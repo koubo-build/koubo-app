@@ -28,7 +28,7 @@ dependencies:
   shared_preferences: ^2.2.3
 
   # 录音
-  record: ^5.0.5
+  record: ^5.1.0
 
   # 音频播放
   just_audio: ^0.9.37

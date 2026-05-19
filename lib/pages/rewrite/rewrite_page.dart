@@ -233,7 +233,7 @@ class _RewritePageState extends State<RewritePage> {
                   ],
                 ),
               ),
-            ),
+            ],
 
             const SizedBox(height: AppTheme.spacingMedium),
 
