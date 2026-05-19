@@ -27,16 +27,16 @@ class _HomePageState extends State<HomePage> {
   /// 加载数据
   Future<void> _loadData() async {
     try {
-    final hasKey = await StorageUtil.hasAnyApiKey();
-    final records = await StorageUtil.getRecentRecords(limit: 3);
+      final hasKey = await StorageUtil.hasAnyApiKey();
+      final records = await StorageUtil.getRecentRecords(limit: 3);
+      if (mounted) {
+        setState(() {
+          _hasApiKey = hasKey;
+          _recentRecords = records;
+        });
+      }
     } catch (e) {
-      debugPrint("首页加载异常: $e");
-    }
-    if (mounted) {
-      setState(() {
-        _hasApiKey = hasKey;
-        _recentRecords = records;
-      });
+      debugPrint('首页加载异常: $e');
     }
   }
 
