@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'utils/storage_util.dart';
-import 'utils/permission_util.dart';
 
 /// App入口 - 初始化并启动应用
-void main() async {
+void main() {
   // 确保Flutter绑定初始化
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -15,27 +14,35 @@ void main() async {
     debugPrint('Flutter Error: ${details.exceptionAsString()}');
   };
 
+  // 异步初始化后启动
+  _initAndRun();
+}
+
+/// 初始化并启动App
+Future<void> _initAndRun() async {
+  bool initSuccess = true;
+  String? errorMsg;
+
   try {
     // 1. 初始化SharedPreferences
     await StorageUtil.init();
-
-    // 2. 初始化SQLite数据库
-    await StorageUtil.initDatabase();
-
-    // 3. 请求必要权限（不阻塞启动）
-    _requestPermissions();
   } catch (e) {
-    debugPrint('初始化异常：$e');
+    initSuccess = false;
+    errorMsg = 'SharedPreferences初始化失败: $e';
+    debugPrint(errorMsg);
   }
 
-  // 启动App
-  runApp(const ProviderScope(child: KouboApp()));
-}
+  try {
+    // 2. 初始化SQLite数据库
+    await StorageUtil.initDatabase();
+  } catch (e) {
+    initSuccess = false;
+    errorMsg = '数据库初始化失败: $e';
+    debugPrint(errorMsg);
+  }
 
-/// 请求必要权限（异步，不阻塞启动）
-void _requestPermissions() {
-  // 延迟请求权限，避免影响启动速度
-  Future.delayed(const Duration(seconds: 2), () async {
-    await PermissionUtil.requestStorage();
-  });
+  // 即使初始化部分失败也要启动App，显示错误信息
+  runApp(ProviderScope(
+    child: KouboApp(initError: initSuccess ? null : errorMsg),
+  ));
 }
