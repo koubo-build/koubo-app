@@ -78,18 +78,18 @@ class _HomePageState extends State<HomePage> {
                           ],
                         ),
                       ),
-                      _recentRecords.isEmpty
-                          ? Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 40),
-                              child: Center(
-                                child: Column(children: const [
-                                  Icon(Icons.create_outlined, size: 48, color: AppTheme.textHint),
-                                  SizedBox(height: 8),
-                                  Text('还没有创作记录', style: TextStyle(fontSize: 14, color: AppTheme.textHint)),
-                                ]),
-                              ),
-                            )
-                          : ..._recentRecords.map((r) => _buildRecentItem(r)),
+                      if (_recentRecords.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 40),
+                          child: Center(
+                            child: Column(children: const [
+                              Icon(Icons.create_outlined, size: 48, color: AppTheme.textHint),
+                              SizedBox(height: 8),
+                              Text('还没有创作记录', style: TextStyle(fontSize: 14, color: AppTheme.textHint)),
+                            ]),
+                          ),
+                        ),
+                      for (final r in _recentRecords) _buildRecentItem(r),
                       const SizedBox(height: 32),
                     ],
                   ),
