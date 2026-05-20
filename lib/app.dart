@@ -3,10 +3,15 @@ import 'config/theme.dart';
 import 'config/routes.dart';
 
 /// App根组件 - 配置MaterialApp
-class KouboApp extends StatelessWidget {
+class KouboApp extends StatefulWidget {
   final String? initError;
   const KouboApp({super.key, this.initError});
 
+  @override
+  State<KouboApp> createState() => _KouboAppState();
+}
+
+class _KouboAppState extends State<KouboApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -15,10 +20,12 @@ class KouboApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.dark,
-      home: initError != null ? _ErrorPage(error: initError!) : null,
-      initialRoute: initError != null ? null : '/',
-      routes: initError != null ? {} : AppRoutes.routes,
-      onGenerateRoute: initError != null ? null : AppRoutes.onGenerateRoute,
+      home: widget.initError != null
+          ? _ErrorPage(error: widget.initError!)
+          : null,
+      initialRoute: widget.initError != null ? null : '/',
+      routes: widget.initError != null ? {} : AppRoutes.routes,
+      onGenerateRoute: widget.initError != null ? null : AppRoutes.onGenerateRoute,
       onUnknownRoute: (RouteSettings settings) {
         return MaterialPageRoute(
           builder: (context) => Scaffold(
@@ -26,6 +33,38 @@ class KouboApp extends StatelessWidget {
             body: const Center(child: Text('页面不存在，请返回首页重试')),
           ),
         );
+      },
+      // Catch rendering errors - show fallback UI instead of grey screen
+      builder: (context, widget) {
+        ErrorWidget.builder = (FlutterErrorDetails details) {
+          return Material(
+            child: Container(
+              color: AppTheme.darkBackground,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                      const SizedBox(height: 16),
+                      const Text('页面渲染出错', style: TextStyle(fontSize: 18, color: Colors.white)),
+                      const SizedBox(height: 8),
+                      Text(
+                        details.exceptionAsString(),
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        textAlign: TextAlign.center,
+                        maxLines: 5,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        };
+        return widget ?? const SizedBox.shrink();
       },
     );
   }
@@ -51,11 +90,6 @@ class _ErrorPage extends StatelessWidget {
               const Text('初始化失败', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Text(error, style: const TextStyle(fontSize: 14, color: Colors.grey), textAlign: TextAlign.center),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: () => Navigator.pushReplacementNamed(context, '/'),
-                child: const Text('重试'),
-              ),
             ],
           ),
         ),

@@ -12,7 +12,7 @@ class StorageUtil {
 
   // 安全存储实例（用于加密存储API Key等敏感信息）
   static const FlutterSecureStorage _secureStorage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    aOptions: AndroidOptions(encryptedSharedPreferences: false),
   );
 
   // SharedPreferences实例（缓存）
