@@ -4,10 +4,8 @@ import '../../config/routes.dart';
 import '../../utils/storage_util.dart';
 import '../../widgets/common/app_card.dart';
 
-/// 首页 - 功能入口6宫格 + 最近创作 + 首次引导
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
-
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -16,7 +14,7 @@ class _HomePageState extends State<HomePage> {
   bool _hasApiKey = false;
   List<Map<String, dynamic>> _recentRecords = [];
   bool _isLoading = true;
-  String? _error;
+  String? _loadError;
 
   @override
   void initState() {
@@ -26,328 +24,204 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadData() async {
     try {
-      final hasKey = await StorageUtil.hasAnyApiKey();
-      final records = await StorageUtil.getRecentRecords(limit: 3);
+      bool hasKey = false;
+      List<Map<String, dynamic>> records = [];
+      
+      try { hasKey = await StorageUtil.hasAnyApiKey(); } catch (e) { debugPrint('hasAnyApiKey: $e'); }
+      try { records = await StorageUtil.getRecentRecords(limit: 3); } catch (e) { debugPrint('getRecentRecords: $e'); }
+      
       if (mounted) {
         setState(() {
           _hasApiKey = hasKey;
           _recentRecords = records;
           _isLoading = false;
-          _error = null;
         });
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _error = e.toString();
-        });
-      }
+      if (mounted) setState(() { _isLoading = false; _loadError = e.toString(); });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
-            : RefreshIndicator(
-                onRefresh: _loadData,
-                color: AppTheme.primaryColor,
-                child: CustomScrollView(
-                  slivers: [
-                    SliverToBoxAdapter(child: _buildHeader()),
-                    if (_error != null)
-                      SliverToBoxAdapter(
-                        child: Padding(
+    try {
+      return Scaffold(
+        body: SafeArea(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : RefreshIndicator(
+                  onRefresh: _loadData,
+                  child: ListView(
+                    children: [
+                      _buildHeader(),
+                      if (_loadError != null)
+                        Padding(
                           padding: const EdgeInsets.all(16),
-                          child: Text('加载异常: $_error', style: const TextStyle(color: Colors.red, fontSize: 12)),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                            child: Text(_loadError!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                          ),
                         ),
+                      if (!_hasApiKey) _buildSetupGuide(),
+                      Padding(
+                        padding: const EdgeInsets.all(AppTheme.spacingMedium),
+                        child: _buildGrid(),
                       ),
-                    if (!_hasApiKey)
-                      SliverToBoxAdapter(child: _buildSetupGuide()),
-                    SliverPadding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppTheme.spacingMedium,
-                        vertical: AppTheme.spacingSmall,
-                      ),
-                      sliver: SliverGrid(
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          mainAxisSpacing: AppTheme.spacingMedium,
-                          crossAxisSpacing: AppTheme.spacingMedium,
-                          childAspectRatio: 0.82,
-                        ),
-                        delegate: SliverChildListDelegate(_buildGridItems(context)),
-                      ),
-                    ),
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppTheme.spacingLarge,
-                          AppTheme.spacingLarge,
-                          AppTheme.spacingLarge,
-                          AppTheme.spacingSmall,
-                        ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
                         child: Row(
                           children: [
                             const Text('最近创作', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
                             const Spacer(),
-                            TextButton(
-                              onPressed: () => Navigator.pushNamed(context, AppRoutes.history),
-                              child: const Text('查看全部'),
-                            ),
+                            TextButton(onPressed: () => Navigator.pushNamed(context, AppRoutes.history), child: const Text('查看全部')),
                           ],
                         ),
                       ),
-                    ),
-                    _recentRecords.isEmpty
-                        ? SliverToBoxAdapter(child: _buildEmptyRecent())
-                        : SliverList(
-                            delegate: SliverChildListDelegate(
-                              _recentRecords.map((r) => _buildRecentItem(r)).toList(),
-                            ),
-                          ),
-                    const SliverToBoxAdapter(child: SizedBox(height: AppTheme.spacingXLarge)),
-                  ],
+                      _recentRecords.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 40),
+                              child: Center(
+                                child: Column(children: const [
+                                  Icon(Icons.create_outlined, size: 48, color: AppTheme.textHint),
+                                  SizedBox(height: 8),
+                                  Text('还没有创作记录', style: TextStyle(fontSize: 14, color: AppTheme.textHint)),
+                                ]),
+                              ),
+                            )
+                          : ..._recentRecords.map((r) => _buildRecentItem(r)),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
                 ),
-              ),
-      ),
-    );
+        ),
+      );
+    } catch (e) {
+      // If build itself throws, show error
+      return Scaffold(
+        backgroundColor: const Color(0xFF1A1A2E),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              const SizedBox(height: 16),
+              const Text('首页渲染失败', style: TextStyle(color: Colors.white, fontSize: 18)),
+              const SizedBox(height: 8),
+              Text(e.toString(), style: const TextStyle(color: Colors.orange, fontSize: 12), textAlign: TextAlign.center),
+            ]),
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppTheme.spacingLarge, AppTheme.spacingMedium,
-        AppTheme.spacingLarge, AppTheme.spacingLarge,
-      ),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
           colors: [Color(0xFF0F3460), Color(0xFF1A1A2E)],
         ),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 48, height: 48,
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-            ),
-            child: const Icon(Icons.smart_display, color: AppTheme.primaryColor, size: 28),
+      child: Row(children: [
+        Container(
+          width: 48, height: 48,
+          decoration: BoxDecoration(color: const Color(0xFF1A73E8).withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+          child: const Icon(Icons.smart_display, color: Color(0xFF1A73E8), size: 28),
+        ),
+        const SizedBox(width: 16),
+        const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('口播智能体', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+          SizedBox(height: 2),
+          Text('你的AI口播创作助手', style: TextStyle(fontSize: 14, color: Color(0xFFB0BEC5))),
+        ])),
+        SizedBox(
+          width: 40, height: 40,
+          child: IconButton(
+            onPressed: () => Navigator.pushNamed(context, AppRoutes.settings),
+            icon: const Icon(Icons.settings, color: Color(0xFFB0BEC5), size: 22),
           ),
-          const SizedBox(width: AppTheme.spacingMedium),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('口播智能体', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
-                SizedBox(height: 2),
-                Text('你的AI口播创作助手', style: TextStyle(fontSize: 14, color: AppTheme.textSecondary)),
-              ],
-            ),
-          ),
-          Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(
-              color: AppTheme.darkSurface.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-            ),
-            child: IconButton(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.settings),
-              icon: const Icon(Icons.settings, color: AppTheme.textSecondary, size: 22),
-              padding: EdgeInsets.zero,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 
   Widget _buildSetupGuide() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(AppTheme.spacingMedium, AppTheme.spacingSmall, AppTheme.spacingMedium, 0),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: Container(
-        padding: const EdgeInsets.all(AppTheme.spacingMedium),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [AppTheme.primaryColor.withOpacity(0.15), AppTheme.accentColor.withOpacity(0.1)],
+          color: const Color(0xFF1A73E8).withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF1A73E8).withOpacity(0.3)),
+        ),
+        child: Row(children: [
+          const Icon(Icons.info_outline, color: Color(0xFF1A73E8), size: 22),
+          const SizedBox(width: 12),
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('快速配置', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1A73E8))),
+            SizedBox(height: 2),
+            Text('请先在设置页配置API Key', style: TextStyle(fontSize: 13, color: Color(0xFFB0BEC5))),
+          ])),
+          ElevatedButton(
+            onPressed: () => Navigator.pushNamed(context, AppRoutes.settings),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1A73E8), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)),
+            child: const Text('去配置', style: TextStyle(fontSize: 13)),
           ),
-          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-          border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3), width: 1),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40, height: 40,
-              decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-              ),
-              child: const Icon(Icons.info_outline, color: AppTheme.primaryColor, size: 22),
-            ),
-            const SizedBox(width: AppTheme.spacingMedium),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('快速配置', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.primaryColor)),
-                  SizedBox(height: 2),
-                  Text('请先在设置页配置API Key，即可开始使用', style: TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
-                ],
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.settings),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusSmall)),
-              ),
-              child: const Text('去配置', style: TextStyle(fontSize: 13)),
-            ),
-          ],
-        ),
+        ]),
       ),
     );
   }
 
-  List<Widget> _buildGridItems(BuildContext context) {
+  Widget _buildGrid() {
     final items = [
-      _GridItem(icon: Icons.auto_awesome, label: '创作工作台', subtitle: '一键创作口播视频', color: AppTheme.primaryColor, isMain: true, onTap: () => Navigator.pushNamed(context, AppRoutes.extract)),
-      _GridItem(icon: Icons.edit_note, label: 'AI改写', subtitle: '多种改写模式', color: const Color(0xFF81C784), onTap: () => Navigator.pushNamed(context, AppRoutes.rewrite)),
-      _GridItem(icon: Icons.shield_outlined, label: '法务审核', subtitle: '合规风险检测', color: const Color(0xFFFFB74D), onTap: () => Navigator.pushNamed(context, AppRoutes.audit)),
-      _GridItem(icon: Icons.record_voice_over, label: '语音合成', subtitle: 'TTS配音', color: const Color(0xFFE57373), onTap: () => Navigator.pushNamed(context, AppRoutes.voice)),
-      _GridItem(icon: Icons.smart_toy_outlined, label: '数字人视频', subtitle: '口播视频生成', color: const Color(0xFFBA68C8), onTap: () => Navigator.pushNamed(context, AppRoutes.digitalHuman)),
-      _GridItem(icon: Icons.history, label: '历史记录', subtitle: '查看创作记录', color: const Color(0xFF4DD0E1), onTap: () => Navigator.pushNamed(context, AppRoutes.history)),
+      (Icons.auto_awesome, '创作工作台', const Color(0xFF1A73E8), AppRoutes.extract),
+      (Icons.edit_note, 'AI改写', const Color(0xFF81C784), AppRoutes.rewrite),
+      (Icons.shield_outlined, '法务审核', const Color(0xFFFFB74D), AppRoutes.audit),
+      (Icons.record_voice_over, '语音合成', const Color(0xFFE57373), AppRoutes.voice),
+      (Icons.smart_toy_outlined, '数字人视频', const Color(0xFFBA68C8), AppRoutes.digitalHuman),
+      (Icons.history, '历史记录', const Color(0xFF4DD0E1), AppRoutes.history),
     ];
-    return items.map((item) => _buildGridCard(item)).toList();
-  }
 
-  Widget _buildGridCard(_GridItem item) {
-    return AppCard(
-      onTap: item.onTap,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: item.isMain ? 52 : 44, height: item.isMain ? 52 : 44,
-            decoration: BoxDecoration(
-              color: item.color.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-            ),
-            child: Icon(item.icon, color: item.color, size: item.isMain ? 28 : 24),
-          ),
-          const SizedBox(height: AppTheme.spacingSmall),
-          Text(item.label, style: TextStyle(fontSize: item.isMain ? 15 : 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary), textAlign: TextAlign.center),
-          if (item.subtitle != null) ...[
-            const SizedBox(height: 2),
-            Text(item.subtitle!, style: TextStyle(fontSize: item.isMain ? 12 : 11, color: AppTheme.textHint), textAlign: TextAlign.center),
-          ],
-          if (item.isMain) ...[
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF1A73E8), Color(0xFF0D47A1)]),
-                borderRadius: BorderRadius.circular(3),
+    return GridView.count(
+      crossAxisCount: 3,
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      children: items.map((item) {
+        return Material(
+          color: const Color(0xFF0F3460),
+          borderRadius: BorderRadius.circular(12),
+          elevation: 2,
+          child: InkWell(
+            onTap: () => Navigator.pushNamed(context, item.$4),
+            borderRadius: BorderRadius.circular(12),
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(color: item.$3.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
+                child: Icon(item.$1, color: item.$3, size: 24),
               ),
-              child: const Text('核心入口', style: TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.w600)),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyRecent() {
-    return const SliverToBoxAdapter(
-      child: Padding(
-        padding: EdgeInsets.symmetric(vertical: AppTheme.spacingXLarge),
-        child: Center(
-          child: Column(
-            children: [
-              Icon(Icons.create_outlined, size: 48, color: AppTheme.textHint),
-              SizedBox(height: AppTheme.spacingSmall),
-              Text('还没有创作记录', style: TextStyle(fontSize: 14, color: AppTheme.textHint)),
-              SizedBox(height: 4),
-              Text('开始你的第一次口播创作吧！', style: TextStyle(fontSize: 12, color: AppTheme.textHint)),
-            ],
+              const SizedBox(height: 8),
+              Text(item.$2, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white), textAlign: TextAlign.center),
+            ]),
           ),
-        ),
-      ),
+        );
+      }).toList(),
     );
   }
 
   Widget _buildRecentItem(Map<String, dynamic> record) {
-    final type = record['type'] as String? ?? 'script';
-    final title = record['title'] as String? ?? '';
-    final time = _formatTime(record['time'] as String?);
-    final status = record['status'] as String? ?? '';
-
-    IconData icon;
-    Color color;
-    switch (type) {
-      case 'audio': icon = Icons.audiotrack; color = const Color(0xFFE57373); break;
-      case 'video': icon = Icons.videocam; color = const Color(0xFFBA68C8); break;
-      default: icon = Icons.description; color = AppTheme.primaryColor;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMedium, vertical: AppTheme.spacingXS),
-      child: AppCard(
-        onTap: () => Navigator.pushNamed(context, AppRoutes.history),
-        child: Row(
-          children: [
-            Container(
-              width: 36, height: 36,
-              decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(AppTheme.radiusSmall)),
-              child: Icon(icon, color: color, size: 20),
-            ),
-            const SizedBox(width: AppTheme.spacingSmall),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 2),
-                  Text(time, style: const TextStyle(fontSize: 11, color: AppTheme.textHint)),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: AppTheme.textHint, size: 20),
-          ],
-        ),
-      ),
+    return ListTile(
+      leading: const Icon(Icons.description, color: Color(0xFF1A73E8)),
+      title: Text(record['title']?.toString() ?? '', style: const TextStyle(color: Colors.white, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(record['time']?.toString() ?? '', style: const TextStyle(color: Color(0xFF607D8B), fontSize: 11)),
+      trailing: const Icon(Icons.chevron_right, color: Color(0xFF607D8B)),
+      onTap: () => Navigator.pushNamed(context, AppRoutes.history),
     );
   }
-
-  String _formatTime(String? isoTime) {
-    if (isoTime == null || isoTime.isEmpty) return '';
-    try {
-      final dt = DateTime.parse(isoTime);
-      final now = DateTime.now();
-      final diff = now.difference(dt);
-      if (diff.inMinutes < 1) return '刚刚';
-      if (diff.inMinutes < 60) return '${diff.inMinutes}分钟前';
-      if (diff.inHours < 24) return '${diff.inHours}小时前';
-      if (diff.inDays < 7) return '${diff.inDays}天前';
-      return '${dt.month}/${dt.day}';
-    } catch (_) { return ''; }
-  }
-}
-
-class _GridItem {
-  final IconData icon;
-  final String label;
-  final String? subtitle;
-  final Color color;
-  final bool isMain;
-  final VoidCallback onTap;
-  _GridItem({required this.icon, required this.label, this.subtitle, required this.color, this.isMain = false, required this.onTap});
 }
