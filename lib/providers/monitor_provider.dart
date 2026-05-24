@@ -58,6 +58,15 @@ class MonitorNotifier extends ChangeNotifier {
 
   MonitorState _state = const MonitorState();
   MonitorState get state => _state;
+  // 便捷getter
+  List<ModelStatus> get models => _state.models;
+  List<String> get logs => _state.logs;
+  bool get isLoading => _state.isLoading;
+  bool get autoRefresh => _state.autoRefresh;
+  int get runningCount => _state.runningCount;
+  int get errorCount => _state.errorCount;
+  String? get errorMessage => _state.errorMessage;
+
 
   Timer? _refreshTimer;
 

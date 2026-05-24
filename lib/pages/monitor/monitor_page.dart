@@ -23,8 +23,8 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(monitorProvider);
-    final notifier = ref.read(monitorProvider.notifier);
+    final notifier = ref.watch(monitorProvider);
+    
 
     return Scaffold(
       backgroundColor: AppTheme.darkBackground,
@@ -47,7 +47,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
                 ),
                 const SizedBox(width: 4),
                 Switch(
-                  value: state.autoRefresh,
+                  value: notifier.autoRefresh,
                   onChanged: (_) => notifier.toggleAutoRefresh(),
                   activeColor: AppTheme.primaryColor,
                 ),
@@ -76,7 +76,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
               ),
             ),
             const SizedBox(height: AppTheme.spacingMedium),
-            if (state.isLoading && state.models.isEmpty)
+            if (notifier.isLoading && notifier.models.isEmpty)
               const Center(
                 child: Padding(
                   padding: EdgeInsets.all(32),
@@ -84,7 +84,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
                 ),
               )
             else
-              ...state.models.map((model) => _buildModelCard(model, notifier)),
+              ...notifier.models.map((model) => _buildModelCard(model, notifier)),
 
             const SizedBox(height: AppTheme.spacingLarge),
 
@@ -113,7 +113,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
         Expanded(
           child: _buildStatCard(
             '模型总数',
-            '${state.models.length}',
+            '${notifier.models.length}',
             Colors.white,
             Icons.dns_outlined,
           ),
@@ -122,7 +122,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
         Expanded(
           child: _buildStatCard(
             '运行中',
-            '${state.runningCount}',
+            '${notifier.runningCount}',
             AppTheme.safeColor,
             Icons.check_circle_outline,
           ),
@@ -131,7 +131,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
         Expanded(
           child: _buildStatCard(
             '异常',
-            '${state.errorCount}',
+            '${notifier.errorCount}',
             AppTheme.highRiskColor,
             Icons.error_outline,
           ),
@@ -347,7 +347,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
 
   /// 日志区
   Widget _buildLogArea(MonitorState state) {
-    final logs = state.logs.take(15).toList();
+    final logs = notifier.logs.take(15).toList();
 
     return Container(
       width: double.infinity,

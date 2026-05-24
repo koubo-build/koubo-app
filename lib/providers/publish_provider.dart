@@ -95,6 +95,20 @@ class PublishNotifier extends ChangeNotifier {
 
   PublishState _state = const PublishState();
   PublishState get state => _state;
+  // 便捷getter
+  String get title => _state.title;
+  List<String> get keywords => _state.keywords;
+  String get style => _state.style;
+  String? get selectedVideoPath => _state.selectedVideoPath;
+  String? get selectedCoverPath => _state.selectedCoverPath;
+  Set<String> get platforms => _state.platforms;
+  bool get isPublishing => _state.isPublishing;
+  Map<String, bool> get publishResults => _state.publishResults;
+  bool get isGeneratingCover => _state.isGeneratingCover;
+  String get description => _state.description;
+  String get tags => _state.tags;
+  String? get errorMessage => _state.errorMessage;
+
 
   PublishNotifier(this._publishService);
 

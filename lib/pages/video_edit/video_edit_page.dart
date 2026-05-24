@@ -51,8 +51,8 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(videoEditProvider);
-    final notifier = ref.read(videoEditProvider.notifier);
+    final notifier = ref.watch(videoEditProvider);
+    
 
     // 监听错误
     ref.listen<VideoEditState>(videoEditProvider, (prev, next) {
@@ -76,12 +76,12 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
       body: Column(
         children: [
           // 步骤条
-          _buildStepBar(state.currentStep),
+          _buildStepBar(notifier.currentStep),
           // 步骤内容
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(AppTheme.spacingMedium),
-              child: _buildStepContent(state.currentStep, state, notifier),
+              child: _buildStepContent(notifier.currentStep, notifier),
             ),
           ),
           // 底部操作栏
@@ -160,28 +160,27 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
   }
 
   /// 步骤内容
-  Widget _buildStepContent(
-      int step, VideoEditState state, VideoEditNotifier notifier) {
+  Widget _buildStepContent(int step, VideoEditNotifier notifier) {
     switch (step) {
       case 0:
-        return _buildScriptStep(state, notifier);
+        return _buildScriptStep(notifier);
       case 1:
-        return _buildFaceVideoStep(state, notifier);
+        return _buildFaceVideoStep(notifier);
       case 2:
-        return _buildStyleStep(state, notifier);
+        return _buildStyleStep(notifier);
       case 3:
-        return _buildBgVideoStep(state, notifier);
+        return _buildBgVideoStep(notifier);
       case 4:
-        return _buildMusicStep(state, notifier);
+        return _buildMusicStep(notifier);
       case 5:
-        return _buildSubtitleStep(state, notifier);
+        return _buildSubtitleStep(notifier);
       default:
         return const SizedBox.shrink();
     }
   }
 
   /// 步骤1：选择文案
-  Widget _buildScriptStep(VideoEditState state, VideoEditNotifier notifier) {
+  Widget _buildScriptStep(VideoEditNotifier notifier) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -217,7 +216,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
         ),
         const SizedBox(height: AppTheme.spacingSmall),
         Text(
-          '${state.scriptText.length} 字',
+          '${notifier.scriptText.length} 字',
           style: const TextStyle(color: AppTheme.textHint, fontSize: 12),
         ),
       ],
@@ -225,7 +224,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
   }
 
   /// 步骤2：选择数字人视频
-  Widget _buildFaceVideoStep(VideoEditState state, VideoEditNotifier notifier) {
+  Widget _buildFaceVideoStep(VideoEditNotifier notifier) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -244,7 +243,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
         ),
         const SizedBox(height: AppTheme.spacingMedium),
         // 已选择的数字人视频
-        if (state.faceVideoPath != null && state.faceVideoPath!.isNotEmpty)
+        if (notifier.faceVideoPath != null && notifier.faceVideoPath!.isNotEmpty)
           Container(
             padding: const EdgeInsets.all(AppTheme.spacingMedium),
             decoration: BoxDecoration(
@@ -269,7 +268,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        state.faceVideoPath!,
+                        notifier.faceVideoPath!,
                         style: const TextStyle(
                           color: AppTheme.textHint,
                           fontSize: 11,
@@ -319,7 +318,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
   }
 
   /// 步骤3：选择风格
-  Widget _buildStyleStep(VideoEditState state, VideoEditNotifier notifier) {
+  Widget _buildStyleStep(VideoEditNotifier notifier) {
     final styles = [
       {'key': 'tech', 'label': '科技感', 'color': const Color(0xFF26C6DA), 'icon': Icons.science},
       {'key': 'emotional', 'label': '情感', 'color': const Color(0xFFF48FB1), 'icon': Icons.favorite},
@@ -345,7 +344,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
         const SizedBox(height: AppTheme.spacingLarge),
         Row(
           children: styles.map((s) {
-            final isSelected = state.selectedStyle == s['key'];
+            final isSelected = notifier.selectedStyle == s['key'];
             final color = s['color'] as Color;
             return Expanded(
               child: GestureDetector(
@@ -390,7 +389,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
   }
 
   /// 步骤4：背景素材
-  Widget _buildBgVideoStep(VideoEditState state, VideoEditNotifier notifier) {
+  Widget _buildBgVideoStep(VideoEditNotifier notifier) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -431,7 +430,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
             ),
             const SizedBox(width: AppTheme.spacingSmall),
             ElevatedButton(
-              onPressed: state.isSearching
+              onPressed: notifier.isSearching
                   ? null
                   : () => notifier.searchMaterials(_searchController.text),
               style: ElevatedButton.styleFrom(
@@ -451,14 +450,14 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
         ),
         const SizedBox(height: AppTheme.spacingMedium),
         // 搜索结果网格
-        if (state.isSearching)
+        if (notifier.isSearching)
           const Center(
             child: Padding(
               padding: EdgeInsets.all(32),
               child: CircularProgressIndicator(),
             ),
           )
-        else if (state.bgVideoList.isEmpty)
+        else if (notifier.bgVideoList.isEmpty)
           Container(
             padding: const EdgeInsets.all(32),
             child: Column(
@@ -483,10 +482,10 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
               crossAxisSpacing: AppTheme.spacingSmall,
               childAspectRatio: 16 / 11,
             ),
-            itemCount: state.bgVideoList.length,
+            itemCount: notifier.bgVideoList.length,
             itemBuilder: (context, index) {
-              final video = state.bgVideoList[index];
-              final isSelected = state.selectedBgVideo?['id'] == video['id'];
+              final video = notifier.bgVideoList[index];
+              final isSelected = notifier.selectedBgVideo?['id'] == video['id'];
               return GestureDetector(
                 onTap: () => notifier.selectBgVideo(video),
                 child: Container(
@@ -554,7 +553,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
   }
 
   /// 步骤5：背景音乐
-  Widget _buildMusicStep(VideoEditState state, VideoEditNotifier notifier) {
+  Widget _buildMusicStep(VideoEditNotifier notifier) {
     final tabs = [
       {'key': 'tech', 'label': '科技感'},
       {'key': 'emotional', 'label': '情感'},
@@ -576,7 +575,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
         // 音乐分类Tab
         Row(
           children: tabs.map((tab) {
-            final isActive = state.currentMusicCategory == tab['key'];
+            final isActive = notifier.currentMusicCategory == tab['key'];
             return Expanded(
               child: GestureDetector(
                 onTap: () => notifier.switchMusicCategory(tab['key'] as String),
@@ -608,7 +607,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
         ),
         const SizedBox(height: AppTheme.spacingMedium),
         // 音乐列表
-        if (state.musicList.isEmpty)
+        if (notifier.musicList.isEmpty)
           Container(
             padding: const EdgeInsets.all(32),
             child: const Center(
@@ -619,8 +618,8 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
             ),
           )
         else
-          ...state.musicList.map((music) {
-            final isSelected = state.selectedMusic?['id'] == music['id'];
+          ...notifier.musicList.map((music) {
+            final isSelected = notifier.selectedMusic?['id'] == music['id'];
             return Container(
               margin: const EdgeInsets.only(bottom: AppTheme.spacingSmall),
               padding: const EdgeInsets.all(AppTheme.spacingMedium),
@@ -690,8 +689,8 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
   }
 
   /// 步骤6：字幕设置
-  Widget _buildSubtitleStep(VideoEditState state, VideoEditNotifier notifier) {
-    final settings = state.subtitleSettings;
+  Widget _buildSubtitleStep(VideoEditNotifier notifier) {
+    final settings = notifier.subtitleSettings;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -829,9 +828,9 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
   }
 
   /// 底部操作栏
-  Widget _buildBottomBar(VideoEditState state, VideoEditNotifier notifier) {
+  Widget _buildBottomBar(VideoEditNotifier notifier) {
     // 合成中：显示进度
-    if (state.isComposing) {
+    if (notifier.isComposing) {
       return Container(
         padding: const EdgeInsets.all(AppTheme.spacingMedium),
         color: AppTheme.darkSurface,
@@ -846,7 +845,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
                 ),
                 const Spacer(),
                 Text(
-                  '${(state.composeProgress * 100).round()}%',
+                  '${(notifier.composeProgress * 100).round()}%',
                   style: const TextStyle(
                     color: AppTheme.primaryColor,
                     fontSize: 16,
@@ -859,7 +858,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
-                value: state.composeProgress,
+                value: notifier.composeProgress,
                 backgroundColor: AppTheme.darkCard,
                 valueColor: const AlwaysStoppedAnimation<Color>(
                     AppTheme.primaryColor),
@@ -872,7 +871,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
     }
 
     // 合成完成：显示结果
-    if (state.resultVideoPath != null) {
+    if (notifier.resultVideoPath != null) {
       return Container(
         padding: const EdgeInsets.all(AppTheme.spacingMedium),
         color: AppTheme.darkSurface,
@@ -900,7 +899,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
                       context,
                       AppRoutes.publish,
                       arguments: {
-                        'videoPath': state.resultVideoPath,
+                        'videoPath': notifier.resultVideoPath,
                       },
                     );
                   },
@@ -924,7 +923,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
       color: AppTheme.darkSurface,
       child: Row(
         children: [
-          if (state.currentStep > 0)
+          if (notifier.currentStep > 0)
             Expanded(
               child: OutlinedButton(
                 onPressed: notifier.prevStep,
@@ -939,10 +938,10 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
                 child: const Text('上一步'),
               ),
             ),
-          if (state.currentStep > 0)
+          if (notifier.currentStep > 0)
             const SizedBox(width: AppTheme.spacingMedium),
           Expanded(
-            child: state.currentStep < 5
+            child: notifier.currentStep < 5
                 ? ElevatedButton(
                     onPressed: notifier.nextStep,
                     style: ElevatedButton.styleFrom(

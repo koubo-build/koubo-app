@@ -56,8 +56,8 @@ class _PublishPageState extends ConsumerState<PublishPage>
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(publishProvider);
-    final notifier = ref.read(publishProvider.notifier);
+    final notifier = ref.watch(publishProvider);
+    
 
     // 监听错误
     ref.listen<PublishState>(publishProvider, (prev, next) {
@@ -99,7 +99,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
   }
 
   /// 封面生成Tab
-  Widget _buildCoverTab(PublishState state, PublishNotifier notifier) {
+  Widget _buildCoverTab(PublishNotifier notifier) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(AppTheme.spacingMedium),
       child: Column(
@@ -191,12 +191,12 @@ class _PublishPageState extends ConsumerState<PublishPage>
             ],
           ),
           // 关键词Tag列表
-          if (state.keywords.isNotEmpty) ...[
+          if (notifier.keywords.isNotEmpty) ...[
             const SizedBox(height: AppTheme.spacingSmall),
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: state.keywords.map((keyword) {
+              children: notifier.keywords.map((keyword) {
                 return Chip(
                   label: Text(keyword),
                   deleteIcon: const Icon(Icons.close, size: 16),
@@ -236,8 +236,8 @@ class _PublishPageState extends ConsumerState<PublishPage>
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: state.isGeneratingCover ? null : notifier.generateCover,
-              icon: state.isGeneratingCover
+              onPressed: notifier.isGeneratingCover ? null : notifier.generateCover,
+              icon: notifier.isGeneratingCover
                   ? const SizedBox(
                       width: 18,
                       height: 18,
@@ -247,7 +247,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
                       ),
                     )
                   : const Icon(Icons.auto_awesome, size: 20),
-              label: Text(state.isGeneratingCover ? '生成中...' : '生成封面'),
+              label: Text(notifier.isGeneratingCover ? '生成中...' : '生成封面'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primaryColor,
                 foregroundColor: Colors.white,
@@ -261,7 +261,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
           const SizedBox(height: AppTheme.spacingLarge),
 
           // 封面预览
-          if (state.selectedCoverPath != null) ...[
+          if (notifier.selectedCoverPath != null) ...[
             const Text(
               '封面预览',
               style: TextStyle(
@@ -294,7 +294,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    state.selectedCoverPath!,
+                    notifier.selectedCoverPath!,
                     style: const TextStyle(color: AppTheme.textHint, fontSize: 11),
                     textAlign: TextAlign.center,
                     maxLines: 2,
@@ -318,7 +318,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
     PublishState state,
     PublishNotifier notifier,
   ) {
-    final isSelected = state.style == key;
+    final isSelected = notifier.style == key;
     return Expanded(
       child: GestureDetector(
         onTap: () => notifier.setStyle(key),
@@ -352,7 +352,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
   }
 
   /// 发布配置Tab
-  Widget _buildPublishTab(PublishState state, PublishNotifier notifier) {
+  Widget _buildPublishTab(PublishNotifier notifier) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(AppTheme.spacingMedium),
       child: Column(
@@ -380,10 +380,10 @@ class _PublishPageState extends ConsumerState<PublishPage>
                 const Icon(Icons.videocam, color: AppTheme.primaryColor, size: 28),
                 const SizedBox(width: AppTheme.spacingMedium),
                 Expanded(
-                  child: state.selectedVideoPath != null &&
-                          state.selectedVideoPath!.isNotEmpty
+                  child: notifier.selectedVideoPath != null &&
+                          notifier.selectedVideoPath!.isNotEmpty
                       ? Text(
-                          state.selectedVideoPath!,
+                          notifier.selectedVideoPath!,
                           style: const TextStyle(
                             color: AppTheme.textPrimary,
                             fontSize: 13,
@@ -421,7 +421,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
               color: AppTheme.darkCard,
               borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
             ),
-            child: state.selectedCoverPath != null
+            child: notifier.selectedCoverPath != null
                 ? Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -540,7 +540,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: state.isPublishing ? null : notifier.publish,
+              onPressed: notifier.isPublishing ? null : notifier.publish,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primaryColor,
                 foregroundColor: Colors.white,
@@ -550,7 +550,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
                 ),
                 textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
-              child: state.isPublishing
+              child: notifier.isPublishing
                   ? const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -572,7 +572,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
           const SizedBox(height: AppTheme.spacingLarge),
 
           // 发布结果
-          if (state.publishResults.isNotEmpty) ...[
+          if (notifier.publishResults.isNotEmpty) ...[
             const Text(
               '发布结果',
               style: TextStyle(
@@ -582,7 +582,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
               ),
             ),
             const SizedBox(height: AppTheme.spacingSmall),
-            ...state.publishResults.entries.map((entry) {
+            ...notifier.publishResults.entries.map((entry) {
               final platformName = {
                 'douyin': '抖音',
                 'xiaohongshu': '小红书',
@@ -640,7 +640,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
     PublishState state,
     PublishNotifier notifier,
   ) {
-    final isChecked = state.platforms.contains(platformKey);
+    final isChecked = notifier.platforms.contains(platformKey);
     return Container(
       margin: const EdgeInsets.only(bottom: AppTheme.spacingSmall),
       padding: const EdgeInsets.symmetric(

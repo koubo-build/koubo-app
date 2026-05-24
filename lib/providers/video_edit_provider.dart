@@ -146,6 +146,24 @@ class VideoEditNotifier extends ChangeNotifier {
 
   VideoEditState _state = const VideoEditState();
   VideoEditState get state => _state;
+  // 便捷getter - 页面直接访问
+  int get currentStep => _state.currentStep;
+  String get selectedStyle => _state.selectedStyle;
+  Map<String, dynamic>? get selectedBgVideo => _state.selectedBgVideo;
+  Map<String, dynamic>? get selectedMusic => _state.selectedMusic;
+  SubtitleSettings get subtitleSettings => _state.subtitleSettings;
+  bool get isComposing => _state.isComposing;
+  double get composeProgress => _state.composeProgress;
+  String? get resultVideoPath => _state.resultVideoPath;
+  String get scriptText => _state.scriptText;
+  String? get faceVideoPath => _state.faceVideoPath;
+  List<Map<String, dynamic>> get bgVideoList => _state.bgVideoList;
+  String get searchKeyword => _state.searchKeyword;
+  bool get isSearching => _state.isSearching;
+  List<Map<String, dynamic>> get musicList => _state.musicList;
+  String get currentMusicCategory => _state.currentMusicCategory;
+  String? get errorMessage => _state.errorMessage;
+
 
   VideoEditNotifier(this._videoEditService);
 
