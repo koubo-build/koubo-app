@@ -182,16 +182,20 @@ class _HomePageState extends State<HomePage> {
       (Icons.edit_note, 'AI改写', const Color(0xFF81C784), AppRoutes.rewrite),
       (Icons.shield_outlined, '法务审核', const Color(0xFFFFB74D), AppRoutes.audit),
       (Icons.record_voice_over, '语音合成', const Color(0xFFE57373), AppRoutes.voice),
-      (Icons.smart_toy_outlined, '数字人视频', const Color(0xFFBA68C8), AppRoutes.digitalHuman),
+      (Icons.smart_toy_outlined, '数字人', const Color(0xFFBA68C8), AppRoutes.digitalHuman),
+      (Icons.movie_edit, '视频混剪', const Color(0xFF26C6DA), AppRoutes.videoEdit),
+      (Icons.publish, '一键发布', const Color(0xFFFF8A65), AppRoutes.publish),
+      (Icons.dashboard, '监控台', const Color(0xFF7E57C2), AppRoutes.monitor),
       (Icons.history, '历史记录', const Color(0xFF4DD0E1), AppRoutes.history),
     ];
 
     return GridView.count(
       crossAxisCount: 3,
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 12,
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
+      childAspectRatio: 0.85,
       children: items.map((item) {
         return Material(
           color: const Color(0xFF0F3460),
@@ -202,12 +206,12 @@ class _HomePageState extends State<HomePage> {
             borderRadius: BorderRadius.circular(12),
             child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
               Container(
-                width: 44, height: 44,
-                decoration: BoxDecoration(color: item.$3.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
-                child: Icon(item.$1, color: item.$3, size: 24),
+                width: 40, height: 40,
+                decoration: BoxDecoration(color: item.$3.withOpacity(0.15), borderRadius: BorderRadius.circular(10)),
+                child: Icon(item.$1, color: item.$3, size: 22),
               ),
-              const SizedBox(height: 8),
-              Text(item.$2, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white), textAlign: TextAlign.center),
+              const SizedBox(height: 6),
+              Text(item.$2, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white), textAlign: TextAlign.center),
             ]),
           ),
         );
