@@ -17,13 +17,13 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(monitorProvider.notifier).init();
+      ref.read(monitorProvider).init();
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final notifier = ref.watch(monitorProvider);
+    final ctrl = ref.watch(monitorProvider);
     
 
     return Scaffold(
@@ -47,8 +47,8 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
                 ),
                 const SizedBox(width: 4),
                 Switch(
-                  value: notifier.autoRefresh,
-                  onChanged: (_) => notifier.toggleAutoRefresh(),
+                  value: ctrl.autoRefresh,
+                  onChanged: (_) => ctrl.toggleAutoRefresh(),
                   activeColor: AppTheme.primaryColor,
                 ),
               ],
@@ -57,7 +57,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: notifier.refreshStatus,
+        onRefresh: ctrl.refreshStatus,
         color: AppTheme.primaryColor,
         child: ListView(
           padding: const EdgeInsets.all(AppTheme.spacingMedium),
@@ -76,7 +76,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
               ),
             ),
             const SizedBox(height: AppTheme.spacingMedium),
-            if (notifier.isLoading && notifier.models.isEmpty)
+            if (ctrl.isLoading && ctrl.models.isEmpty)
               const Center(
                 child: Padding(
                   padding: EdgeInsets.all(32),
@@ -84,7 +84,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
                 ),
               )
             else
-              ...notifier.models.map((model) => _buildModelCard(model, notifier)),
+              ...ctrl.models.map((model) => _buildModelCard(model, ctrl)),
 
             const SizedBox(height: AppTheme.spacingLarge),
 
@@ -113,7 +113,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
         Expanded(
           child: _buildStatCard(
             '模型总数',
-            '${notifier.models.length}',
+            '${ctrl.models.length}',
             Colors.white,
             Icons.dns_outlined,
           ),
@@ -122,7 +122,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
         Expanded(
           child: _buildStatCard(
             '运行中',
-            '${notifier.runningCount}',
+            '${ctrl.runningCount}',
             AppTheme.safeColor,
             Icons.check_circle_outline,
           ),
@@ -131,7 +131,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
         Expanded(
           child: _buildStatCard(
             '异常',
-            '${notifier.errorCount}',
+            '${ctrl.errorCount}',
             AppTheme.highRiskColor,
             Icons.error_outline,
           ),
@@ -177,7 +177,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
   }
 
   /// 模型状态卡片
-  Widget _buildModelCard(ModelStatus model, MonitorNotifier notifier) {
+  Widget _buildModelCard(ModelStatus model, MonitorNotifier ctrl) {
     Color statusColor;
     String statusText;
     switch (model.status) {
@@ -272,7 +272,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
           if (model.status == 'error') ...[
             const SizedBox(width: AppTheme.spacingSmall),
             GestureDetector(
-              onTap: () => _handleRestart(model.name, notifier),
+              onTap: () => _handleRestart(model.name, ctrl),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
@@ -296,7 +296,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
   }
 
   /// 处理重启操作
-  void _handleRestart(String modelName, MonitorNotifier notifier) async {
+  void _handleRestart(String modelName, MonitorNotifier ctrl) async {
     // 确认对话框
     final confirmed = await showDialog<bool>(
       context: context,
@@ -333,7 +333,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
           backgroundColor: AppTheme.primaryColor,
         ),
       );
-      await notifier.restartModel(modelName);
+      await ctrl.restartModel(modelName);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -347,7 +347,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
 
   /// 日志区
   Widget _buildLogArea(MonitorState state) {
-    final logs = notifier.logs.take(15).toList();
+    final logs = ctrl.logs.take(15).toList();
 
     return Container(
       width: double.infinity,
