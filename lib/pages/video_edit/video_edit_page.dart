@@ -55,7 +55,7 @@ class _VideoEditPageState extends ConsumerState<VideoEditPage> {
     
 
     // 监听错误
-    ref.listen<VideoEditState>(videoEditProvider, (prev, next) {
+    ref.listen<VideoEditNotifier>(videoEditProvider, (prev, next) {
       if (next.errorMessage != null && next.errorMessage != prev?.errorMessage) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

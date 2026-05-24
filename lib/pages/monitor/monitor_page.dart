@@ -63,7 +63,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
           padding: const EdgeInsets.all(AppTheme.spacingMedium),
           children: [
             // 统计卡片
-            _buildStatCards(state),
+            _buildStatCards(ctrl),
             const SizedBox(height: AppTheme.spacingLarge),
 
             // 模型状态列表
@@ -98,7 +98,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
               ),
             ),
             const SizedBox(height: AppTheme.spacingMedium),
-            _buildLogArea(state),
+            _buildLogArea(ctrl),
             const SizedBox(height: AppTheme.spacingXLarge),
           ],
         ),
@@ -107,7 +107,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
   }
 
   /// 顶部3个统计卡片
-  Widget _buildStatCards(MonitorState state) {
+  Widget _buildStatCards(MonitorNotifier ctrl) {
     return Row(
       children: [
         Expanded(
@@ -346,7 +346,7 @@ class _MonitorPageState extends ConsumerState<MonitorPage> {
   }
 
   /// 日志区
-  Widget _buildLogArea(MonitorState state) {
+  Widget _buildLogArea(MonitorNotifier ctrl) {
     final logs = ctrl.logs.take(15).toList();
 
     return Container(

@@ -60,7 +60,7 @@ class _PublishPageState extends ConsumerState<PublishPage>
     
 
     // 监听错误
-    ref.listen<PublishState>(publishProvider, (prev, next) {
+    ref.listen<PublishNotifier>(publishProvider, (prev, next) {
       if (next.errorMessage != null && next.errorMessage != prev?.errorMessage) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -91,8 +91,8 @@ class _PublishPageState extends ConsumerState<PublishPage>
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildCoverTab(state, ctrl),
-          _buildPublishTab(state, ctrl),
+          _buildCoverTab(ctrl),
+          _buildPublishTab(ctrl),
         ],
       ),
     );
@@ -223,11 +223,11 @@ class _PublishPageState extends ConsumerState<PublishPage>
           const SizedBox(height: AppTheme.spacingSmall),
           Row(
             children: [
-              _buildStyleCard('科技感', 'tech', const Color(0xFF26C6DA), Icons.science, state, ctrl),
+              _buildStyleCard('科技感', 'tech', const Color(0xFF26C6DA), Icons.science, ctrl),
               const SizedBox(width: AppTheme.spacingSmall),
-              _buildStyleCard('情感', 'emotional', const Color(0xFFF48FB1), Icons.favorite, state, ctrl),
+              _buildStyleCard('情感', 'emotional', const Color(0xFFF48FB1), Icons.favorite, ctrl),
               const SizedBox(width: AppTheme.spacingSmall),
-              _buildStyleCard('悬疑', 'suspense', const Color(0xFFBA68C8), Icons.auto_fix_high, state, ctrl),
+              _buildStyleCard('悬疑', 'suspense', const Color(0xFFBA68C8), Icons.auto_fix_high, ctrl),
             ],
           ),
           const SizedBox(height: AppTheme.spacingLarge),
@@ -315,7 +315,6 @@ class _PublishPageState extends ConsumerState<PublishPage>
     String key,
     Color color,
     IconData icon,
-    PublishState state,
     PublishNotifier ctrl,
   ) {
     final isSelected = ctrl.style == key;
@@ -515,7 +514,6 @@ class _PublishPageState extends ConsumerState<PublishPage>
             'douyin',
             Icons.tiktok,
             const Color(0xFFFE2C55),
-            state,
             ctrl,
           ),
           _buildPlatformCheckbox(
@@ -523,7 +521,6 @@ class _PublishPageState extends ConsumerState<PublishPage>
             'xiaohongshu',
             Icons.book_outlined,
             const Color(0xFFFF2442),
-            state,
             ctrl,
           ),
           _buildPlatformCheckbox(
@@ -531,7 +528,6 @@ class _PublishPageState extends ConsumerState<PublishPage>
             'bilibili',
             Icons.play_circle_outline,
             const Color(0xFF00A1D6),
-            state,
             ctrl,
           ),
           const SizedBox(height: AppTheme.spacingLarge),
@@ -637,7 +633,6 @@ class _PublishPageState extends ConsumerState<PublishPage>
     String platformKey,
     IconData icon,
     Color color,
-    PublishState state,
     PublishNotifier ctrl,
   ) {
     final isChecked = ctrl.platforms.contains(platformKey);
