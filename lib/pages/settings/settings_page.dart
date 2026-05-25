@@ -835,10 +835,10 @@ class _SettingsPageState extends State<SettingsPage> {
         return;
       }
 
-      // 使用Dio发送测试请求
+      // 使用Dio发送测试请求（延长超时，适应弱网环境）
       final dio = Dio(BaseOptions(
-        connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 15),
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 30),
       ));
       bool isValid = false;
 
@@ -891,7 +891,45 @@ class _SettingsPageState extends State<SettingsPage> {
         }
       });
 
-      _showSnackBar(isValid ? '✓ API Key有效' : '✗ API Key无效');
+      _showSnackBar(isValid ? '✓ API Key有效' : '✗ API Key无效，请检查是否正确');
+    } on DioException catch (e) {
+      // 区分网络错误和密钥错误
+      String hint;
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        hint = '网络超时，请检查网络后重试';
+        // 网络问题不清除状态，保留之前的
+      } else if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+        hint = 'API Key无效或无权限';
+        setState(() {
+          switch (platform) {
+            case 'zhipu': _zhipuKeyStatus = 'invalid'; break;
+            case 'siliconflow': _siliconFlowKeyStatus = 'invalid'; break;
+            case 'deepseek': _deepseekKeyStatus = 'invalid'; break;
+            case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
+            case 'hifly': _hiflyKeyStatus = 'invalid'; break;
+          }
+        });
+      } else if (e.response?.statusCode == 429) {
+        hint = '请求过于频繁，稍后再试';
+      } else {
+        final statusCode = e.response?.statusCode ?? 0;
+        final body = e.response?.data?.toString() ?? '';
+        hint = statusCode > 0
+            ? '服务器返回$statusCode，Key可能无效'
+            : '网络异常，请检查网络连接';
+        setState(() {
+          switch (platform) {
+            case 'zhipu': _zhipuKeyStatus = 'invalid'; break;
+            case 'siliconflow': _siliconFlowKeyStatus = 'invalid'; break;
+            case 'deepseek': _deepseekKeyStatus = 'invalid'; break;
+            case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
+            case 'hifly': _hiflyKeyStatus = 'invalid'; break;
+          }
+        });
+      }
+      _showSnackBar('✗ $hint');
     } catch (e) {
       setState(() {
         switch (platform) {
@@ -902,8 +940,7 @@ class _SettingsPageState extends State<SettingsPage> {
           case 'hifly': _hiflyKeyStatus = 'invalid'; break;
         }
       });
-      final errMsg = e.toString();
-      _showSnackBar('✗ 检测失败：${errMsg.length > 50 ? errMsg.substring(0, 50) : errMsg}');
+      _showSnackBar('✗ 检测失败，请稍后重试');
     } finally {
       setState(() => _testingKey = null);
     }
