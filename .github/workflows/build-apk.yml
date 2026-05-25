@@ -47,25 +47,33 @@ jobs:
       - name: 更新 Release APK
         if: github.ref == 'refs/heads/main'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
-          # 获取最新release
-          RELEASE_ID=$(gh api repos/${{ github.repository }}/releases/latest --jq '.id')
+          REPO="${{ github.repository }}"
+          RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN"             "https://api.github.com/repos/$REPO/releases/latest" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
           if [ -z "$RELEASE_ID" ]; then
             echo "No release found, skipping upload"
             exit 0
           fi
-          # 删除旧APK asset
-          OLD_ASSET_ID=$(gh api repos/${{ github.repository }}/releases/$RELEASE_ID/assets --jq '.[] | select(.name | endswith(".apk")) | .id')
+          echo "Release ID: $RELEASE_ID"
+          OLD_ASSET_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN"             "https://api.github.com/repos/$REPO/releases/$RELEASE_ID/assets" | python3 -c "
+          import sys,json
+          for a in json.load(sys.stdin):
+            if a['name'].endswith('.apk'): print(a['id'])
+          ")
           if [ -n "$OLD_ASSET_ID" ]; then
-            gh api repos/${{ github.repository }}/releases/assets/$OLD_ASSET_ID -X DELETE
-            echo "Deleted old APK asset: $OLD_ASSET_ID"
+            curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN"               "https://api.github.com/repos/$REPO/releases/assets/$OLD_ASSET_ID"
+            echo "Deleted old APK: $OLD_ASSET_ID"
           fi
-          # 上传新APK
           FILENAME="koubo-app-v1.0.0.apk"
-          gh api repos/${{ github.repository }}/releases/$RELEASE_ID/assets             -X POST             -H "Content-Type: application/vnd.android.package-archive"             -f name="$FILENAME"             --input "$APK_PATH"
-          echo "Uploaded new APK: $FILENAME"
+          UPLOAD_URL="https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets"
+          curl -s -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Content-Type: application/vnd.android.package-archive" \
+            "$UPLOAD_URL?name=$FILENAME" \
+            --data-binary @"$APK_PATH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Uploaded: {d.get("name","ERROR")} ({d.get("size",0)//1024//1024}MB)')"
+          echo "Done!"
 
       - name: 创建 GitHub Release（tag推送时）
         if: startsWith(github.ref, 'refs/tags/v')
