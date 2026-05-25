@@ -41,7 +41,30 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
 
-      - name: 创建 GitHub Release
+      - name: 更新 Release APK
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+          # 获取最新release
+          RELEASE_ID=$(gh api repos/${{ github.repository }}/releases/latest --jq '.id')
+          if [ -z "$RELEASE_ID" ]; then
+            echo "No release found, skipping upload"
+            exit 0
+          fi
+          # 删除旧APK asset
+          OLD_ASSET_ID=$(gh api repos/${{ github.repository }}/releases/$RELEASE_ID/assets --jq '.[] | select(.name | endswith(".apk")) | .id')
+          if [ -n "$OLD_ASSET_ID" ]; then
+            gh api repos/${{ github.repository }}/releases/assets/$OLD_ASSET_ID -X DELETE
+            echo "Deleted old APK asset: $OLD_ASSET_ID"
+          fi
+          # 上传新APK
+          FILENAME="koubo-app-v1.0.0.apk"
+          gh api repos/${{ github.repository }}/releases/$RELEASE_ID/assets             -X POST             -H "Content-Type: application/vnd.android.package-archive"             -f name="$FILENAME"             --input "$APK_PATH"
+          echo "Uploaded new APK: $FILENAME"
+
+      - name: 创建 GitHub Release（tag推送时）
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
