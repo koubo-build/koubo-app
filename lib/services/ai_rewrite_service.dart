@@ -388,8 +388,8 @@ class AiRewriteService {
         .replaceAll('{rewrite_mode}', mode)
         .replaceAll('{rewritten_text}', rewrittenText);
 
-    // 调用辅助模型评分（低temperature确保评分稳定）
-    final result = await _apiClient.chatSiliconFlow(
+    // 调用智能路由评分（低temperature确保评分稳定）
+    final result = await _apiClient.chatSmart(
       messages: [
         {
           'role': 'system',

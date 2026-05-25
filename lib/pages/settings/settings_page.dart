@@ -46,9 +46,9 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _isSaving = false;
 
   // 默认模型选择
-  String _rewriteModel = 'GLM-4-Flash';
-  String _auditModel = 'DeepSeek-V3';
-  String _ttsEngine = 'Edge-TTS';
+  String _rewriteModel = '自动选择';
+  String _auditModel = '自动选择';
+  String _ttsEngine = 'CosyVoice';
 
   // 缓存统计
   int _scriptCount = 0;

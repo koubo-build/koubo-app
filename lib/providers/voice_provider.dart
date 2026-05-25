@@ -463,7 +463,7 @@ class VoiceNotifier extends StateNotifier<VoiceState> {
 
       final provider = state.sourceType == VoiceSourceType.cloned
           ? 'cosyvoice'
-          : 'edge_tts';
+          : 'cosyvoice'; // 统一用CosyVoice（阿里百炼），Edge-TTS在国内不稳定
 
       final audioPath = await _ttsService.synthesize(
         text: state.scriptText.trim(),
