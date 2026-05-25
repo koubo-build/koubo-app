@@ -145,58 +145,29 @@ class TtsService {
       return filePath;
     } catch (e) {
       await channel.sink.close();
-      // 如果WebSocket方式失败，回退到HTTP代理方式
-      return await _synthesizeEdgeTtsFallback(
-        text: text,
-        voiceId: voiceId,
-        rate: rate,
-        pitch: pitch,
-        volume: volume,
-      );
+      // 如果WebSocket方式失败，尝试阿里百炼CosyVoice
+      try {
+        return await synthesizeCosyVoice(
+          text: text,
+          voiceId: voiceId == 'zh-CN-XiaoxiaoNeural' ? 'cosyvoice-v1:default' : 'cosyvoice-v1:default',
+          speed: _parseRateToSpeed(rate),
+        );
+      } catch (_) {
+        // CosyVoice也失败，抛出原始错误
+        throw Exception('语音合成失败：Edge-TTS连接失败，阿里百炼也未配置。\n请在设置中配置阿里百炼API Key，或检查网络连接');
+      }
     }
   }
 
-  /// Edge-TTS HTTP回退方案（通过第三方代理服务）
-  Future<String> _synthesizeEdgeTtsFallback({
-    required String text,
-    required String voiceId,
-    String rate = '+0%',
-    String pitch = '+0Hz',
-    String volume = '+0%',
-  }) async {
-    final audioDir = await StorageUtil.getAudioDirectory();
-    final fileName = 'tts_${DateTime.now().millisecondsSinceEpoch}.mp3';
-    final filePath = '$audioDir/$fileName';
-
-    try {
-      // 使用本地Edge-TTS HTTP接口或开源代理
-      // 注：实际部署时可替换为自建的Edge-TTS HTTP服务
-      final response = await _apiClient.post(
-        'https://tts.kukuters.com/api/tts',
-        data: {
-          'text': text,
-          'voice': voiceId,
-          'rate': rate,
-          'pitch': pitch,
-          'volume': volume,
-        },
-        options: Options(
-          responseType: ResponseType.bytes,
-          receiveTimeout: const Duration(seconds: 60),
-        ),
-      );
-
-      final file = File(filePath);
-      await file.writeAsBytes(response.data as List<int>);
-      return filePath;
-    } catch (e) {
-      // 最终兜底：使用本地模拟生成
-      // 在实际使用中，用户需要配置可用的TTS服务
-      final file = File(filePath);
-      // 写入空音频文件占位（实际应由Edge-TTS服务填充）
-      await file.writeAsBytes(Uint8List(0));
-      throw Exception('语音合成服务暂时不可用，请检查网络或稍后重试');
+  /// 解析rate字符串为speed浮点数（如"+20%" → 1.2）
+  double _parseRateToSpeed(String rate) {
+    final match = RegExp(r'([+-])(\d+)%').firstMatch(rate);
+    if (match != null) {
+      final sign = match.group(1) == '+' ? 1.0 : -1.0;
+      final value = int.tryParse(match.group(2) ?? '0') ?? 0;
+      return 1.0 + sign * value / 100.0;
     }
+    return 1.0;
   }
 
   /// 生成请求ID（UUID格式，不带连字符）

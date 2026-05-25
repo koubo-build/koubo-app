@@ -29,6 +29,9 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
   late AnimationController _fadeAnimController;
   late AnimationController _pulseAnimController;
 
+  // 输入模式：链接提取 / 手动输入
+  bool _isManualInput = false;
+
   // 改写模式和风格列表（引用Service常量）
   static const _rewriteModes = AiRewriteService.rewriteModes;
   static const _styleList = AiRewriteService.styleList;
@@ -273,19 +276,114 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
             // 标题
             Row(
               children: [
-                _buildStepIcon(Icons.link, AppTheme.primaryColor),
+                _buildStepIcon(_isManualInput ? Icons.edit_note : Icons.link, AppTheme.primaryColor),
                 const SizedBox(width: 10),
-                const Text(
-                  '粘贴视频链接',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                Text(
+                  _isManualInput ? '手动输入文案' : '粘贴视频链接',
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
+                // 输入模式切换
+                GestureDetector(
+                  onTap: () => setState(() {
+                    _isManualInput = !_isManualInput;
+                    if (_isManualInput) _urlController.clear();
+                  }),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3), width: 1),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _isManualInput ? Icons.link : Icons.edit_note,
+                          size: 14,
+                          color: AppTheme.primaryColor,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _isManualInput ? '改用链接' : '手动输入',
+                          style: const TextStyle(fontSize: 12, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 // 平台识别标签
-                if (workflow.platformType != null)
+                if (!_isManualInput && workflow.platformType != null)
                   _buildPlatformBadge(workflow.platformType!),
               ],
             ),
             const SizedBox(height: AppTheme.spacingMedium),
+
+            if (_isManualInput) ...[
+              // 手动输入文案模式
+              Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.darkSurface,
+                  borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                ),
+                child: TextField(
+                  controller: _sourceTextController,
+                  maxLines: 8,
+                  style: const TextStyle(fontSize: 15, color: AppTheme.textPrimary, height: 1.5),
+                  decoration: InputDecoration(
+                    hintText: '请直接粘贴或输入口播文案...\n\n也可以从抖音评论区、其他App复制文案后粘贴到这里',
+                    hintStyle: const TextStyle(color: AppTheme.textHint, fontSize: 14),
+                    filled: true,
+                    fillColor: Colors.transparent,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                      borderSide: const BorderSide(color: AppTheme.primaryColor, width: 1.5),
+                    ),
+                  ),
+                  onChanged: (text) {
+                    ref.read(workflowProvider.notifier).updateSourceText(text);
+                  },
+                ),
+              ),
+              const SizedBox(height: AppTheme.spacingSmall),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppTheme.safeColor.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, size: 14, color: AppTheme.safeColor),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '手动输入文案可直接跳过链接提取，进入AI改写步骤',
+                        style: const TextStyle(fontSize: 12, color: AppTheme.safeColor),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppTheme.spacingMedium),
+              // 确认输入按钮
+              AppButton(
+                text: '确认文案，开始改写',
+                icon: Icons.arrow_forward,
+                onPressed: _sourceTextController.text.trim().isNotEmpty
+                    ? () {
+                        ref.read(workflowProvider.notifier).setManualText(_sourceTextController.text.trim());
+                        _scrollToBottom();
+                      }
+                    : null,
+              ),
+            ] else ...[
+              // 链接输入模式（原有逻辑）
 
             // 链接输入框
             Container(
@@ -377,6 +475,7 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
             // 使用提示
             const SizedBox(height: AppTheme.spacingSmall),
             _buildUsageTips(),
+            ], // end of else (链接输入模式)
           ],
         ),
       ),
@@ -704,6 +803,20 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
                       }
                     : null,
               ),
+              // 跳过改写按钮
+              if (workflow.rewriteError != null || workflow.versions.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppTheme.spacingSmall),
+                  child: AppButton(
+                    text: '跳过改写，直接审核',
+                    icon: Icons.skip_next,
+                    isOutlined: true,
+                    onPressed: () {
+                      ref.read(workflowProvider.notifier).skipRewrite();
+                      _scrollToBottom();
+                    },
+                  ),
+                ),
             ],
           ],
         ),
@@ -749,11 +862,26 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
               const SizedBox(height: AppTheme.spacingSmall),
               _buildErrorBanner(workflow.auditError!),
               const SizedBox(height: AppTheme.spacingSmall),
-              AppButton(
-                text: '重新审核',
-                icon: Icons.refresh,
-                isOutlined: true,
-                onPressed: () => ref.read(workflowProvider.notifier).startAudit(),
+              Row(
+                children: [
+                  Expanded(
+                    child: AppButton(
+                      text: '重新审核',
+                      icon: Icons.refresh,
+                      isOutlined: true,
+                      onPressed: () => ref.read(workflowProvider.notifier).startAudit(),
+                    ),
+                  ),
+                  const SizedBox(width: AppTheme.spacingSmall),
+                  Expanded(
+                    child: AppButton(
+                      text: '跳过审核',
+                      icon: Icons.skip_next,
+                      isOutlined: true,
+                      onPressed: () => ref.read(workflowProvider.notifier).skipAudit(),
+                    ),
+                  ),
+                ],
               ),
             ],
 

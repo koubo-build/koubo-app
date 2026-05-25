@@ -324,6 +324,121 @@ class ApiClient {
       temperature: temperature,
     );
   }
+
+  // ==================== 智能路由：自动选择可用API ====================
+
+  /// 智能聊天 - 自动尝试所有已配置的API Key，哪个能用用哪个
+  /// 优先级：阿里百炼(兼容模式) → 智谱(免费) → 硅基流动(免费) → DeepSeek
+  /// [messages] 消息列表
+  /// [temperature] 温度参数
+  /// [preferReasoning] 是否偏好强推理模型（法务审核等场景）
+  Future<String> chatSmart({
+    required List<Map<String, String>> messages,
+    double temperature = 0.7,
+    bool preferReasoning = false,
+  }) async {
+    final errors = <String>[];
+
+    // 构建尝试顺序：推理场景优先DeepSeek，否则优先免费模型
+    final providers = preferReasoning
+        ? [
+            _ProviderConfig(ApiConfig.deepseekApiKeyKey, ApiConfig.deepseekBaseUrl, ApiConfig.deepseekModelV3, 'DeepSeek'),
+            _ProviderConfig(ApiConfig.aliBailianApiKeyKey, ApiConfig.aliBailianCompatUrl, 'qwen-plus', '阿里百炼'),
+            _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModelFlash, '智谱AI'),
+            _ProviderConfig(ApiConfig.siliconFlowApiKeyKey, ApiConfig.siliconFlowBaseUrl, ApiConfig.siliconFlowModelQwen, '硅基流动'),
+          ]
+        : [
+            _ProviderConfig(ApiConfig.aliBailianApiKeyKey, ApiConfig.aliBailianCompatUrl, 'qwen-plus', '阿里百炼'),
+            _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModelFlash, '智谱AI'),
+            _ProviderConfig(ApiConfig.siliconFlowApiKeyKey, ApiConfig.siliconFlowBaseUrl, ApiConfig.siliconFlowModelQwen, '硅基流动'),
+            _ProviderConfig(ApiConfig.deepseekApiKeyKey, ApiConfig.deepseekBaseUrl, ApiConfig.deepseekModelV3, 'DeepSeek'),
+          ];
+
+    for (final provider in providers) {
+      final apiKey = await StorageUtil.getSecure(provider.apiKeyKey);
+      if (apiKey == null || apiKey.isEmpty) continue;
+
+      try {
+        return await chatCompletion(
+          baseUrl: provider.baseUrl,
+          apiKey: apiKey,
+          model: provider.model,
+          messages: messages,
+          temperature: temperature,
+        );
+      } catch (e) {
+        final msg = e.toString();
+        // 401/403是Key无效，跳过此Provider
+        if (msg.contains('401') || msg.contains('403') || msg.contains('无效')) {
+          errors.add('${provider.name}: Key无效');
+          continue;
+        }
+        // 402余额不足，跳过
+        if (msg.contains('402') || msg.contains('余额')) {
+          errors.add('${provider.name}: 余额不足');
+          continue;
+        }
+        // 429限流，跳过
+        if (msg.contains('429') || msg.contains('频繁')) {
+          errors.add('${provider.name}: 限流');
+          continue;
+        }
+        // 其他错误（网络等），也跳过尝试下一个
+        errors.add('${provider.name}: ${msg.length > 50 ? msg.substring(0, 50) : msg}');
+        continue;
+      }
+    }
+
+    // 所有Provider都失败
+    if (errors.isNotEmpty) {
+      throw Exception('所有AI服务均不可用：\n${errors.join('\n')}\n请在设置中配置至少一个API Key');
+    }
+    throw Exception('未配置任何AI服务的API Key，请在设置页面配置');
+  }
+
+  /// 智能流式聊天 - 自动选择可用API，流式输出
+  Stream<String> chatSmartStream({
+    required List<Map<String, String>> messages,
+    double temperature = 0.7,
+  }) async* {
+    // 尝试找到第一个可用的Provider
+    final providers = [
+      _ProviderConfig(ApiConfig.aliBailianApiKeyKey, ApiConfig.aliBailianCompatUrl, 'qwen-plus', '阿里百炼'),
+      _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModelFlash, '智谱AI'),
+      _ProviderConfig(ApiConfig.siliconFlowApiKeyKey, ApiConfig.siliconFlowBaseUrl, ApiConfig.siliconFlowModelQwen, '硅基流动'),
+      _ProviderConfig(ApiConfig.deepseekApiKeyKey, ApiConfig.deepseekBaseUrl, ApiConfig.deepseekModelV3, 'DeepSeek'),
+    ];
+
+    for (final provider in providers) {
+      final apiKey = await StorageUtil.getSecure(provider.apiKeyKey);
+      if (apiKey == null || apiKey.isEmpty) continue;
+
+      try {
+        yield* chatCompletionStream(
+          baseUrl: provider.baseUrl,
+          apiKey: apiKey,
+          model: provider.model,
+          messages: messages,
+          temperature: temperature,
+        );
+        return; // 成功则直接返回
+      } catch (e) {
+        continue; // 失败则尝试下一个
+      }
+    }
+
+    throw Exception('未配置任何AI服务的API Key，请在设置页面配置');
+  }
+}
+
+/// 内部Provider配置
+class _ProviderConfig {
+  final String apiKeyKey;
+  final String baseUrl;
+  final String model;
+  final String name;
+
+  const _ProviderConfig(this.apiKeyKey, this.baseUrl, this.model, this.name);
 }
 
 // ==================== 拦截器 ====================

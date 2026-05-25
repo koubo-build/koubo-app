@@ -247,6 +247,16 @@ class WorkflowNotifier extends StateNotifier<WorkflowState> {
     state = state.copyWith(sourceText: text);
   }
 
+  /// 手动输入文案，跳过链接提取，直接进入改写步骤
+  void setManualText(String text) {
+    if (text.isEmpty) return;
+    state = state.copyWith(
+      sourceText: text,
+      currentStep: WorkflowStep.rewriting,
+      stepHistory: [...state.stepHistory, WorkflowStep.input],
+    );
+  }
+
   // ==================== Step3：AI改写 ====================
 
   /// 选择改写模式
@@ -500,6 +510,45 @@ class WorkflowNotifier extends StateNotifier<WorkflowState> {
 
     // 自动触发法务审核
     await startAudit();
+  }
+
+  /// 跳过AI改写，直接用原文进入审核
+  Future<void> skipRewrite() async {
+    // 清除改写相关状态，用原文作为审核对象
+    state = state.copyWith(
+      currentStep: WorkflowStep.auditing,
+      stepHistory: [...state.stepHistory, WorkflowStep.rewriting],
+      versions: [],
+      isRewriting: false,
+      clearRewriteError: true,
+      streamingText: '',
+      rewriteProgress: 0,
+      clearAuditResult: true,
+      clearAuditError: true,
+      clearFixedText: true,
+      clearReAuditResult: true,
+    );
+
+    // 自动触发法务审核
+    await startAudit();
+  }
+
+  /// 跳过法务审核，直接定稿
+  void skipAudit() {
+    final text = state.fixedText ?? state.selectedVersion?.rewrittenText ?? state.sourceText;
+    state = state.copyWith(
+      currentStep: WorkflowStep.finalized,
+      stepHistory: [...state.stepHistory, WorkflowStep.auditing],
+      finalText: text,
+      auditResult: AuditResult(
+        auditType: '跳过审核',
+        riskLevel: '未审核',
+        issues: [],
+        overallAssessment: '用户跳过了法务审核步骤，文案未经过合规检查，发布风险自负。',
+        safeToPublish: true,
+        createdAt: DateTime.now(),
+      ),
+    );
   }
 
   // ==================== Step4：法务审核 ====================

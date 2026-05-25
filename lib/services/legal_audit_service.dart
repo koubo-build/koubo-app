@@ -156,8 +156,8 @@ class LegalAuditService {
       prompt = _legalReviewPrompt.replaceAll('{text}', text);
     }
 
-    // 调用DeepSeek进行法务审核（强推理能力，低temperature确保稳定）
-    final result = await _apiClient.chatDeepSeek(
+    // 调用智能路由进行法务审核（自动选择可用API，推理场景优先DeepSeek）
+    final result = await _apiClient.chatSmart(
       messages: [
         {
           'role': 'system',
@@ -166,6 +166,7 @@ class LegalAuditService {
         {'role': 'user', 'content': prompt},
       ],
       temperature: 0.3,
+      preferReasoning: true,
     );
 
     // 解析大模型返回的JSON
@@ -420,7 +421,7 @@ class LegalAuditService {
         .replaceAll('{original_text}', text)
         .replaceAll('{issues_description}', issueDesc);
 
-    final result = await _apiClient.chatZhipu(
+    final result = await _apiClient.chatSmart(
       messages: [
         {'role': 'user', 'content': prompt},
       ],

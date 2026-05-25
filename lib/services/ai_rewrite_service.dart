@@ -213,7 +213,7 @@ class AiRewriteService {
       avoidWords: avoidWords,
     );
 
-    final rewrittenText = await _apiClient.chatZhipu(
+    final rewrittenText = await _apiClient.chatSmart(
       messages: [
         {'role': 'user', 'content': prompt},
       ],
@@ -236,7 +236,7 @@ class AiRewriteService {
           .replaceAll('{rewrite_mode}', mode)
           .replaceAll('{rewritten_text}', rewrittenText);
 
-      final result = await _apiClient.chatSiliconFlow(
+      final result = await _apiClient.chatSmart(
         messages: [
           {
             'role': 'system',
@@ -275,7 +275,7 @@ class AiRewriteService {
       avoidWords: avoidWords,
     );
 
-    return _apiClient.chatZhipuStream(
+    return _apiClient.chatSmartStream(
       messages: [
         {'role': 'user', 'content': prompt},
       ],
@@ -343,8 +343,8 @@ class AiRewriteService {
     required int versionNumber,
     required double temperature,
   }) async {
-    // 调用主模型（GLM-4-Flash）生成改写
-    final rewrittenText = await _apiClient.chatZhipu(
+    // 调用智能路由生成改写（自动选择可用API）
+    final rewrittenText = await _apiClient.chatSmart(
       messages: [
         {'role': 'user', 'content': prompt},
       ],
