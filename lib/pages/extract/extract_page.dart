@@ -1001,13 +1001,35 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
             ),
 
             const SizedBox(height: AppTheme.spacingSmall),
-            // 字数统计
+            // 字数统计 + 一键复制
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 Text(
                   '${workflow.finalText.length} 字',
                   style: const TextStyle(fontSize: 12, color: AppTheme.textHint),
+                ),
+                const SizedBox(width: 12),
+                // 一键复制按钮
+                InkWell(
+                  onTap: () => _copyToClipboard(workflow.finalText, '定稿文案'),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.copy, size: 14, color: AppTheme.primaryColor),
+                        SizedBox(width: 4),
+                        Text('复制', style: TextStyle(fontSize: 12, color: AppTheme.primaryColor, fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -1145,6 +1167,17 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
         // 5个维度审核结果
         ..._buildAuditDimensions(result),
 
+        // 审核通过时，添加复制文案按钮
+        if (isSafe) ...[
+          const SizedBox(height: AppTheme.spacingMedium),
+          AppButton(
+            text: '复制文案',
+            icon: Icons.copy,
+            isOutlined: true,
+            onPressed: () => _copyToClipboard(workflow.currentRewrittenText, '改写文案'),
+          ),
+        ],
+
         // 问题详情（有高亮标注）
         if (result.issues.isNotEmpty) ...[
           const SizedBox(height: AppTheme.spacingMedium),
@@ -1170,6 +1203,16 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
                   backgroundColor: AppTheme.accentColor,
                   isLoading: workflow.isFixing,
                   onPressed: () => ref.read(workflowProvider.notifier).autoFix(),
+                ),
+              ),
+              const SizedBox(width: AppTheme.spacingSmall),
+              // 复制当前改写文案
+              Expanded(
+                child: AppButton(
+                  text: '复制文案',
+                  icon: Icons.copy,
+                  isOutlined: true,
+                  onPressed: () => _copyToClipboard(workflow.currentRewrittenText, '改写文案'),
                 ),
               ),
             ],
@@ -1463,6 +1506,27 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
                 Text(
                   '${version.rewrittenText.length}字',
                   style: const TextStyle(fontSize: 11, color: AppTheme.textHint),
+                ),
+                const SizedBox(width: 8),
+                // 一键复制改写文案
+                InkWell(
+                  onTap: () => _copyToClipboard(version.rewrittenText, '改写文案'),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.copy, size: 12, color: AppTheme.primaryColor),
+                        SizedBox(width: 2),
+                        Text('复制', style: TextStyle(fontSize: 10, color: AppTheme.primaryColor)),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -1924,6 +1988,21 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
           ),
         );
       }
+    }
+  }
+
+  /// 一键复制文案到剪贴板
+  void _copyToClipboard(String text, String label) {
+    if (text.isEmpty) return;
+    Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$label已复制到剪贴板'),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
