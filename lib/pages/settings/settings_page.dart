@@ -850,12 +850,13 @@ class _SettingsPageState extends State<SettingsPage> {
         );
         isValid = response.statusCode == 200;
       } else if (platform == 'alibailian') {
-        // 阿里百炼简单验证
+        // 阿里百炼用兼容模式chat接口验证（更可靠）
         final response = await dio.post(
-          testUrl,
+          'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
           data: {
-            'model': 'cosyvoice-v1',
-            'input': {'text': '测试'},
+            'model': 'qwen-plus',
+            'messages': [{'role': 'user', 'content': 'Hi'}],
+            'max_tokens': 5,
           },
           options: Options(headers: {
             'Authorization': 'Bearer $apiKey',

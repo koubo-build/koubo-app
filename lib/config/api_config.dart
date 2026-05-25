@@ -15,13 +15,14 @@ class ApiConfig {
   static const String siliconFlowModelDeepSeek = 'deepseek-ai/DeepSeek-V2.5';
 
   // ==================== DeepSeek（法务审核，需强推理） ====================
-  static const String deepseekBaseUrl = 'https://api.deepseek.com/v1';
+  static const String deepseekBaseUrl = 'https://api.deepseek.com';
   static const String deepseekChatEndpoint = '/chat/completions';
   static const String deepseekModelV3 = 'deepseek-chat';
   static const String deepseekModelR1 = 'deepseek-reasoner';
 
   // ==================== 阿里百炼（CosyVoice语音 + ASR） ====================
-  static const String aliBailianBaseUrl = 'https://dashscope.aliyuncs.com/api/v1';
+  static const String aliBailianBaseUrl = 'https://dashscope.aliyuncs.com/api/v1'
+  static const String aliBailianCompatUrl = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
   static const String aliCosyvoiceEndpoint = '/services/aigc/text2audio/generation';
   static const String aliVoiceRegisterEndpoint = '/services/aigc/text2audio/voice-register';
   static const String aliAsrEndpoint = '/services/audio/asr/transcription';
