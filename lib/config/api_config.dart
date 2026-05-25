@@ -15,7 +15,7 @@ class ApiConfig {
   static const String siliconFlowModelDeepSeek = 'deepseek-ai/DeepSeek-V2.5';
 
   // ==================== DeepSeek（法务审核，需强推理） ====================
-  static const String deepseekBaseUrl = 'https://api.deepseek.com';
+  static const String deepseekBaseUrl = 'https://api.deepseek.com/v1';
   static const String deepseekChatEndpoint = '/chat/completions';
   static const String deepseekModelV3 = 'deepseek-chat';
   static const String deepseekModelR1 = 'deepseek-reasoner';

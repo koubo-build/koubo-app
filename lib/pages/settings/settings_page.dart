@@ -917,9 +917,30 @@ class _SettingsPageState extends State<SettingsPage> {
       } else {
         final statusCode = e.response?.statusCode ?? 0;
         final body = e.response?.data?.toString() ?? '';
-        hint = statusCode > 0
-            ? '服务器返回$statusCode，Key可能无效'
-            : '网络异常，请检查网络连接';
+        // 尝试从响应体中提取具体错误信息
+        String detail = '';
+        if (body.isNotEmpty) {
+          try {
+            final errData = body.startsWith('{') ? body : null;
+            if (errData != null) {
+              // 尝试解析JSON提取error message
+              final decoded = Uri.decodeComponent(body);
+              if (decoded.contains('message')) {
+                final msgMatch = RegExp(r'"message"\s*:\s*"([^"]+)"').firstMatch(decoded);
+                if (msgMatch != null) detail = msgMatch.group(1)!;
+              }
+            }
+          } catch (_) {}
+        }
+        if (statusCode == 402) {
+          hint = '余额不足，请到平台充值后再试';
+        } else if (statusCode > 0) {
+          hint = detail.isNotEmpty
+              ? '$statusCode: $detail'
+              : '服务器返回$statusCode，Key可能无效';
+        } else {
+          hint = '网络异常，请检查网络连接';
+        }
         setState(() {
           switch (platform) {
             case 'zhipu': _zhipuKeyStatus = 'invalid'; break;
