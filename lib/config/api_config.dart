@@ -21,7 +21,7 @@ class ApiConfig {
   static const String deepseekModelR1 = 'deepseek-reasoner';
 
   // ==================== 阿里百炼（CosyVoice语音 + ASR） ====================
-  static const String aliBailianBaseUrl = 'https://dashscope.aliyuncs.com/api/v1'
+  static const String aliBailianBaseUrl = 'https://dashscope.aliyuncs.com/api/v1';
   static const String aliBailianCompatUrl = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
   static const String aliCosyvoiceEndpoint = '/services/aigc/text2audio/generation';
   static const String aliVoiceRegisterEndpoint = '/services/aigc/text2audio/voice-register';
