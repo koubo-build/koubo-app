@@ -526,9 +526,39 @@ class _ErrorInterceptor extends Interceptor {
         break;
       case DioExceptionType.badResponse:
         final statusCode = err.response?.statusCode;
+        // 尝试从响应体中提取DashScope等API的详细错误信息
+        String detailMsg = '';
+        try {
+          final data = err.response?.data;
+          if (data is Map<String, dynamic>) {
+            // DashScope格式：{"code": "xxx", "message": "xxx"}
+            final code = data['code'];
+            final message = data['message'];
+            if (message != null) {
+              detailMsg = code != null ? '($code) $message' : '$message';
+            }
+          } else if (data is String && data.isNotEmpty) {
+            // 纯文本错误信息
+            detailMsg = data.length > 100 ? data.substring(0, 100) : data;
+          }
+        } catch (_) {}
+
         switch (statusCode) {
+          case 400:
+            errorMessage = detailMsg.isNotEmpty
+                ? '请求参数错误：$detailMsg'
+                : '请求参数错误(400)';
+            break;
           case 401:
             errorMessage = 'API Key无效或已过期，请重新配置';
+            break;
+          case 402:
+            errorMessage = 'API余额不足，请充值后重试';
+            break;
+          case 403:
+            errorMessage = detailMsg.isNotEmpty
+                ? '无权限访问：$detailMsg'
+                : '无权限访问(403)';
             break;
           case 429:
             errorMessage = '请求过于频繁，请稍后再试';
@@ -541,7 +571,9 @@ class _ErrorInterceptor extends Interceptor {
             errorMessage = '服务暂时不可用，请稍后再试';
             break;
           default:
-            errorMessage = '请求失败($statusCode)';
+            errorMessage = detailMsg.isNotEmpty
+                ? '请求失败($statusCode)：$detailMsg'
+                : '请求失败($statusCode)';
         }
         break;
       case DioExceptionType.connectionError:

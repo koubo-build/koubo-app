@@ -193,12 +193,18 @@ class WorkflowNotifier extends StateNotifier<WorkflowState> {
 
   /// 设置视频链接
   void setVideoUrl(String url) {
-    // 自动识别平台
+    // 自动识别平台（支持URL和分享口令）
     final platform = _douyinService.identifyPlatform(url.trim());
+    // 检查是否为不含URL的分享口令
+    final isShareCodeOnly = _douyinService.isShareCodeWithoutUrl(url.trim());
     state = state.copyWith(
       videoUrl: url,
       platformType: platform,
       clearExtractError: true,
+      // 如果是分享口令但没有URL，直接显示提示
+      extractError: (isShareCodeOnly && platform != null)
+          ? '检测到${platform}分享口令，口令中不含链接，请点击「手动输入」直接输入文案'
+          : null,
     );
   }
 

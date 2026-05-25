@@ -113,6 +113,12 @@ class TtsService {
 
   // ==================== 阿里百炼 CosyVoice（主力方案） ====================
 
+  /// CosyVoice模型优先级列表（自动降级）
+  static const List<String> _cosyVoiceModels = [
+    'cosyvoice-v2',
+    'cosyvoice-v3-flash',
+  ];
+
   /// 使用阿里百炼CosyVoice合成语音
   /// 官方API格式：POST /api/v1/services/audio/tts/SpeechSynthesizer
   Future<String> synthesizeCosyVoice({
@@ -131,19 +137,56 @@ class TtsService {
     final fileName = 'cosy_${DateTime.now().millisecondsSinceEpoch}.mp3';
     final filePath = '$audioDir/$fileName';
 
+    // 按优先级尝试不同模型
+    Exception? lastError;
+    for (final model in _cosyVoiceModels) {
+      try {
+        return await _callCosyVoiceApi(
+          apiKey: apiKey,
+          model: model,
+          text: text,
+          voiceId: voiceId,
+          speed: speed,
+          pitch: pitch,
+          emotion: emotion,
+          filePath: filePath,
+        );
+      } catch (e) {
+        lastError = e is Exception ? e : Exception(e.toString());
+        final msg = e.toString();
+        // 如果是模型不存在/无权限，尝试下一个模型
+        if (msg.contains('ModelNotFound') || msg.contains('model_not_found')
+            || msg.contains('NoPermission') || msg.contains('不支持')) {
+          continue;
+        }
+        // 其他错误（参数错误、网络错误等），不重试其他模型
+        rethrow;
+      }
+    }
+    throw lastError ?? Exception('所有CosyVoice模型均不可用');
+  }
+
+  /// 实际调用CosyVoice API
+  Future<String> _callCosyVoiceApi({
+    required String apiKey,
+    required String model,
+    required String text,
+    required String voiceId,
+    required double speed,
+    required double pitch,
+    String? emotion,
+    required String filePath,
+  }) async {
     // 构建请求体（按官方API格式）
-    final requestBody = <String, dynamic>{
-      'model': 'cosyvoice-v2',
-      'input': {
-        'text': text,
-        'voice': voiceId,
-        'format': 'mp3',
-        'sample_rate': 24000,
-        'rate': speed,
-        'pitch': pitch,
-        'volume': 50, // 默认音量50（0-100范围）
-      },
+    final input = <String, dynamic>{
+      'text': text,
+      'voice': voiceId,
+      'format': 'mp3',
+      'sample_rate': 24000,
     };
+    // 语速和音高只在非默认值时发送（部分旧模型可能不支持）
+    if (speed != 1.0) input['rate'] = speed;
+    if (pitch != 1.0) input['pitch'] = pitch;
 
     // 情感控制（Instruct方式，仅部分音色支持）
     if (emotion != null && emotion.isNotEmpty) {
@@ -155,8 +198,13 @@ class TtsService {
         '平静': 'neutral',
       };
       final emotionValue = emotionMap[emotion] ?? 'neutral';
-      (requestBody['input'] as Map<String, dynamic>)['instruction'] = '你说话的情感是$emotionValue。';
+      input['instruction'] = '你说话的情感是$emotionValue。';
     }
+
+    final requestBody = <String, dynamic>{
+      'model': model,
+      'input': input,
+    };
 
     // 发送请求
     final response = await _apiClient.post(

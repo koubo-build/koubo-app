@@ -403,7 +403,7 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
                 keyboardType: TextInputType.url,
                 style: const TextStyle(fontSize: 15, color: AppTheme.textPrimary),
                 decoration: InputDecoration(
-                  hintText: '请粘贴抖音/快手分享链接\n如：https://v.douyin.com/xxx/',
+                  hintText: '请粘贴抖音/快手分享链接或口令\n如：https://v.douyin.com/xxx/ 或分享口令',
                   hintStyle: const TextStyle(color: AppTheme.textHint, fontSize: 14),
                   filled: true,
                   fillColor: Colors.transparent,
@@ -1876,10 +1876,10 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 4),
-          _buildTipItem('1. 打开抖音/快手App，点击分享复制链接'),
-          _buildTipItem('2. 粘贴链接到上方输入框'),
-          _buildTipItem('3. 点击"提取文案"自动获取视频文案'),
-          _buildTipItem('4. 支持自动识别抖音和快手链接'),
+          _buildTipItem('1. 打开抖音/快手App，点击分享复制链接或口令'),
+          _buildTipItem('2. 粘贴到上方输入框，自动识别平台'),
+          _buildTipItem('3. 含链接的文本会自动提取，点击"提取文案"获取'),
+          _buildTipItem('4. 只有口令无链接时，请点「手动输入」直接输入文案'),
         ],
       ),
     );

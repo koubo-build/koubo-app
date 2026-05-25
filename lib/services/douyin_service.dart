@@ -19,16 +19,34 @@ class DouyinService {
   // ==================== 核心方法 ====================
 
   /// 从视频链接提取文案
-  /// [url] 视频分享链接，支持抖音/快手
+  /// [input] 视频分享链接或分享口令，支持抖音/快手
   /// 返回提取的文案文本
-  Future<String> extractScript(String url) async {
-    final trimmedUrl = url.trim();
-    if (trimmedUrl.isEmpty) {
+  Future<String> extractScript(String input) async {
+    final trimmedInput = input.trim();
+    if (trimmedInput.isEmpty) {
       throw ExtractException('请输入视频链接', ExtractErrorType.emptyUrl);
     }
 
+    // 先尝试从分享文本中提取URL
+    String? extractedUrl = extractUrlFromShareText(trimmedInput);
+    final bool isShareCode = isShareCodeWithoutUrl(trimmedInput);
+
+    // 如果是分享口令但没有URL，无法自动提取
+    if (isShareCode && extractedUrl == null) {
+      throw ExtractException(
+        '检测到抖音分享口令，但口令中不包含可解析的链接地址\n\n'
+        '💡 建议：\n'
+        '1. 点击上方「手动输入」，直接输入视频中的口播文案\n'
+        '2. 或在抖音App中打开视频，长按视频选择「复制链接」后再粘贴',
+        ExtractErrorType.unsupportedPlatform,
+      );
+    }
+
+    // 如果提取到了URL，用提取到的URL；否则用原始输入
+    final url = extractedUrl ?? trimmedInput;
+
     // 自动识别平台
-    final platform = identifyPlatform(trimmedUrl);
+    final platform = identifyPlatform(url);
     if (platform == null) {
       throw ExtractException(
         '无法识别链接平台，目前支持抖音和快手链接\n请确认粘贴的是完整的分享链接',
@@ -38,7 +56,7 @@ class DouyinService {
 
     // 1. 先尝试自建解析
     try {
-      final result = await _selfParseExtract(trimmedUrl, platform);
+      final result = await _selfParseExtract(url, platform);
       if (result.isNotEmpty) return result;
     } on ExtractException {
       rethrow; // 已知错误直接抛出
@@ -48,7 +66,7 @@ class DouyinService {
 
     // 2. 回退到第三方API
     try {
-      final result = await _thirdPartyExtract(trimmedUrl);
+      final result = await _thirdPartyExtract(url);
       if (result.isNotEmpty) return result;
     } on ExtractException {
       rethrow;
@@ -64,22 +82,30 @@ class DouyinService {
 
   /// 识别链接所属平台
   /// 返回平台名称（抖音/快手），无法识别返回null
-  String? identifyPlatform(String url) {
-    final trimmedUrl = url.trim();
+  /// 支持URL格式和分享口令格式
+  String? identifyPlatform(String text) {
+    final trimmed = text.trim();
 
     // 抖音链接格式
-    if (_isDouyinUrl(trimmedUrl)) return '抖音';
+    if (_isDouyinUrl(trimmed)) return '抖音';
 
     // 快手链接格式
-    if (_isKuaishouUrl(trimmedUrl)) return '快手';
+    if (_isKuaishouUrl(trimmed)) return '快手';
+
+    // 抖音分享口令（不含URL但能识别为抖音）
+    if (_isDouyinShareCode(trimmed)) return '抖音';
+
+    // 快手分享口令
+    if (_isKuaishouShareCode(trimmed)) return '快手';
 
     return null;
   }
 
-  /// 验证链接格式是否合法
+  /// 验证链接格式是否合法（URL或分享口令均可）
   bool isValidUrl(String url) {
     final trimmedUrl = url.trim();
-    return _isDouyinUrl(trimmedUrl) || _isKuaishouUrl(trimmedUrl);
+    return _isDouyinUrl(trimmedUrl) || _isKuaishouUrl(trimmedUrl)
+        || _isDouyinShareCode(trimmedUrl) || _isKuaishouShareCode(trimmedUrl);
   }
 
   // ==================== 链接格式识别（增强版） ====================
@@ -118,25 +144,66 @@ class DouyinService {
     return patterns.any((pattern) => pattern.hasMatch(url));
   }
 
+  /// 判断是否为抖音分享口令（不含URL的分享文本）
+  /// 抖音分享口令格式举例：
+  /// - "7.87 CkT:/ 复制打开抖音，看看【xxx的作品】"
+  /// - "19toik5eleY/ 07/21 J@v.sE ndA:/ :6pm"
+  /// - "8.94 pqr:/ 复制打开抖音"
+  bool _isDouyinShareCode(String text) {
+    // 包含"抖音"关键词
+    if (text.contains('抖音') || text.contains('douyin')) return true;
+    // 包含"复制打开抖音"的口令格式
+    if (RegExp(r'\d+\.\d+\s+\S+:/').hasMatch(text)) return true;
+    // 典型的抖音口令格式：字母数字+斜杠+空格+数字/斜杠
+    if (RegExp(r'^[a-zA-Z0-9]+/[a-zA-Z0-9/\s@.:]+$', dotAll: false).hasMatch(text.trim())) return true;
+    return false;
+  }
+
+  /// 判断是否为快手分享口令
+  bool _isKuaishouShareCode(String text) {
+    if (text.contains('快手') || text.contains('kuaishou')) return true;
+    return false;
+  }
+
   /// 从分享文本中提取URL
   /// 用户可能复制了整段分享文本，如："7.87 Lkt:/ 复制打开抖音，看看【xxx】https://v.douyin.com/xxx/"
+  /// 返回提取到的URL，如果分享文本中没有URL则返回null
   String? extractUrlFromShareText(String text) {
-    // 尝试提取抖音链接
-    final douyinRegex = RegExp(r'https?://v\.douyin\.com/\w+');
-    final douyinMatch = douyinRegex.firstMatch(text);
-    if (douyinMatch != null) return douyinMatch.group(0);
+    // 尝试提取抖音链接（短链接和完整链接）
+    final douyinPatterns = [
+      RegExp(r'https?://v\.douyin\.com/[a-zA-Z0-9]+'),
+      RegExp(r'https?://www\.douyin\.com/video/\d+'),
+      RegExp(r'https?://www\.iesdouyin\.com/\S+'),
+      RegExp(r'https?://www\.douyin\.com/note/\d+'),
+    ];
+    for (final pattern in douyinPatterns) {
+      final match = pattern.firstMatch(text);
+      if (match != null) return match.group(0);
+    }
 
     // 尝试提取快手链接
-    final kuaishouRegex = RegExp(r'https?://v\.kuaishou\.com/\w+');
-    final kuaishouMatch = kuaishouRegex.firstMatch(text);
-    if (kuaishouMatch != null) return kuaishouMatch.group(0);
-
-    // 尝试提取快手短域名链接
-    final kuaishouShortRegex = RegExp(r'https?://kuaishou\.cn/\w+');
-    final kuaishouShortMatch = kuaishouShortRegex.firstMatch(text);
-    if (kuaishouShortMatch != null) return kuaishouShortMatch.group(0);
+    final kuaishouPatterns = [
+      RegExp(r'https?://v\.kuaishou\.com/[a-zA-Z0-9]+'),
+      RegExp(r'https?://kuaishou\.cn/\S+'),
+      RegExp(r'https?://www\.kuaishou\.com/short-video/\S+'),
+      RegExp(r'https?://m\.kuaishou\.com/\S+'),
+    ];
+    for (final pattern in kuaishouPatterns) {
+      final match = pattern.firstMatch(text);
+      if (match != null) return match.group(0);
+    }
 
     return null;
+  }
+
+  /// 检查文本是否为分享口令（不含URL）
+  /// 如果是口令格式但没有URL，需要引导用户手动输入
+  bool isShareCodeWithoutUrl(String text) {
+    final trimmed = text.trim();
+    // 先检查是否包含URL
+    if (extractUrlFromShareText(trimmed) != null) return false;
+    // 再检查是否为分享口令
+    return _isDouyinShareCode(trimmed) || _isKuaishouShareCode(trimmed);
   }
 
   // ==================== 自建解析 ====================
