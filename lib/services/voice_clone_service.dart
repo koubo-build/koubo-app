@@ -84,9 +84,9 @@ class VoiceCloneService {
       },
     };
 
-    // 参考文本可提高克隆质量
+    // 参考文本可提高克隆质量（Qwen用text字段）
     if (refText.isNotEmpty) {
-      (requestBody['input'] as Map<String, dynamic>)['ref_text'] = refText;
+      (requestBody['input'] as Map<String, dynamic>)['text'] = refText;
     }
 
     final response = await _apiClient.post(
@@ -104,25 +104,46 @@ class VoiceCloneService {
     final output = data['output'] as Map<String, dynamic>? ?? data;
 
     // 检查是否为异步任务
-    final taskId = output['task_id'] as String?;
+    final taskId = data['task_id'] as String? ?? output['task_id'] as String?;
     if (taskId != null) {
       // 轮询等待注册完成
       return await _pollRegisterTask(taskId, apiKey);
     }
 
-    // 同步返回 - Qwen模型可能直接返回 voice_id
+    // Qwen voice-enrollment 返回 voice 字段（官方文档确认）
+    final voice = output['voice'] as String?;
+    if (voice != null && voice.isNotEmpty) {
+      return voice;
+    }
+
+    // 兼容旧格式
     final voiceId = output['voice_id'] as String?;
     if (voiceId != null && voiceId.isNotEmpty) {
       return voiceId;
     }
 
-    // 也可能返回 customization_id
+    // CosyVoice格式
     final customizationId = output['customization_id'] as String?;
     if (customizationId != null && customizationId.isNotEmpty) {
       return customizationId;
     }
 
-    throw Exception('声音克隆注册失败：未返回音色ID');
+    // 如果返回了status=OK但没voice字段，可能是同步注册还在处理
+    final status = output['status'] as String?;
+    if (status == 'OK') {
+      // 尝试从resource_link或其他字段获取
+      final resourceLink = output['resource_link'] as String?;
+      if (resourceLink != null && resourceLink.isNotEmpty) {
+        // resource_link是音频文件URL，不是voice_id
+        // 但说明注册成功了，需要查询音色列表获取voice_id
+        final voices = await getClonedVoiceList();
+        if (voices.isNotEmpty) {
+          return voices.first['voice_id'] ?? voices.first['voice'] ?? '';
+        }
+      }
+    }
+
+    throw Exception('声音克隆注册失败：未返回音色ID\n返回数据：${data.toString().substring(0, (data.toString().length > 200 ? 200 : data.toString().length))}');
   }
 
   /// 轮询等待音色注册完成
@@ -147,17 +168,22 @@ class VoiceCloneService {
         final taskStatus = output['task_status'] as String? ?? '';
 
         if (taskStatus == 'SUCCEEDED') {
-          // 优先使用 voice_id
+          // Qwen voice-enrollment 返回 voice 字段
+          final voice = output['voice'] as String?;
+          if (voice != null && voice.isNotEmpty) {
+            return voice;
+          }
+          // 兼容 voice_id
           final voiceId = output['voice_id'] as String?;
           if (voiceId != null && voiceId.isNotEmpty) {
             return voiceId;
           }
-          // 备选使用 customization_id
+          // 兼容 customization_id
           final customizationId = output['customization_id'] as String?;
           if (customizationId != null && customizationId.isNotEmpty) {
             return customizationId;
           }
-          throw Exception('声音克隆注册完成但未返回音色ID');
+          throw Exception('声音克隆注册完成但未返回音色ID\n返回数据：${output.toString().substring(0, (output.toString().length > 200 ? 200 : output.toString().length))}');
         } else if (taskStatus == 'FAILED') {
           final message = output['message'] as String? ?? '未知错误';
           throw Exception('声音克隆注册失败：$message');
@@ -359,26 +385,41 @@ class VoiceCloneService {
   static final _base64Decoder = _SimpleBase64Decoder();
 
   /// 查询已注册的克隆音色列表
+  /// 官方API: POST /services/audio/tts/customization
+  /// Qwen: model=qwen-voice-enrollment, action=list
   Future<List<Map<String, String>>> getClonedVoiceList() async {
     final apiKey = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey);
     if (apiKey == null || apiKey.isEmpty) return [];
 
     try {
-      final response = await _apiClient.get(
-        '${ApiConfig.aliBailianBaseUrl}/services/aigc/text2audio/voice-list',
+      final response = await _apiClient.post(
+        '${ApiConfig.aliBailianBaseUrl}${ApiConfig.aliVoiceRegisterEndpoint}',
+        data: {
+          'model': ApiConfig.aliQwenVoiceEnrollmentModel,
+          'input': {
+            'action': 'list',
+            'page_size': 50,
+          },
+        },
         options: Options(
-          headers: {'Authorization': 'Bearer $apiKey'},
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
         ),
       );
 
       final data = response.data as Map<String, dynamic>;
-      final voices = data['voices'] as List<dynamic>? ?? [];
+      final output = data['output'] as Map<String, dynamic>? ?? {};
+      final voices = output['voice_list'] as List<dynamic>? ?? [];
       return voices.map((v) {
         final voice = v as Map<String, dynamic>;
+        // Qwen返回voice字段，CosyVoice返回voice_id字段
+        final voiceId = voice['voice'] as String? ?? voice['voice_id'] as String? ?? '';
         return {
-          'voice_id': voice['voice_id'] as String? ?? '',
-          'voice_name': voice['voice_name'] as String? ?? '',
-          'gender': voice['gender'] as String? ?? '',
+          'voice_id': voiceId,
+          'voice': voiceId,
+          'target_model': voice['target_model'] as String? ?? '',
         };
       }).toList();
     } catch (_) {
@@ -387,16 +428,26 @@ class VoiceCloneService {
   }
 
   /// 删除克隆音色
+  /// Qwen: model=qwen-voice-enrollment, action=delete, voice=音色名称
   Future<bool> deleteClonedVoice(String voiceId) async {
     final apiKey = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey);
     if (apiKey == null || apiKey.isEmpty) return false;
 
     try {
-      await _apiClient.delete(
-        '${ApiConfig.aliBailianBaseUrl}/services/aigc/text2audio/voice-delete',
-        data: {'voice_id': voiceId},
+      await _apiClient.post(
+        '${ApiConfig.aliBailianBaseUrl}${ApiConfig.aliVoiceRegisterEndpoint}',
+        data: {
+          'model': ApiConfig.aliQwenVoiceEnrollmentModel,
+          'input': {
+            'action': 'delete',
+            'voice': voiceId,
+          },
+        },
         options: Options(
-          headers: {'Authorization': 'Bearer $apiKey'},
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
         ),
       );
       return true;
