@@ -15,6 +15,7 @@ import '../../utils/storage_util.dart';
 import '../../widgets/common/app_button.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/common/app_input.dart';
+import '../../widgets/common/api_config_indicator.dart';
 
 /// 语音合成页 - 录音克隆声音 + 文案配音（完整重写版）
 class VoicePage extends ConsumerStatefulWidget {
@@ -138,6 +139,16 @@ class _VoicePageState extends ConsumerState<VoicePage>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // API配置指示器
+            ApiConfigIndicator(
+              type: ApiConfigIndicatorType.voice,
+              onConfigChanged: () {
+                // 刷新页面状态
+                ref.read(apiConfigProvider.notifier).refresh();
+              },
+            ),
+            const SizedBox(height: AppTheme.spacingMedium),
+
             // A. 文案输入区
             _buildScriptInputSection(voiceState),
             const SizedBox(height: AppTheme.spacingMedium),

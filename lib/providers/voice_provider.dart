@@ -28,6 +28,9 @@ class VoiceState {
   /// 音源类型
   final VoiceSourceType sourceType;
 
+  /// TTS引擎类型: 'cosyvoice' | 'edge_tts' | 'qwen_tts'
+  final String ttsEngine;
+
   /// 系统音色列表
   final List<VoiceModel> systemVoices;
 
@@ -94,6 +97,7 @@ class VoiceState {
   const VoiceState({
     this.scriptText = '',
     this.sourceType = VoiceSourceType.system,
+    this.ttsEngine = 'cosyvoice',
     this.systemVoices = const [],
     this.clonedVoices = const [],
     this.selectedVoice,
@@ -122,6 +126,7 @@ class VoiceState {
   VoiceState copyWith({
     String? scriptText,
     VoiceSourceType? sourceType,
+    String? ttsEngine,
     List<VoiceModel>? systemVoices,
     List<VoiceModel>? clonedVoices,
     VoiceModel? selectedVoice,
@@ -154,6 +159,7 @@ class VoiceState {
     return VoiceState(
       scriptText: scriptText ?? this.scriptText,
       sourceType: sourceType ?? this.sourceType,
+      ttsEngine: ttsEngine ?? this.ttsEngine,
       systemVoices: systemVoices ?? this.systemVoices,
       clonedVoices: clonedVoices ?? this.clonedVoices,
       selectedVoice: clearSelectedVoice ? null : (selectedVoice ?? this.selectedVoice),
@@ -291,6 +297,11 @@ class VoiceNotifier extends StateNotifier<VoiceState> {
     state = state.copyWith(sourceType: type, clearSelectedVoice: true);
   }
 
+  /// 设置 TTS 引擎
+  void setTtsEngine(String engine) {
+    state = state.copyWith(ttsEngine: engine);
+  }
+
   /// 选择音色
   void selectVoice(VoiceModel voice) {
     state = state.copyWith(selectedVoice: voice);
@@ -406,7 +417,7 @@ class VoiceNotifier extends StateNotifier<VoiceState> {
       final newVoice = VoiceModel(
         voiceId: voiceId,
         voiceName: state.cloneVoiceName.trim(),
-        provider: 'cosyvoice',
+        provider: 'qwen_tts', // 使用 Qwen TTS 进行克隆音色合成
         style: '克隆音色',
         isCloned: true,
         createdAt: DateTime.now(),
@@ -461,9 +472,14 @@ class VoiceNotifier extends StateNotifier<VoiceState> {
       // 模拟进度
       state = state.copyWith(synthProgress: 20);
 
-      final provider = state.sourceType == VoiceSourceType.cloned
-          ? 'cosyvoice'
-          : 'cosyvoice'; // 统一用CosyVoice（阿里百炼），Edge-TTS在国内不稳定
+      // 根据音源类型选择 TTS 引擎
+      // 克隆音色使用 qwen_tts，系统音色使用 ttsEngine 配置
+      String provider;
+      if (state.sourceType == VoiceSourceType.cloned) {
+        provider = 'qwen_tts'; // 克隆音色必须使用 Qwen TTS
+      } else {
+        provider = state.ttsEngine; // 使用用户配置的引擎
+      }
 
       final audioPath = await _ttsService.synthesize(
         text: state.scriptText.trim(),

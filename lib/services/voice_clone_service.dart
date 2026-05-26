@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -5,7 +6,8 @@ import '../config/api_config.dart';
 import '../utils/storage_util.dart';
 import 'api_client.dart';
 
-/// 声音克隆服务 - 封装CosyVoice声音克隆完整流程
+/// 声音克隆服务 - 封装Qwen声音复刻完整流程
+/// 使用 qwen-voice-enrollment 模型，支持 base64 编码音频直接上传
 class VoiceCloneService {
   final ApiClient _apiClient;
 
@@ -41,12 +43,9 @@ class VoiceCloneService {
       throw Exception('音频文件过大，请控制在10MB以内');
     }
 
-    // 1. 上传音频到阿里OSS获取公网URL
-    final audioUrl = await _uploadAudio(audioFilePath, apiKey);
-
-    // 2. 注册克隆音色
+    // 直接使用 base64 编码音频，注册克隆音色
     final voiceId = await _registerVoice(
-      audioUrl: audioUrl,
+      audioFilePath: audioFilePath,
       refText: refText ?? '',
       voiceName: voiceName,
       apiKey: apiKey,
@@ -55,53 +54,33 @@ class VoiceCloneService {
     return voiceId;
   }
 
-  /// 上传音频文件到阿里OSS
-  Future<String> _uploadAudio(String filePath, String apiKey) async {
-    try {
-      final response = await _apiClient.upload(
-        '${ApiConfig.aliBailianBaseUrl}/uploads',
-        filePath: filePath,
-        fieldName: 'file',
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $apiKey',
-          },
-        ),
-      );
-
-      final data = response.data as Map<String, dynamic>;
-      final url = data['url'] as String? ?? '';
-      if (url.isEmpty) {
-        throw Exception('音频上传失败，未返回文件URL');
-      }
-      return url;
-    } catch (e) {
-      if (e.toString().contains('401') || e.toString().contains('403')) {
-        throw Exception('阿里百炼API Key无效或已过期，请重新配置');
-      }
-      rethrow;
-    }
-  }
-
-  /// 注册克隆音色
+  /// 注册克隆音色 - 使用 Qwen Voice Enrollment API
   /// 官方API: POST /api/v1/services/audio/tts/customization
-  /// model: "voice-enrollment", input: {action: "create_voice", target_model, prefix, url}
+  /// model: "qwen-voice-enrollment", input: {action: "create", target_model, preferred_name, audio: {data: "data:audio/mpeg;base64,..."}}
   Future<String> _registerVoice({
-    required String audioUrl,
+    required String audioFilePath,
     required String refText,
     required String voiceName,
     required String apiKey,
   }) async {
-    // voiceName作为prefix（音色名称前缀），仅支持小写字母和数字
+    // voiceName作为preferred_name，仅支持小写字母和数字
     final prefix = voiceName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
+    // 读取音频文件并转换为 base64
+    final audioFile = File(audioFilePath);
+    final audioBytes = await audioFile.readAsBytes();
+    final audioBase64 = base64Encode(audioBytes);
+    final audioDataUri = 'data:audio/mpeg;base64,$audioBase64';
+
     final requestBody = <String, dynamic>{
-      'model': 'voice-enrollment',
+      'model': ApiConfig.aliQwenVoiceEnrollmentModel,
       'input': {
-        'action': 'create_voice',
-        'target_model': 'cosyvoice-v2',
-        'prefix': prefix.isNotEmpty ? prefix : 'myvoice',
-        'url': audioUrl,
+        'action': 'create',
+        'target_model': ApiConfig.aliQwenTtsVcModel,
+        'preferred_name': prefix.isNotEmpty ? prefix : 'myvoice',
+        'audio': {
+          'data': audioDataUri,
+        },
       },
     };
 
@@ -131,12 +110,19 @@ class VoiceCloneService {
       return await _pollRegisterTask(taskId, apiKey);
     }
 
-    // 同步返回
+    // 同步返回 - Qwen模型可能直接返回 voice_id
     final voiceId = output['voice_id'] as String?;
-    if (voiceId == null || voiceId.isEmpty) {
-      throw Exception('声音克隆注册失败');
+    if (voiceId != null && voiceId.isNotEmpty) {
+      return voiceId;
     }
-    return voiceId;
+
+    // 也可能返回 customization_id
+    final customizationId = output['customization_id'] as String?;
+    if (customizationId != null && customizationId.isNotEmpty) {
+      return customizationId;
+    }
+
+    throw Exception('声音克隆注册失败：未返回音色ID');
   }
 
   /// 轮询等待音色注册完成
@@ -148,26 +134,41 @@ class VoiceCloneService {
     while (retryCount < maxRetries) {
       await Future.delayed(const Duration(seconds: 5));
 
-      final response = await _apiClient.get(
-        pollUrl,
-        options: Options(
-          headers: {'Authorization': 'Bearer $apiKey'},
-        ),
-      );
+      try {
+        final response = await _apiClient.get(
+          pollUrl,
+          options: Options(
+            headers: {'Authorization': 'Bearer $apiKey'},
+          ),
+        );
 
-      final data = response.data as Map<String, dynamic>;
-      final output = data['output'] as Map<String, dynamic>? ?? {};
-      final taskStatus = output['task_status'] as String? ?? '';
+        final data = response.data as Map<String, dynamic>;
+        final output = data['output'] as Map<String, dynamic>? ?? {};
+        final taskStatus = output['task_status'] as String? ?? '';
 
-      if (taskStatus == 'SUCCEEDED') {
-        final voiceId = output['voice_id'] as String?;
-        if (voiceId != null && voiceId.isNotEmpty) {
-          return voiceId;
+        if (taskStatus == 'SUCCEEDED') {
+          // 优先使用 voice_id
+          final voiceId = output['voice_id'] as String?;
+          if (voiceId != null && voiceId.isNotEmpty) {
+            return voiceId;
+          }
+          // 备选使用 customization_id
+          final customizationId = output['customization_id'] as String?;
+          if (customizationId != null && customizationId.isNotEmpty) {
+            return customizationId;
+          }
+          throw Exception('声音克隆注册完成但未返回音色ID');
+        } else if (taskStatus == 'FAILED') {
+          final message = output['message'] as String? ?? '未知错误';
+          throw Exception('声音克隆注册失败：$message');
         }
-        throw Exception('声音克隆注册完成但未返回音色ID');
-      } else if (taskStatus == 'FAILED') {
-        final message = output['message'] as String? ?? '未知错误';
-        throw Exception('声音克隆注册失败：$message');
+      } catch (e) {
+        if (e.toString().contains('404') || e.toString().contains('Not Found')) {
+          // 任务还未创建，继续等待
+          retryCount++;
+          continue;
+        }
+        rethrow;
       }
 
       retryCount++;
@@ -176,8 +177,8 @@ class VoiceCloneService {
     throw Exception('声音克隆注册超时，请稍后重试');
   }
 
-  /// 使用克隆音色合成语音
-  /// [voiceId] 克隆音色ID
+  /// 使用克隆音色合成语音 - 通过 multimodal-generation 接口
+  /// [voiceId] 克隆音色ID（注册后返回的voice_id或customization_id）
   /// [text] 要合成的文案
   /// [speed] 语速(0.5-2.0)
   /// [pitch] 音调(0.5-2.0)
@@ -194,41 +195,52 @@ class VoiceCloneService {
       throw Exception('请先配置阿里百炼API Key');
     }
 
+    // 构建情感指令
+    String? instruction;
+    if (emotion != null && emotion.isNotEmpty) {
+      instruction = '请用$emotion的语气朗读';
+    }
+
     final requestBody = <String, dynamic>{
-      'model': 'cosyvoice-v2',
-      'voice': voiceId,
-      'text': text,
-      'parameters': {
-        'speed': speed,
-        'pitch': pitch,
+      'model': ApiConfig.aliQwenTtsVcModel,
+      'input': {
+        'text': text,
+        'voice_setting': {
+          'voice_id': voiceId,
+        },
+        'audio_setting': {
+          'sample_rate': 22050,
+          'format': 'mp3',
+        },
       },
     };
 
-    // 情感控制指令
-    if (emotion != null && emotion.isNotEmpty) {
-      requestBody['instructions'] = '请用$emotion的语气朗读';
+    // 添加指令（如果有）
+    if (instruction != null) {
+      (requestBody['input'] as Map<String, dynamic>)['instruction'] = instruction;
     }
 
     final response = await _apiClient.post(
-      '${ApiConfig.aliBailianBaseUrl}${ApiConfig.aliCosyvoiceEndpoint}',
+      '${ApiConfig.aliBailianBaseUrl}${ApiConfig.aliMultimodalGenerationEndpoint}',
       data: requestBody,
       options: Options(
         headers: {
           'Authorization': 'Bearer $apiKey',
-          'X-DashScope-Async': 'enable',
+          'Content-Type': 'application/json',
         },
       ),
     );
 
     final data = response.data as Map<String, dynamic>;
     final output = data['output'] as Map<String, dynamic>? ?? data;
-    final taskId = output['task_id'] as String?;
 
+    // 检查是否为异步任务
+    final taskId = output['task_id'] as String?;
     if (taskId != null) {
       return await _pollSynthesisTask(taskId, apiKey);
     }
 
-    // 同步返回
+    // 同步返回 - 可能直接包含音频数据
     final audioBase64 = output['audio'] as String?;
     if (audioBase64 != null) {
       final audioDir = await StorageUtil.getAudioDirectory();
@@ -240,14 +252,10 @@ class VoiceCloneService {
       return filePath;
     }
 
-    // 字节数据
-    if (response.data is List<int>) {
-      final audioDir = await StorageUtil.getAudioDirectory();
-      final fileName = 'clone_${DateTime.now().millisecondsSinceEpoch}.mp3';
-      final filePath = '$audioDir/$fileName';
-      final file = File(filePath);
-      await file.writeAsBytes(response.data as List<int>);
-      return filePath;
+    // 尝试获取 audio_url
+    final audioUrl = output['audio_url'] as String?;
+    if (audioUrl != null && audioUrl.isNotEmpty) {
+      return await _downloadAudio(audioUrl);
     }
 
     throw Exception('克隆音色合成返回数据格式异常');
@@ -262,35 +270,48 @@ class VoiceCloneService {
     while (retryCount < maxRetries) {
       await Future.delayed(const Duration(seconds: 5));
 
-      final response = await _apiClient.get(
-        pollUrl,
-        options: Options(
-          headers: {'Authorization': 'Bearer $apiKey'},
-        ),
-      );
+      try {
+        final response = await _apiClient.get(
+          pollUrl,
+          options: Options(
+            headers: {'Authorization': 'Bearer $apiKey'},
+          ),
+        );
 
-      final data = response.data as Map<String, dynamic>;
-      final output = data['output'] as Map<String, dynamic>? ?? {};
-      final taskStatus = output['task_status'] as String? ?? '';
+        final data = response.data as Map<String, dynamic>;
+        final output = data['output'] as Map<String, dynamic>? ?? {};
+        final taskStatus = output['task_status'] as String? ?? '';
 
-      if (taskStatus == 'SUCCEEDED') {
-        final audioUrl = output['audio_url'] as String?;
-        if (audioUrl != null) {
-          return await _downloadAudio(audioUrl);
+        if (taskStatus == 'SUCCEEDED') {
+          // 优先获取 base64 音频
+          final audioBase64 = output['audio'] as String?;
+          if (audioBase64 != null) {
+            final audioDir = await StorageUtil.getAudioDirectory();
+            final fileName = 'clone_${DateTime.now().millisecondsSinceEpoch}.mp3';
+            final filePath = '$audioDir/$fileName';
+            final audioBytes = _decodeBase64(audioBase64);
+            final file = File(filePath);
+            await file.writeAsBytes(audioBytes);
+            return filePath;
+          }
+
+          // 备选下载 URL
+          final audioUrl = output['audio_url'] as String?;
+          if (audioUrl != null) {
+            return await _downloadAudio(audioUrl);
+          }
+
+          throw Exception('合成完成但未返回音频数据');
+        } else if (taskStatus == 'FAILED') {
+          final message = output['message'] as String? ?? '未知错误';
+          throw Exception('合成失败：$message');
         }
-        final audioBase64 = output['audio'] as String?;
-        if (audioBase64 != null) {
-          final audioDir = await StorageUtil.getAudioDirectory();
-          final fileName = 'clone_${DateTime.now().millisecondsSinceEpoch}.mp3';
-          final filePath = '$audioDir/$fileName';
-          final audioBytes = _decodeBase64(audioBase64);
-          final file = File(filePath);
-          await file.writeAsBytes(audioBytes);
-          return filePath;
+      } catch (e) {
+        if (e.toString().contains('404') || e.toString().contains('Not Found')) {
+          retryCount++;
+          continue;
         }
-        throw Exception('合成完成但未返回音频数据');
-      } else if (taskStatus == 'FAILED') {
-        throw Exception('合成失败：${output['message'] ?? '未知错误'}');
+        rethrow;
       }
 
       retryCount++;
@@ -317,7 +338,12 @@ class VoiceCloneService {
 
   /// Base64解码
   List<int> _decodeBase64(String base64Str) {
-    return _base64Decode(base64Str);
+    // 处理 data URI 格式
+    String data = base64Str;
+    if (base64Str.contains(',')) {
+      data = base64Str.split(',').last;
+    }
+    return _base64Decoder.convert(data);
   }
 
   /// 安全Base64解码

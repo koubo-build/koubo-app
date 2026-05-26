@@ -26,6 +26,11 @@ class ApiConfig {
   static const String aliCosyvoiceEndpoint = '/services/audio/tts/SpeechSynthesizer';
   static const String aliVoiceRegisterEndpoint = '/services/audio/tts/customization';
   static const String aliAsrEndpoint = '/services/audio/asr/transcription';
+  
+  // ==================== 阿里百炼 Qwen TTS VC（声音克隆后合成） ====================
+  static const String aliQwenTtsVcModel = 'qwen3-tts-vc-2026-01-22';
+  static const String aliQwenVoiceEnrollmentModel = 'qwen-voice-enrollment';
+  static const String aliMultimodalGenerationEndpoint = '/services/aigc/multimodal-generation/generation';
 
   // ==================== 飞影数字人API ====================
   static const String hiflyBaseUrl = 'https://hifly.cc/api/v2';

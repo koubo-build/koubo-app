@@ -65,10 +65,20 @@ class TtsService {
     {'id': 'zh-CN-shaanxi-XiaoniNeural', 'name': '小妮', 'gender': 'female', 'style': '陕西女声'},
   ];
 
+  /// Qwen TTS 可用音色列表（克隆音色使用）
+  static const List<Map<String, String>> qwenTtsVoices = [
+    {'id': 'longanhuan', 'name': '龙安欢', 'gender': 'female', 'style': '欢脱元气女'},
+    {'id': 'longanyang', 'name': '龙安洋', 'gender': 'male', 'style': '阳光大男孩'},
+    {'id': 'longxiaochun', 'name': '龙小淳', 'gender': 'female', 'style': '知性女声'},
+    {'id': 'longshuo', 'name': '龙硕', 'gender': 'male', 'style': '沉稳男声'},
+    {'id': 'longhuhu', 'name': '龙呼呼', 'gender': 'female', 'style': '童声'},
+  ];
+
   // ==================== 统一合成接口 ====================
 
   /// 统一语音合成接口
-  /// 策略：阿里百炼CosyVoice优先（你有Key），Edge-TTS为备选
+  /// [provider] 引擎类型: 'cosyvoice' | 'edge_tts' | 'qwen_tts'
+  /// 注意：qwen_tts 主要用于克隆音色合成，克隆音色ID会通过voiceId传入
   Future<String> synthesize({
     required String text,
     required String voiceId,
@@ -78,29 +88,50 @@ class TtsService {
     double volume = 1.0,
     String? emotion,
   }) async {
-    // 先尝试阿里百炼CosyVoice（用户有Key且已验证可用）
-    try {
-      final cosyVoiceId = _mapToCosyVoiceId(voiceId);
-      return await synthesizeCosyVoice(
-        text: text,
-        voiceId: cosyVoiceId,
-        speed: speed,
-        pitch: pitch,
-        emotion: emotion,
-      );
-    } catch (e) {
-      // CosyVoice失败，尝试Edge-TTS
-      try {
-        return await synthesizeEdgeTts(
+    // 根据引擎类型选择合成方式
+    switch (provider) {
+      case 'qwen_tts':
+        // Qwen TTS - 用于克隆音色合成
+        return synthesizeQwenTts(
+          text: text,
+          voiceId: voiceId,
+          emotion: emotion,
+        );
+      case 'edge_tts':
+        // Edge-TTS 备选方案
+        return synthesizeEdgeTts(
           text: text,
           voiceId: voiceId,
           rate: speed == 1.0 ? '+0%' : '${speed > 1.0 ? '+' : '-'}${((speed - 1.0) * 100).abs().round()}%',
           pitch: pitch == 1.0 ? '+0Hz' : '${pitch > 1.0 ? '+' : '-'}${((pitch - 1.0) * 10).abs().round()}Hz',
           volume: volume == 1.0 ? '+0%' : '${volume > 1.0 ? '+' : '-'}${((volume - 1.0) * 100).abs().round()}%',
         );
-      } catch (e2) {
-        throw Exception('语音合成失败：\nCosyVoice: ${e.toString().replaceAll("Exception: ", "")}\nEdge-TTS: ${e2.toString().replaceAll("Exception: ", "")}');
-      }
+      case 'cosyvoice':
+      default:
+        // 阿里百炼CosyVoice优先
+        try {
+          final cosyVoiceId = _mapToCosyVoiceId(voiceId);
+          return await synthesizeCosyVoice(
+            text: text,
+            voiceId: cosyVoiceId,
+            speed: speed,
+            pitch: pitch,
+            emotion: emotion,
+          );
+        } catch (e) {
+          // CosyVoice失败，尝试Edge-TTS
+          try {
+            return await synthesizeEdgeTts(
+              text: text,
+              voiceId: voiceId,
+              rate: speed == 1.0 ? '+0%' : '${speed > 1.0 ? '+' : '-'}${((speed - 1.0) * 100).abs().round()}%',
+              pitch: pitch == 1.0 ? '+0Hz' : '${pitch > 1.0 ? '+' : '-'}${((pitch - 1.0) * 10).abs().round()}Hz',
+              volume: volume == 1.0 ? '+0%' : '${volume > 1.0 ? '+' : '-'}${((volume - 1.0) * 100).abs().round()}%',
+            );
+          } catch (e2) {
+            throw Exception('语音合成失败：\nCosyVoice: ${e.toString().replaceAll("Exception: ", "")}\nEdge-TTS: ${e2.toString().replaceAll("Exception: ", "")}');
+          }
+        }
     }
   }
 
@@ -320,6 +351,140 @@ class TtsService {
     final file = File(filePath);
     await file.writeAsBytes(audioBytes);
     return filePath;
+  }
+
+  // ==================== 阿里百炼 Qwen TTS（克隆音色合成） ====================
+
+  /// 使用阿里百炼 Qwen TTS 合成语音 - 用于克隆音色合成
+  /// 官方API: POST /api/v1/services/aigc/multimodal-generation/generation
+  /// model: qwen3-tts-vc-2026-01-22
+  Future<String> synthesizeQwenTts({
+    required String text,
+    required String voiceId,
+    String? emotion,
+  }) async {
+    final apiKey = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey);
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('请先在设置中配置阿里百炼API Key');
+    }
+
+    final audioDir = await StorageUtil.getAudioDirectory();
+    final fileName = 'qwen_tts_${DateTime.now().millisecondsSinceEpoch}.mp3';
+    final filePath = '$audioDir/$fileName';
+
+    // 构建情感指令
+    String? instruction;
+    if (emotion != null && emotion.isNotEmpty) {
+      instruction = '请用$emotion的语气朗读';
+    }
+
+    final requestBody = <String, dynamic>{
+      'model': ApiConfig.aliQwenTtsVcModel,
+      'input': {
+        'text': text,
+        'voice_setting': {
+          'voice_id': voiceId,
+        },
+        'audio_setting': {
+          'sample_rate': 22050,
+          'format': 'mp3',
+        },
+      },
+    };
+
+    // 添加指令（如果有）
+    if (instruction != null) {
+      (requestBody['input'] as Map<String, dynamic>)['instruction'] = instruction;
+    }
+
+    // 发送请求
+    final response = await _apiClient.post(
+      '${ApiConfig.aliBailianBaseUrl}${ApiConfig.aliMultimodalGenerationEndpoint}',
+      data: requestBody,
+      options: Options(
+        headers: {
+          'Authorization': 'Bearer $apiKey',
+          'Content-Type': 'application/json',
+        },
+        receiveTimeout: const Duration(seconds: 60),
+      ),
+    );
+
+    final data = response.data as Map<String, dynamic>;
+    final output = data['output'] as Map<String, dynamic>? ?? data;
+
+    // 检查是否为异步任务
+    final taskId = output['task_id'] as String?;
+    if (taskId != null) {
+      return await _pollQwenTtsTask(taskId, apiKey, filePath);
+    }
+
+    // 同步返回 - 可能直接包含音频数据
+    final audioBase64 = output['audio'] as String?;
+    if (audioBase64 != null) {
+      return await _saveBase64Audio(audioBase64, filePath);
+    }
+
+    // 尝试获取 audio_url
+    final audioUrl = output['audio_url'] as String?;
+    if (audioUrl != null && audioUrl.isNotEmpty) {
+      return await _downloadAudioFromUrl(audioUrl, filePath);
+    }
+
+    throw Exception('Qwen TTS返回格式异常');
+  }
+
+  /// 轮询 Qwen TTS 异步任务
+  Future<String> _pollQwenTtsTask(String taskId, String apiKey, String filePath) async {
+    final pollUrl = '${ApiConfig.aliBailianBaseUrl}/tasks/$taskId';
+    int retryCount = 0;
+    const maxRetries = 60;
+
+    while (retryCount < maxRetries) {
+      await Future.delayed(const Duration(seconds: 3));
+
+      try {
+        final response = await _apiClient.get(
+          pollUrl,
+          options: Options(
+            headers: {'Authorization': 'Bearer $apiKey'},
+          ),
+        );
+
+        final data = response.data as Map<String, dynamic>;
+        final output = data['output'] as Map<String, dynamic>? ?? {};
+        final taskStatus = output['task_status'] as String? ?? '';
+
+        if (taskStatus == 'SUCCEEDED') {
+          // 优先获取 base64 音频
+          final audioBase64 = output['audio'] as String?;
+          if (audioBase64 != null) {
+            return await _saveBase64Audio(audioBase64, filePath);
+          }
+
+          // 备选下载 URL
+          final audioUrl = output['audio_url'] as String?;
+          if (audioUrl != null) {
+            return await _downloadAudioFromUrl(audioUrl, filePath);
+          }
+
+          throw Exception('Qwen TTS任务完成但未返回音频');
+        } else if (taskStatus == 'FAILED') {
+          final message = output['message'] as String? ?? '未知错误';
+          throw Exception('Qwen TTS合成失败：$message');
+        }
+      } catch (e) {
+        if (e.toString().contains('404') || e.toString().contains('Not Found')) {
+          retryCount++;
+          continue;
+        }
+        rethrow;
+      }
+
+      retryCount++;
+    }
+
+    throw Exception('Qwen TTS合成超时');
   }
 
   // ==================== Edge-TTS（免费备选方案） ====================

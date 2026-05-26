@@ -10,6 +10,7 @@ import '../../services/ai_rewrite_service.dart';
 import '../../widgets/common/app_button.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/risk_badge.dart';
+import '../../widgets/common/api_config_indicator.dart';
 
 /// 创作工作台 - 一站式：粘贴链接 → 提取文案 → AI改写 → 法务审核 → 定稿
 class ExtractPage extends ConsumerStatefulWidget {
@@ -103,35 +104,39 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
                 horizontal: AppTheme.spacingMedium,
                 vertical: AppTheme.spacingSmall,
               ),
-              child: AnimatedSize(
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeInOut,
-                alignment: Alignment.topCenter,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Step1：视频链接输入区
-                    _buildStepInput(workflow),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // API配置指示器
+                  ApiConfigIndicator(
+                    type: ApiConfigIndicatorType.extract,
+                    onConfigChanged: () {
+                      ref.read(apiConfigProvider.notifier).refresh();
+                    },
+                  ),
+                  const SizedBox(height: AppTheme.spacingMedium),
 
-                    // Step2：提取结果展示区
-                    if (workflow.currentStep.index >= WorkflowStep.extracted.index)
-                      _buildStepExtracted(workflow),
+                  // Step1：视频链接输入区
+                  _buildStepInput(workflow),
 
-                    // Step3：AI改写区
-                    if (workflow.currentStep.index >= WorkflowStep.rewriting.index)
-                      _buildStepRewriting(workflow),
+                  // Step2：提取结果展示区
+                  if (workflow.currentStep.index >= WorkflowStep.extracted.index)
+                    _buildStepExtracted(workflow),
 
-                    // Step4：法务审核区
-                    if (workflow.currentStep.index >= WorkflowStep.auditing.index)
-                      _buildStepAuditing(workflow),
+                  // Step3：AI改写区
+                  if (workflow.currentStep.index >= WorkflowStep.rewriting.index)
+                    _buildStepRewriting(workflow),
 
-                    // Step5：定稿区
-                    if (workflow.currentStep == WorkflowStep.finalized)
-                      _buildStepFinalized(workflow),
+                  // Step4：法务审核区
+                  if (workflow.currentStep.index >= WorkflowStep.auditing.index)
+                    _buildStepAuditing(workflow),
 
-                    const SizedBox(height: AppTheme.spacingXLarge),
-                  ],
-                ),
+                  // Step5：定稿区
+                  if (workflow.currentStep == WorkflowStep.finalized)
+                    _buildStepFinalized(workflow),
+
+                  const SizedBox(height: AppTheme.spacingXLarge),
+                ],
               ),
             ),
           ),
