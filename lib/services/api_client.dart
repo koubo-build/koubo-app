@@ -366,32 +366,48 @@ class ApiClient {
           messages: messages,
           temperature: temperature,
         );
-      } catch (e) {
-        final msg = e.toString();
-        // 401/403是Key无效，跳过此Provider
-        if (msg.contains('401') || msg.contains('403') || msg.contains('无效')) {
-          errors.add('${provider.name}: Key无效');
+      } on DioException catch (e) {
+        final statusCode = e.response?.statusCode;
+        final msg = e.error?.toString() ?? e.message ?? '';
+
+        // 根据HTTP状态码判断是否应该跳过该Provider
+        if (statusCode == 401 || statusCode == 403 || msg.contains('Key无效') || msg.contains('无权限')) {
+          errors.add('${provider.name}: Key无效或无权限');
           continue;
         }
-        // 402余额不足，跳过
-        if (msg.contains('402') || msg.contains('余额')) {
+        if (statusCode == 402 || msg.contains('余额不足')) {
           errors.add('${provider.name}: 余额不足');
           continue;
         }
-        // 429限流，跳过
-        if (msg.contains('429') || msg.contains('频繁')) {
+        if (statusCode == 429 || msg.contains('频繁') || msg.contains('限流')) {
           errors.add('${provider.name}: 限流');
           continue;
         }
-        // 其他错误（网络等），也跳过尝试下一个
-        errors.add('${provider.name}: ${msg.length > 50 ? msg.substring(0, 50) : msg}');
+        // 400可能是参数错误，也可能是模型不可用
+        if (statusCode == 400) {
+          // 尝试从错误信息判断是否是模型不可用
+          if (msg.contains('ModelNotFound') || msg.contains('model_not_found') || msg.contains('不存在')) {
+            errors.add('${provider.name}: 模型不可用');
+            continue;
+          }
+          // 其他400错误（参数错误等），不重试
+          errors.add('${provider.name}: ${msg.length > 80 ? msg.substring(0, 80) : msg}');
+          continue;
+        }
+        // 其他错误（网络等），跳过尝试下一个
+        errors.add('${provider.name}: ${msg.length > 80 ? msg.substring(0, 80) : msg}');
+        continue;
+      } catch (e) {
+        // 非Dio异常（如类型转换错误等）
+        final msg = e.toString();
+        errors.add('${provider.name}: ${msg.length > 80 ? msg.substring(0, 80) : msg}');
         continue;
       }
     }
 
     // 所有Provider都失败
     if (errors.isNotEmpty) {
-      throw Exception('所有AI服务均不可用：\n${errors.join('\n')}\n请在设置中配置至少一个API Key');
+      throw Exception('所有AI服务均不可用：\n${errors.join('\n')}\n请在设置中配置至少一个有效的API Key');
     }
     throw Exception('未配置任何AI服务的API Key，请在设置页面配置');
   }
@@ -409,6 +425,7 @@ class ApiClient {
       _ProviderConfig(ApiConfig.deepseekApiKeyKey, ApiConfig.deepseekBaseUrl, ApiConfig.deepseekModelV3, 'DeepSeek'),
     ];
 
+    String? lastError;
     for (final provider in providers) {
       final apiKey = await StorageUtil.getSecure(provider.apiKeyKey);
       if (apiKey == null || apiKey.isEmpty) continue;
@@ -422,12 +439,23 @@ class ApiClient {
           temperature: temperature,
         );
         return; // 成功则直接返回
+      } on DioException catch (e) {
+        final statusCode = e.response?.statusCode;
+        // 可恢复的错误（Key无效、限流等），跳过尝试下一个
+        if (statusCode == 401 || statusCode == 402 || statusCode == 403 || statusCode == 429) {
+          lastError = '${provider.name}: ${e.error?.toString() ?? "请求失败"}';
+          continue;
+        }
+        // 400等不可恢复的错误，也尝试下一个Provider
+        lastError = '${provider.name}: ${e.error?.toString() ?? "请求失败"}';
+        continue;
       } catch (e) {
-        continue; // 失败则尝试下一个
+        lastError = '${provider.name}: ${e.toString().length > 80 ? e.toString().substring(0, 80) : e.toString()}';
+        continue;
       }
     }
 
-    throw Exception('未配置任何AI服务的API Key，请在设置页面配置');
+    throw Exception(lastError ?? '未配置任何AI服务的API Key，请在设置页面配置');
   }
 }
 

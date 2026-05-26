@@ -790,6 +790,79 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
                 onTap: () => ref.read(workflowProvider.notifier).selectVersion(version.versionNumber),
               )),
 
+              // 选中版本的文案预览框
+              if (workflow.selectedVersion != null) ...[
+                const SizedBox(height: AppTheme.spacingMedium),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(AppTheme.spacingMedium),
+                  decoration: BoxDecoration(
+                    color: AppTheme.darkSurface,
+                    borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                    border: Border.all(
+                      color: AppTheme.accentColor.withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.article_outlined, size: 16, color: AppTheme.accentColor),
+                          const SizedBox(width: 6),
+                          const Text(
+                            '改写文案',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.accentColor),
+                          ),
+                          const Spacer(),
+                          // 一键复制
+                          InkWell(
+                            onTap: () => _copyToClipboard(workflow.selectedVersion!.rewrittenText, '改写文案'),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.copy, size: 14, color: AppTheme.primaryColor),
+                                  SizedBox(width: 4),
+                                  Text('复制', style: TextStyle(fontSize: 12, color: AppTheme.primaryColor, fontWeight: FontWeight.w500)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        workflow.selectedVersion!.rewrittenText,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: AppTheme.textPrimary,
+                          height: 1.6,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${workflow.selectedVersion!.rewrittenText.length}字',
+                            style: const TextStyle(fontSize: 11, color: AppTheme.textHint),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               const SizedBox(height: AppTheme.spacingMedium),
 
               // 确认选用按钮
