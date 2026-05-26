@@ -195,7 +195,7 @@ class DouyinService {
     }
 
     // 尝试提取通用http链接（兜底，处理非标准格式）
-    final genericMatch = RegExp(r'https?://[^\s<>"\u4e00-\u9fff]+').firstMatch(text);
+    final genericMatch = RegExp(r'https?://[^\s<>"\x27]+').firstMatch(text);
     if (genericMatch != null) {
       final url = genericMatch.group(0) ?? '';
       // 只返回抖音或快手域名的URL
@@ -305,8 +305,8 @@ class DouyinService {
       }
 
       // 方法3：从og:description meta标签提取
-      final ogMatch = RegExp(r'<meta\s+(?:property|name)=["\']og:description["\']\s+content=["\']([^"\']+)["\']').firstMatch(html)
-          ?? RegExp(r'<meta\s+content=["\']([^"\']+)["\']\s+(?:property|name)=["\']og:description["\']').firstMatch(html);
+      final ogMatch = RegExp(r'<meta\s+(?:property|name)=["\x27]og:description["\x27]\s+content=["\x27]([^"\x27]+)["\x27]').firstMatch(html)
+          ?? RegExp(r'<meta\s+content=["\x27]([^"\x27]+)["\x27]\s+(?:property|name)=["\x27]og:description["\x27]').firstMatch(html);
       if (ogMatch != null) {
         final desc = ogMatch.group(1) ?? '';
         if (desc.length > 5) return desc;
@@ -471,8 +471,8 @@ class DouyinService {
       if (html.isEmpty) return '';
 
       // 从og:description提取
-      final ogMatch = RegExp(r'<meta\s+(?:property|name)=["\']og:description["\']\s+content=["\']([^"\']+)["\']').firstMatch(html)
-          ?? RegExp(r'<meta\s+content=["\']([^"\']+)["\']\s+(?:property|name)=["\']og:description["\']').firstMatch(html);
+      final ogMatch = RegExp(r'<meta\s+(?:property|name)=["\x27]og:description["\x27]\s+content=["\x27]([^"\x27]+)["\x27]').firstMatch(html)
+          ?? RegExp(r'<meta\s+content=["\x27]([^"\x27]+)["\x27]\s+(?:property|name)=["\x27]og:description["\x27]').firstMatch(html);
       if (ogMatch != null) {
         final desc = ogMatch.group(1) ?? '';
         if (desc.length > 5) return desc;
