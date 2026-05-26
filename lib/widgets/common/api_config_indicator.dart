@@ -8,7 +8,6 @@ import '../../utils/storage_util.dart';
 class ApiConfigState {
   final String? zhipuApiKey;
   final String? aliBailianApiKey;
-  final String? deepseekApiKey;
   final String? siliconFlowApiKey;
   final String ttsEngine;
   final String rewriteModel;
@@ -17,32 +16,29 @@ class ApiConfigState {
   const ApiConfigState({
     this.zhipuApiKey,
     this.aliBailianApiKey,
-    this.deepseekApiKey,
     this.siliconFlowApiKey,
     this.ttsEngine = 'cosyvoice',
     this.rewriteModel = 'GLM-4-Flash',
-    this.auditModel = 'DeepSeek-V3',
+    this.auditModel = 'qwen-plus',
   });
 
   bool get hasZhipu => zhipuApiKey != null && zhipuApiKey!.isNotEmpty;
   bool get hasAliBailian => aliBailianApiKey != null && aliBailianApiKey!.isNotEmpty;
-  bool get hasDeepseek => deepseekApiKey != null && deepseekApiKey!.isNotEmpty;
   bool get hasSiliconFlow => siliconFlowApiKey != null && siliconFlowApiKey!.isNotEmpty;
 
   bool get hasAnyMissing {
-    return !hasZhipu || !hasAliBailian || !hasDeepseek;
+    return !hasZhipu || !hasAliBailian;
   }
 
   String get statusSummary {
     final parts = <String>[];
     if (hasZhipu) parts.add('智谱✅');
     if (hasAliBailian) parts.add('阿里✅');
-    if (hasDeepseek) parts.add('DeepSeek✅');
+    if (hasSiliconFlow) parts.add('硅基✅');
     if (parts.isEmpty) return '未配置任何API';
     final missing = <String>[];
     if (!hasZhipu) missing.add('智谱');
     if (!hasAliBailian) missing.add('阿里');
-    if (!hasDeepseek) missing.add('DeepSeek');
     if (missing.isEmpty) return '全部已配置';
     return '${parts.join(' ')} | 缺失: ${missing.join(', ')}';
   }
@@ -62,7 +58,6 @@ class ApiConfigNotifier extends StateNotifier<ApiConfigState> {
   Future<void> _loadConfig() async {
     final zhipu = await StorageUtil.getSecure(ApiConfig.zhipuApiKeyKey);
     final ali = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey);
-    final deepseek = await StorageUtil.getSecure(ApiConfig.deepseekApiKeyKey);
     final silicon = await StorageUtil.getSecure(ApiConfig.siliconFlowApiKeyKey);
     final ttsEngine = StorageUtil.getTtsEngine();
     final rewriteModel = StorageUtil.getRewriteModel();
@@ -71,7 +66,6 @@ class ApiConfigNotifier extends StateNotifier<ApiConfigState> {
     state = ApiConfigState(
       zhipuApiKey: zhipu,
       aliBailianApiKey: ali,
-      deepseekApiKey: deepseek,
       siliconFlowApiKey: silicon,
       ttsEngine: ttsEngine,
       rewriteModel: rewriteModel,
@@ -84,7 +78,6 @@ class ApiConfigNotifier extends StateNotifier<ApiConfigState> {
     state = ApiConfigState(
       zhipuApiKey: key,
       aliBailianApiKey: state.aliBailianApiKey,
-      deepseekApiKey: state.deepseekApiKey,
       siliconFlowApiKey: state.siliconFlowApiKey,
       ttsEngine: state.ttsEngine,
       rewriteModel: state.rewriteModel,
@@ -97,20 +90,6 @@ class ApiConfigNotifier extends StateNotifier<ApiConfigState> {
     state = ApiConfigState(
       zhipuApiKey: state.zhipuApiKey,
       aliBailianApiKey: key,
-      deepseekApiKey: state.deepseekApiKey,
-      siliconFlowApiKey: state.siliconFlowApiKey,
-      ttsEngine: state.ttsEngine,
-      rewriteModel: state.rewriteModel,
-      auditModel: state.auditModel,
-    );
-  }
-
-  Future<void> setDeepseekApiKey(String key) async {
-    await StorageUtil.setSecure(ApiConfig.deepseekApiKeyKey, key);
-    state = ApiConfigState(
-      zhipuApiKey: state.zhipuApiKey,
-      aliBailianApiKey: state.aliBailianApiKey,
-      deepseekApiKey: key,
       siliconFlowApiKey: state.siliconFlowApiKey,
       ttsEngine: state.ttsEngine,
       rewriteModel: state.rewriteModel,
@@ -123,7 +102,6 @@ class ApiConfigNotifier extends StateNotifier<ApiConfigState> {
     state = ApiConfigState(
       zhipuApiKey: state.zhipuApiKey,
       aliBailianApiKey: state.aliBailianApiKey,
-      deepseekApiKey: state.deepseekApiKey,
       siliconFlowApiKey: state.siliconFlowApiKey,
       ttsEngine: engine,
       rewriteModel: state.rewriteModel,
@@ -136,7 +114,6 @@ class ApiConfigNotifier extends StateNotifier<ApiConfigState> {
     state = ApiConfigState(
       zhipuApiKey: state.zhipuApiKey,
       aliBailianApiKey: state.aliBailianApiKey,
-      deepseekApiKey: state.deepseekApiKey,
       siliconFlowApiKey: state.siliconFlowApiKey,
       ttsEngine: state.ttsEngine,
       rewriteModel: model,
@@ -149,7 +126,6 @@ class ApiConfigNotifier extends StateNotifier<ApiConfigState> {
     state = ApiConfigState(
       zhipuApiKey: state.zhipuApiKey,
       aliBailianApiKey: state.aliBailianApiKey,
-      deepseekApiKey: state.deepseekApiKey,
       siliconFlowApiKey: state.siliconFlowApiKey,
       ttsEngine: state.ttsEngine,
       rewriteModel: state.rewriteModel,
@@ -297,9 +273,6 @@ class ApiConfigIndicator extends ConsumerWidget {
           if (config.aliBailianApiKey != newConfig.aliBailianApiKey) {
             ref.read(apiConfigProvider.notifier).setAliBailianApiKey(newConfig.aliBailianApiKey ?? '');
           }
-          if (config.deepseekApiKey != newConfig.deepseekApiKey) {
-            ref.read(apiConfigProvider.notifier).setDeepseekApiKey(newConfig.deepseekApiKey ?? '');
-          }
           if (config.ttsEngine != newConfig.ttsEngine) {
             ref.read(apiConfigProvider.notifier).setTtsEngine(newConfig.ttsEngine);
           }
@@ -335,20 +308,17 @@ class _ApiConfigSheet extends StatefulWidget {
 class _ApiConfigSheetState extends State<_ApiConfigSheet> {
   late TextEditingController _zhipuController;
   late TextEditingController _aliController;
-  late TextEditingController _deepseekController;
   late String _ttsEngine;
   late String _rewriteModel;
   late String _auditModel;
   bool _obscureZhipu = true;
   bool _obscureAli = true;
-  bool _obscureDeepseek = true;
 
   @override
   void initState() {
     super.initState();
     _zhipuController = TextEditingController(text: widget.config.zhipuApiKey ?? '');
     _aliController = TextEditingController(text: widget.config.aliBailianApiKey ?? '');
-    _deepseekController = TextEditingController(text: widget.config.deepseekApiKey ?? '');
     _ttsEngine = widget.config.ttsEngine;
     _rewriteModel = widget.config.rewriteModel;
     _auditModel = widget.config.auditModel;
@@ -358,7 +328,6 @@ class _ApiConfigSheetState extends State<_ApiConfigSheet> {
   void dispose() {
     _zhipuController.dispose();
     _aliController.dispose();
-    _deepseekController.dispose();
     super.dispose();
   }
 
@@ -412,11 +381,11 @@ class _ApiConfigSheetState extends State<_ApiConfigSheet> {
                 const SizedBox(height: 16),
                 _buildZhipuConfig(),
                 const SizedBox(height: 16),
-                _buildDeepseekConfig(),
-                const SizedBox(height: 16),
                 _buildRewriteModelConfig(),
               ] else if (widget.type == ApiConfigIndicatorType.audit) ...[
-                _buildDeepseekConfig(),
+                _buildAliBailianConfig(),
+                const SizedBox(height: 16),
+                _buildZhipuConfig(),
                 const SizedBox(height: 16),
                 _buildAuditModelConfig(),
               ],
@@ -502,16 +471,6 @@ class _ApiConfigSheetState extends State<_ApiConfigSheet> {
       obscure: _obscureZhipu,
       onToggleObscure: () => setState(() => _obscureZhipu = !_obscureZhipu),
       hint: '用于文案改写（GLM-4-Flash 永久免费）',
-    );
-  }
-
-  Widget _buildDeepseekConfig() {
-    return _buildApiKeyField(
-      label: 'DeepSeek API Key',
-      controller: _deepseekController,
-      obscure: _obscureDeepseek,
-      onToggleObscure: () => setState(() => _obscureDeepseek = !_obscureDeepseek),
-      hint: '用于法务审核（需强推理能力）',
     );
   }
 
@@ -697,7 +656,7 @@ class _ApiConfigSheetState extends State<_ApiConfigSheet> {
             DropdownMenuItem(value: 'GLM-4-Flash', child: Text('GLM-4-Flash (免费)')),
             DropdownMenuItem(value: 'GLM-4', child: Text('GLM-4')),
             DropdownMenuItem(value: 'Qwen2.5-7B', child: Text('Qwen2.5-7B (硅基流动)')),
-            DropdownMenuItem(value: 'DeepSeek-V3', child: Text('DeepSeek-V3')),
+            DropdownMenuItem(value: 'qwen-plus', child: Text('qwen-plus (阿里百炼)')),
           ],
           onChanged: (value) {
             if (value != null) {
@@ -739,9 +698,9 @@ class _ApiConfigSheetState extends State<_ApiConfigSheet> {
             color: AppTheme.textPrimary,
           ),
           items: const [
-            DropdownMenuItem(value: 'DeepSeek-V3', child: Text('DeepSeek-V3 (推荐)')),
-            DropdownMenuItem(value: 'DeepSeek-R1', child: Text('DeepSeek-R1 (强推理)')),
-            DropdownMenuItem(value: 'GLM-4', child: Text('GLM-4')),
+            DropdownMenuItem(value: 'qwen-plus', child: Text('qwen-plus (推荐·阿里百炼)')),
+            DropdownMenuItem(value: 'GLM-4', child: Text('GLM-4 (智谱)')),
+            DropdownMenuItem(value: 'GLM-4-Flash', child: Text('GLM-4-Flash (免费)')),
           ],
           onChanged: (value) {
             if (value != null) {
@@ -757,7 +716,6 @@ class _ApiConfigSheetState extends State<_ApiConfigSheet> {
     widget.onSave(ApiConfigState(
       zhipuApiKey: _zhipuController.text,
       aliBailianApiKey: _aliController.text,
-      deepseekApiKey: _deepseekController.text,
       ttsEngine: _ttsEngine,
       rewriteModel: _rewriteModel,
       auditModel: _auditModel,

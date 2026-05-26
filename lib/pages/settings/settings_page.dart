@@ -22,21 +22,18 @@ class _SettingsPageState extends State<SettingsPage> {
   // API Key控制器
   final _zhipuKeyController = TextEditingController();
   final _siliconFlowKeyController = TextEditingController();
-  final _deepseekKeyController = TextEditingController();
   final _aliBailianKeyController = TextEditingController();
   final _hiflyTokenController = TextEditingController();
 
   // API Key显示/隐藏状态
   bool _zhipuKeyVisible = false;
   bool _siliconFlowKeyVisible = false;
-  bool _deepseekKeyVisible = false;
   bool _aliBailianKeyVisible = false;
   bool _hiflyKeyVisible = false;
 
   // API Key有效性检测状态：null=未检测, 'valid'=有效, 'invalid'=无效
   String? _zhipuKeyStatus;
   String? _siliconFlowKeyStatus;
-  String? _deepseekKeyStatus;
   String? _aliBailianKeyStatus;
   String? _hiflyKeyStatus;
 
@@ -75,7 +72,6 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _zhipuKeyController.dispose();
     _siliconFlowKeyController.dispose();
-    _deepseekKeyController.dispose();
     _aliBailianKeyController.dispose();
     _hiflyTokenController.dispose();
     _customWordController.dispose();
@@ -87,7 +83,6 @@ class _SettingsPageState extends State<SettingsPage> {
     // 加载API Key
     _zhipuKeyController.text = await StorageUtil.getSecure(ApiConfig.zhipuApiKeyKey) ?? '';
     _siliconFlowKeyController.text = await StorageUtil.getSecure(ApiConfig.siliconFlowApiKeyKey) ?? '';
-    _deepseekKeyController.text = await StorageUtil.getSecure(ApiConfig.deepseekApiKeyKey) ?? '';
     _aliBailianKeyController.text = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey) ?? '';
     _hiflyTokenController.text = await StorageUtil.getSecure(ApiConfig.hiflyApiKeyKey) ?? '';
 
@@ -186,24 +181,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
             const SizedBox(height: AppTheme.spacingSmall),
 
-            // DeepSeek
-            _buildApiKeyCard(
-              platformName: 'DeepSeek',
-              platformDesc: '法务审核（强推理）',
-              icon: Icons.psychology,
-              iconColor: const Color(0xFF00BFA5),
-              controller: _deepseekKeyController,
-              hintText: '输入DeepSeek API Key',
-              isVisible: _deepseekKeyVisible,
-              onToggleVisibility: () => setState(() => _deepseekKeyVisible = !_deepseekKeyVisible),
-              status: _deepseekKeyStatus,
-              isTesting: _testingKey == 'deepseek',
-              onTest: () => _testApiKey('deepseek'),
-              onClear: () => _clearApiKey('deepseek'),
-            ),
-
-            const SizedBox(height: AppTheme.spacingSmall),
-
             // 阿里百炼
             _buildApiKeyCard(
               platformName: '阿里百炼',
@@ -260,14 +237,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   _buildModelSelector(
                     label: '改写模型',
                     value: _rewriteModel,
-                    items: const ['GLM-4-Flash', 'Qwen2.5-7B', 'DeepSeek-V3'],
+                    items: const ['GLM-4-Flash', 'Qwen2.5-7B', 'qwen-plus'],
                     onChanged: (v) => setState(() => _rewriteModel = v!),
                   ),
                   const Divider(color: Color(0xFF2A2A4A), height: 1),
                   _buildModelSelector(
                     label: '审核模型',
                     value: _auditModel,
-                    items: const ['DeepSeek-V3', 'GLM-4-Flash'],
+                    items: const ['qwen-plus', 'GLM-4-Flash'],
                     onChanged: (v) => setState(() => _auditModel = v!),
                   ),
                   const Divider(color: Color(0xFF2A2A4A), height: 1),
@@ -773,7 +750,6 @@ class _SettingsPageState extends State<SettingsPage> {
       await StorageUtil.saveApiKeys({
         ApiConfig.zhipuApiKeyKey: _zhipuKeyController.text.trim(),
         ApiConfig.siliconFlowApiKeyKey: _siliconFlowKeyController.text.trim(),
-        ApiConfig.deepseekApiKeyKey: _deepseekKeyController.text.trim(),
         ApiConfig.aliBailianApiKeyKey: _aliBailianKeyController.text.trim(),
         ApiConfig.hiflyApiKeyKey: _hiflyTokenController.text.trim(),
       });
@@ -810,11 +786,6 @@ class _SettingsPageState extends State<SettingsPage> {
           apiKey = _siliconFlowKeyController.text.trim();
           testUrl = '${ApiConfig.siliconFlowBaseUrl}/chat/completions';
           model = ApiConfig.siliconFlowModelQwen;
-          break;
-        case 'deepseek':
-          apiKey = _deepseekKeyController.text.trim();
-          testUrl = '${ApiConfig.deepseekBaseUrl}/chat/completions';
-          model = ApiConfig.deepseekModelV3;
           break;
         case 'alibailian':
           apiKey = _aliBailianKeyController.text.trim();
@@ -886,7 +857,6 @@ class _SettingsPageState extends State<SettingsPage> {
         switch (platform) {
           case 'zhipu': _zhipuKeyStatus = isValid ? 'valid' : 'invalid'; break;
           case 'siliconflow': _siliconFlowKeyStatus = isValid ? 'valid' : 'invalid'; break;
-          case 'deepseek': _deepseekKeyStatus = isValid ? 'valid' : 'invalid'; break;
           case 'alibailian': _aliBailianKeyStatus = isValid ? 'valid' : 'invalid'; break;
           case 'hifly': _hiflyKeyStatus = isValid ? 'valid' : 'invalid'; break;
         }
@@ -907,7 +877,6 @@ class _SettingsPageState extends State<SettingsPage> {
           switch (platform) {
             case 'zhipu': _zhipuKeyStatus = 'invalid'; break;
             case 'siliconflow': _siliconFlowKeyStatus = 'invalid'; break;
-            case 'deepseek': _deepseekKeyStatus = 'invalid'; break;
             case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
             case 'hifly': _hiflyKeyStatus = 'invalid'; break;
           }
@@ -945,7 +914,6 @@ class _SettingsPageState extends State<SettingsPage> {
           switch (platform) {
             case 'zhipu': _zhipuKeyStatus = 'invalid'; break;
             case 'siliconflow': _siliconFlowKeyStatus = 'invalid'; break;
-            case 'deepseek': _deepseekKeyStatus = 'invalid'; break;
             case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
             case 'hifly': _hiflyKeyStatus = 'invalid'; break;
           }
@@ -957,7 +925,6 @@ class _SettingsPageState extends State<SettingsPage> {
         switch (platform) {
           case 'zhipu': _zhipuKeyStatus = 'invalid'; break;
           case 'siliconflow': _siliconFlowKeyStatus = 'invalid'; break;
-          case 'deepseek': _deepseekKeyStatus = 'invalid'; break;
           case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
           case 'hifly': _hiflyKeyStatus = 'invalid'; break;
         }
@@ -981,11 +948,6 @@ class _SettingsPageState extends State<SettingsPage> {
         storageKey = ApiConfig.siliconFlowApiKeyKey;
         _siliconFlowKeyController.clear();
         _siliconFlowKeyStatus = null;
-        break;
-      case 'deepseek':
-        storageKey = ApiConfig.deepseekApiKeyKey;
-        _deepseekKeyController.clear();
-        _deepseekKeyStatus = null;
         break;
       case 'alibailian':
         storageKey = ApiConfig.aliBailianApiKeyKey;

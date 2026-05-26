@@ -304,34 +304,13 @@ class ApiClient {
     );
   }
 
-  // ==================== DeepSeek快捷调用 ====================
-
-  /// 调用DeepSeek（法务审核用，强推理能力）
-  Future<String> chatDeepSeek({
-    required List<Map<String, String>> messages,
-    String model = ApiConfig.deepseekModelV3,
-    double temperature = 0.3,
-  }) async {
-    final apiKey = await StorageUtil.getSecure(ApiConfig.deepseekApiKeyKey);
-    if (apiKey == null || apiKey.isEmpty) {
-      throw Exception('请先配置DeepSeek的API Key');
-    }
-    return chatCompletion(
-      baseUrl: ApiConfig.deepseekBaseUrl,
-      apiKey: apiKey,
-      model: model,
-      messages: messages,
-      temperature: temperature,
-    );
-  }
-
   // ==================== 智能路由：自动选择可用API ====================
 
   /// 智能聊天 - 自动尝试所有已配置的API Key，哪个能用用哪个
-  /// 优先级：阿里百炼(兼容模式) → 智谱(免费) → 硅基流动(免费) → DeepSeek
+  /// 优先级：阿里百炼(兼容模式) → 智谱(免费) → 硅基流动(免费)
   /// [messages] 消息列表
   /// [temperature] 温度参数
-  /// [preferReasoning] 是否偏好强推理模型（法务审核等场景）
+  /// [preferReasoning] 是否偏好强推理模型（法务审核等场景，优先阿里百炼qwen-plus）
   Future<String> chatSmart({
     required List<Map<String, String>> messages,
     double temperature = 0.7,
@@ -339,19 +318,18 @@ class ApiClient {
   }) async {
     final errors = <String>[];
 
-    // 构建尝试顺序：推理场景优先DeepSeek，否则优先免费模型
+    // 构建尝试顺序：推理场景优先阿里百炼qwen-plus，否则优先免费模型
     final providers = preferReasoning
         ? [
-            _ProviderConfig(ApiConfig.deepseekApiKeyKey, ApiConfig.deepseekBaseUrl, ApiConfig.deepseekModelV3, 'DeepSeek'),
             _ProviderConfig(ApiConfig.aliBailianApiKeyKey, ApiConfig.aliBailianCompatUrl, 'qwen-plus', '阿里百炼'),
-            _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModelFlash, '智谱AI'),
+            _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModel4, '智谱AI'),
+            _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModelFlash, '智谱AI-Flash'),
             _ProviderConfig(ApiConfig.siliconFlowApiKeyKey, ApiConfig.siliconFlowBaseUrl, ApiConfig.siliconFlowModelQwen, '硅基流动'),
           ]
         : [
             _ProviderConfig(ApiConfig.aliBailianApiKeyKey, ApiConfig.aliBailianCompatUrl, 'qwen-plus', '阿里百炼'),
             _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModelFlash, '智谱AI'),
             _ProviderConfig(ApiConfig.siliconFlowApiKeyKey, ApiConfig.siliconFlowBaseUrl, ApiConfig.siliconFlowModelQwen, '硅基流动'),
-            _ProviderConfig(ApiConfig.deepseekApiKeyKey, ApiConfig.deepseekBaseUrl, ApiConfig.deepseekModelV3, 'DeepSeek'),
           ];
 
     for (final provider in providers) {
@@ -422,7 +400,6 @@ class ApiClient {
       _ProviderConfig(ApiConfig.aliBailianApiKeyKey, ApiConfig.aliBailianCompatUrl, 'qwen-plus', '阿里百炼'),
       _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModelFlash, '智谱AI'),
       _ProviderConfig(ApiConfig.siliconFlowApiKeyKey, ApiConfig.siliconFlowBaseUrl, ApiConfig.siliconFlowModelQwen, '硅基流动'),
-      _ProviderConfig(ApiConfig.deepseekApiKeyKey, ApiConfig.deepseekBaseUrl, ApiConfig.deepseekModelV3, 'DeepSeek'),
     ];
 
     String? lastError;
@@ -496,9 +473,6 @@ class _AuthInterceptor extends Interceptor {
     } else if (url.contains('siliconflow')) {
       // 硅基流动
       storageKey = ApiConfig.siliconFlowApiKeyKey;
-    } else if (url.contains('deepseek')) {
-      // DeepSeek
-      storageKey = ApiConfig.deepseekApiKeyKey;
     } else if (url.contains('dashscope')) {
       // 阿里百炼
       storageKey = ApiConfig.aliBailianApiKeyKey;

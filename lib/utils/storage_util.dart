@@ -226,7 +226,6 @@ class StorageUtil {
     final keys = await getAllApiKeys([
       'zhipu_api_key',
       'siliconflow_api_key',
-      'deepseek_api_key',
       'ali_bailian_api_key',
       'hifly_agent_token',
     ]);
@@ -289,7 +288,7 @@ class StorageUtil {
 
   /// 获取审核模型偏好
   static String getAuditModel() {
-    return getString('audit_model') ?? 'DeepSeek-V3';
+    return getString('audit_model') ?? 'qwen-plus';
   }
 
   /// 保存审核模型偏好

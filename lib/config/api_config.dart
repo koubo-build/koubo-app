@@ -12,15 +12,8 @@ class ApiConfig {
   static const String siliconFlowBaseUrl = 'https://api.siliconflow.cn/v1';
   static const String siliconFlowChatEndpoint = '/chat/completions';
   static const String siliconFlowModelQwen = 'Qwen/Qwen2.5-7B-Instruct';
-  static const String siliconFlowModelDeepSeek = 'deepseek-ai/DeepSeek-V2.5';
 
-  // ==================== DeepSeek（法务审核，需强推理） ====================
-  static const String deepseekBaseUrl = 'https://api.deepseek.com/v1';
-  static const String deepseekChatEndpoint = '/chat/completions';
-  static const String deepseekModelV3 = 'deepseek-chat';
-  static const String deepseekModelR1 = 'deepseek-reasoner';
-
-  // ==================== 阿里百炼（CosyVoice语音 + ASR） ====================
+  // ==================== 阿里百炼（语音 + 文案 + 改写） ====================
   static const String aliBailianBaseUrl = 'https://dashscope.aliyuncs.com/api/v1';
   static const String aliBailianCompatUrl = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
   static const String aliCosyvoiceEndpoint = '/services/audio/tts/SpeechSynthesizer';
@@ -51,13 +44,12 @@ class ApiConfig {
   static const Map<String, String> rewriteStrategy = {
     'main_model': zhipuModelFlash,       // 主力改写模型（免费）
     'score_model': siliconFlowModelQwen, // 改写质量评分（免费）
-    'review_model': deepseekModelV3,     // 法务审核（需强推理能力）
+    'review_model': 'qwen-plus',          // 法务审核（阿里百炼qwen-plus）
   };
 
   // ==================== API Key存储键名 ====================
   static const String zhipuApiKeyKey = 'zhipu_api_key';
   static const String siliconFlowApiKeyKey = 'siliconflow_api_key';
-  static const String deepseekApiKeyKey = 'deepseek_api_key';
   static const String aliBailianApiKeyKey = 'ali_bailian_api_key';
   static const String hiflyApiKeyKey = 'hifly_agent_token';
   static const String kuhuyunApiKeyKey = 'kuhuyun_api_key';

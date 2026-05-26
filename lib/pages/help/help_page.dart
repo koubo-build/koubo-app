@@ -154,16 +154,6 @@ class HelpPage extends StatelessWidget {
             const SizedBox(height: AppTheme.spacingSmall),
 
             _buildApiKeyGuideCard(
-              platform: 'DeepSeek',
-              desc: '注册账号 → 登录控制台 → API Keys → 创建新Key',
-              url: 'https://platform.deepseek.com/',
-              isFree: false,
-              freeDetail: '100万Token免费额度，30天有效',
-              color: const Color(0xFF00BFA5),
-            ),
-            const SizedBox(height: AppTheme.spacingSmall),
-
-            _buildApiKeyGuideCard(
               platform: '阿里百炼',
               desc: '注册阿里云 → 开通百炼服务 → API Keys → 创建新Key',
               url: 'https://dashscope.console.aliyun.com/',

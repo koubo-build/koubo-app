@@ -156,7 +156,7 @@ class LegalAuditService {
       prompt = _legalReviewPrompt.replaceAll('{text}', text);
     }
 
-    // 调用智能路由进行法务审核（自动选择可用API，推理场景优先DeepSeek）
+    // 调用智能路由进行法务审核（推理场景优先阿里百炼qwen-plus，其次智谱GLM-4）
     final result = await _apiClient.chatSmart(
       messages: [
         {
