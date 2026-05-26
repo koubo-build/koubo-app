@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/theme.dart';
 import '../../widgets/common/app_button.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/common/app_input.dart';
+import '../../widgets/common/api_config_indicator.dart';
 import '../../widgets/risk_badge.dart';
 
 /// 法务审核页 - 双重审核机制 + 风险标注 + 一键修正
-class AuditPage extends StatefulWidget {
+class AuditPage extends ConsumerStatefulWidget {
   const AuditPage({super.key});
 
   @override
-  State<AuditPage> createState() => _AuditPageState();
+  ConsumerState<AuditPage> createState() => _AuditPageState();
 }
 
-class _AuditPageState extends State<AuditPage> {
+class _AuditPageState extends ConsumerState<AuditPage> {
   final _textController = TextEditingController();
   bool _isAuditing = false;
   Map<String, dynamic>? _auditResult;
@@ -35,6 +37,15 @@ class _AuditPageState extends State<AuditPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // API配置指示器
+            ApiConfigIndicator(
+              type: ApiConfigIndicatorType.audit,
+              onConfigChanged: () {
+                ref.read(apiConfigProvider.notifier).refresh();
+              },
+            ),
+            const SizedBox(height: AppTheme.spacingSmall),
+
             // 文案输入区域
             AppCard(
               child: Column(
