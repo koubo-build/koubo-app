@@ -24,18 +24,21 @@ class _SettingsPageState extends State<SettingsPage> {
   final _siliconFlowKeyController = TextEditingController();
   final _aliBailianKeyController = TextEditingController();
   final _hiflyTokenController = TextEditingController();
+  final _tikhubKeyController = TextEditingController();
 
   // API Key显示/隐藏状态
   bool _zhipuKeyVisible = false;
   bool _siliconFlowKeyVisible = false;
   bool _aliBailianKeyVisible = false;
   bool _hiflyKeyVisible = false;
+  bool _tikhubKeyVisible = false;
 
   // API Key有效性检测状态：null=未检测, 'valid'=有效, 'invalid'=无效
   String? _zhipuKeyStatus;
   String? _siliconFlowKeyStatus;
   String? _aliBailianKeyStatus;
   String? _hiflyKeyStatus;
+  String? _tikhubKeyStatus;
 
   // 正在检测的Key标识
   String? _testingKey;
@@ -74,6 +77,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _siliconFlowKeyController.dispose();
     _aliBailianKeyController.dispose();
     _hiflyTokenController.dispose();
+    _tikhubKeyController.dispose();
     _customWordController.dispose();
     super.dispose();
   }
@@ -85,6 +89,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _siliconFlowKeyController.text = await StorageUtil.getSecure(ApiConfig.siliconFlowApiKeyKey) ?? '';
     _aliBailianKeyController.text = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey) ?? '';
     _hiflyTokenController.text = await StorageUtil.getSecure(ApiConfig.hiflyApiKeyKey) ?? '';
+    _tikhubKeyController.text = await StorageUtil.getSecure(ApiConfig.tikhubApiKeyKey) ?? '';
 
     // 加载模型偏好
     _rewriteModel = StorageUtil.getRewriteModel();
@@ -213,6 +218,24 @@ class _SettingsPageState extends State<SettingsPage> {
               isTesting: _testingKey == 'hifly',
               onTest: () => _testApiKey('hifly'),
               onClear: () => _clearApiKey('hifly'),
+            ),
+
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // TikHub（视频解析）
+            _buildApiKeyCard(
+              platformName: 'TikHub',
+              platformDesc: '抖音/快手视频文案提取（新用户免费）',
+              icon: Icons.video_library_outlined,
+              iconColor: const Color(0xFF00BCD4),
+              controller: _tikhubKeyController,
+              hintText: '输入 TikHub API Key（tikhub.io）',
+              isVisible: _tikhubKeyVisible,
+              onToggleVisibility: () => setState(() => _tikhubKeyVisible = !_tikhubKeyVisible),
+              status: _tikhubKeyStatus,
+              isTesting: _testingKey == 'tikhub',
+              onTest: () => _testApiKey('tikhub'),
+              onClear: () => _clearApiKey('tikhub'),
             ),
 
             const SizedBox(height: AppTheme.spacingMedium),
@@ -752,6 +775,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ApiConfig.siliconFlowApiKeyKey: _siliconFlowKeyController.text.trim(),
         ApiConfig.aliBailianApiKeyKey: _aliBailianKeyController.text.trim(),
         ApiConfig.hiflyApiKeyKey: _hiflyTokenController.text.trim(),
+        ApiConfig.tikhubApiKeyKey: _tikhubKeyController.text.trim(),
       });
 
       // 保存模型偏好到SharedPreferences
@@ -797,6 +821,11 @@ class _SettingsPageState extends State<SettingsPage> {
           testUrl = '${ApiConfig.hiflyBaseUrl}/avatar/list';
           model = '';
           break;
+        case 'tikhub':
+          apiKey = _tikhubKeyController.text.trim();
+          testUrl = '${ApiConfig.tikhubBaseUrl}${ApiConfig.tikhubVideoDataEndpoint}';
+          model = '';
+          break;
         default:
           return;
       }
@@ -820,6 +849,18 @@ class _SettingsPageState extends State<SettingsPage> {
           options: Options(headers: {'Authorization': 'Bearer $apiKey'}),
         );
         isValid = response.statusCode == 200;
+      } else if (platform == 'tikhub') {
+        // TikHub用GET请求测试（随便发一个测试链接，只要不返回401就说明Key有效）
+        final response = await dio.get(
+          testUrl,
+          queryParameters: {'url': 'https://v.douyin.com/test/'},
+          options: Options(headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Accept': 'application/json',
+          }),
+        );
+        final code = response.data?['code'];
+        isValid = response.statusCode == 200 && code != 401;
       } else if (platform == 'alibailian') {
         // 阿里百炼用兼容模式chat接口验证（更可靠）
         final response = await dio.post(
@@ -859,6 +900,7 @@ class _SettingsPageState extends State<SettingsPage> {
           case 'siliconflow': _siliconFlowKeyStatus = isValid ? 'valid' : 'invalid'; break;
           case 'alibailian': _aliBailianKeyStatus = isValid ? 'valid' : 'invalid'; break;
           case 'hifly': _hiflyKeyStatus = isValid ? 'valid' : 'invalid'; break;
+          case 'tikhub': _tikhubKeyStatus = isValid ? 'valid' : 'invalid'; break;
         }
       });
 
@@ -879,6 +921,7 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'siliconflow': _siliconFlowKeyStatus = 'invalid'; break;
             case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
             case 'hifly': _hiflyKeyStatus = 'invalid'; break;
+            case 'tikhub': _tikhubKeyStatus = 'invalid'; break;
           }
         });
       } else if (e.response?.statusCode == 429) {
@@ -916,6 +959,7 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'siliconflow': _siliconFlowKeyStatus = 'invalid'; break;
             case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
             case 'hifly': _hiflyKeyStatus = 'invalid'; break;
+            case 'tikhub': _tikhubKeyStatus = 'invalid'; break;
           }
         });
       }
@@ -958,6 +1002,11 @@ class _SettingsPageState extends State<SettingsPage> {
         storageKey = ApiConfig.hiflyApiKeyKey;
         _hiflyTokenController.clear();
         _hiflyKeyStatus = null;
+        break;
+      case 'tikhub':
+        storageKey = ApiConfig.tikhubApiKeyKey;
+        _tikhubKeyController.clear();
+        _tikhubKeyStatus = null;
         break;
       default:
         return;

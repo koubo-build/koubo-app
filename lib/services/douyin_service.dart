@@ -230,22 +230,26 @@ class DouyinService {
   }
 
   /// 解析抖音链接 - 多策略提取文案
-  /// 策略优先级：1.分享页抓取描述 2.API获取描述 3.视频下载+ASR
+  /// 策略优先级：1.第三方解析API 2.HTML抓取描述 3.视频下载+ASR
   Future<String> _parseDouyin(String url) async {
-    // 策略1：直接抓取分享页面HTML，提取视频描述文案
+    // 策略1：第三方解析API（最可靠，专业处理反爬）
+    try {
+      final desc = await _thirdPartyDouyinExtract(url);
+      if (desc.isNotEmpty) return desc;
+    } on ExtractException {
+      rethrow;
+    } catch (_) {}
+
+    // 策略2：直接抓取分享页面HTML，提取视频描述文案
     try {
       final desc = await _fetchDouyinDescription(url);
       if (desc.isNotEmpty) return desc;
     } catch (_) {}
 
-    // 策略2：解析短链接获取videoId → API获取视频描述
+    // 策略3：解析短链接获取videoId → 下载视频+ASR语音识别
     try {
       final videoId = await _parseDouyinUrl(url);
       if (videoId.isNotEmpty) {
-        final desc = await _getDouyinVideoDescription(videoId);
-        if (desc.isNotEmpty) return desc;
-
-        // 策略3：API获取视频URL → ASR语音识别
         final videoUrl = await _getDouyinVideoUrl(videoId);
         if (videoUrl.isNotEmpty) {
           final text = await _asrTranscribe(videoUrl);
@@ -423,13 +427,21 @@ class DouyinService {
 
   /// 解析快手链接 - 多策略提取文案
   Future<String> _parseKuaishou(String url) async {
-    // 策略1：抓取分享页面提取描述
+    // 策略1：第三方解析API
+    try {
+      final desc = await _thirdPartyKuaishouExtract(url);
+      if (desc.isNotEmpty) return desc;
+    } on ExtractException {
+      rethrow;
+    } catch (_) {}
+
+    // 策略2：抓取分享页面提取描述
     try {
       final desc = await _fetchKuaishouDescription(url);
       if (desc.isNotEmpty) return desc;
     } catch (_) {}
 
-    // 策略2：解析短链接获取videoId → API获取视频
+    // 策略3：解析短链接获取videoId → 下载视频+ASR
     try {
       final videoId = await _parseKuaishouUrl(url);
       if (videoId.isNotEmpty) {
@@ -737,13 +749,120 @@ class DouyinService {
     }
   }
 
-  // ==================== 第三方API兜底 ====================
+  // ==================== 第三方API解析 ====================
 
-  /// 第三方API文案提取（兜底方案）
+  /// 第三方API解析抖音视频 - 多源级联
+  /// 优先TikHub（最稳定，需API Key），其次酷虎云（用户自配置）
+  Future<String> _thirdPartyDouyinExtract(String url) async {
+    // 源1: TikHub解析（需配置API Key，新用户有免费额度）
+    try {
+      final desc = await _callTikHubApi(url);
+      if (desc.isNotEmpty) return desc;
+    } catch (_) {}
+
+    // 源2: 用户自配置的酷虎云API（如果有Key）
+    try {
+      final desc = await _thirdPartyExtract(url);
+      if (desc.isNotEmpty) return desc;
+    } catch (_) {}
+
+    return '';
+  }
+
+  /// 第三方API解析快手视频
+  Future<String> _thirdPartyKuaishouExtract(String url) async {
+    // TikHub也支持快手
+    try {
+      final desc = await _callTikHubApi(url);
+      if (desc.isNotEmpty) return desc;
+    } catch (_) {}
+
+    // 酷虎云兜底
+    try {
+      final desc = await _thirdPartyExtract(url);
+      if (desc.isNotEmpty) return desc;
+    } catch (_) {}
+
+    return '';
+  }
+
+  /// 调用TikHub解析API（需要API Key）
+  /// TikHub是目前最稳定的抖音/快手解析服务，需注册获取免费API Key
+  /// 注册地址: https://tikhub.io （新用户有免费额度）
+  Future<String> _callTikHubApi(String url) async {
+    final apiKey = await StorageUtil.getSecure(ApiConfig.tikhubApiKeyKey);
+    if (apiKey == null || apiKey.isEmpty) return '';
+
+    try {
+      final response = await _apiClient.get(
+        '${ApiConfig.tikhubBaseUrl}${ApiConfig.tikhubVideoDataEndpoint}',
+        queryParameters: {'url': url},
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Accept': 'application/json',
+          },
+          followRedirects: true,
+          maxRedirects: 5,
+          validateStatus: (status) => status != null && status < 500,
+          receiveTimeout: const Duration(seconds: 20),
+        ),
+      );
+
+      final data = response.data;
+      if (data == null) return '';
+      if (data is! Map<String, dynamic>) return '';
+
+      // TikHub响应格式: {code: 200, data: {...}}
+      final dataField = data['data'];
+      if (dataField is Map<String, dynamic>) {
+        return _extractDescFromNestedData(dataField);
+      }
+
+      return '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// 从嵌套数据中递归提取描述文案（适配各种API返回格式）
+  String _extractDescFromNestedData(Map<String, dynamic> data, {int depth = 0}) {
+    if (depth > 5) return ''; // 防止无限递归
+
+    // 直接取desc字段（抖音视频描述/口播文案）
+    if (data.containsKey('desc') && data['desc'] is String) {
+      final desc = (data['desc'] as String).trim();
+      if (desc.length > 5) return desc;
+    }
+
+    // 取title字段
+    if (data.containsKey('title') && data['title'] is String) {
+      final title = (data['title'] as String).trim();
+      if (title.length > 5) return title;
+    }
+
+    // 取aweme_detail.desc（抖音详情格式）
+    final awemeDetail = data['aweme_detail'];
+    if (awemeDetail is Map<String, dynamic>) {
+      final desc = awemeDetail['desc'] as String?;
+      if (desc != null && desc.trim().length > 5) return desc.trim();
+    }
+
+    // 递归搜索子节点
+    for (final value in data.values) {
+      if (value is Map<String, dynamic>) {
+        final result = _extractDescFromNestedData(value, depth: depth + 1);
+        if (result.isNotEmpty) return result;
+      }
+    }
+
+    return '';
+  }
+
+  /// 用户自配置的第三方API提取（需API Key）
   Future<String> _thirdPartyExtract(String url) async {
     final apiKey = await StorageUtil.getSecure(ApiConfig.kuhuyunApiKeyKey);
     if (apiKey == null || apiKey.isEmpty) {
-      // 没有第三方API Key不算错误，直接返回空让上层处理
       return '';
     }
 
@@ -761,7 +880,6 @@ class DouyinService {
       );
 
       final data = response.data as Map<String, dynamic>;
-      // 解析第三方API返回格式
       final result = data['data'] as Map<String, dynamic>?;
       if (result != null) {
         return result['text'] as String? ?? result['content'] as String? ?? '';

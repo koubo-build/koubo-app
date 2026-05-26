@@ -36,6 +36,10 @@ class ApiConfig {
   static const String kuhuyunBaseUrl = 'https://api.kuhuyun.com/api/aibasic';
   static const String kuhuyunVideoAnalysisEndpoint = '/videoanalysis';
 
+  // ==================== TikHub解析API（抖音/快手视频解析） ====================
+  static const String tikhubBaseUrl = 'https://api.tikhub.io/api/v1';
+  static const String tikhubVideoDataEndpoint = '/hybrid/video_data';
+
   // ==================== Edge-TTS（免费基础配音） ====================
   static const String edgeTtsBaseUrl = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1';
 
@@ -53,4 +57,5 @@ class ApiConfig {
   static const String aliBailianApiKeyKey = 'ali_bailian_api_key';
   static const String hiflyApiKeyKey = 'hifly_agent_token';
   static const String kuhuyunApiKeyKey = 'kuhuyun_api_key';
+  static const String tikhubApiKeyKey = 'tikhub_api_key';
 }
