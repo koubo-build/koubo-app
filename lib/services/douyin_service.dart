@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../config/api_config.dart';
@@ -113,15 +114,15 @@ class DouyinService {
   /// 判断是否为抖音链接
   bool _isDouyinUrl(String url) {
     final patterns = [
-      RegExp(r'^https?://v\.douyin\.com/\w+'),              // 短链接
-      RegExp(r'^https?://v\.douyin\.com/\w+/'),             // 短链接带斜杠
-      RegExp(r'^https?://www\.douyin\.com/video/\d+'),      // 完整链接
-      RegExp(r'^https?://www\.iesdouyin\.com/'),            // 旧域名
-      RegExp(r'^https?://www\.douyin\.com/user/'),          // 用户主页
-      RegExp(r'^https?://www\.douyin\.com/note/'),          // 图文笔记
-      RegExp(r'^https?://www\.douyin\.com/discover?'),      // 发现页
+      RegExp(r'^https?://v\.douyin\.com/[a-zA-Z0-9_-]+'),       // 短链接
+      RegExp(r'^https?://v\.douyin\.com/[a-zA-Z0-9_-]+/'),      // 短链接带斜杠
+      RegExp(r'^https?://www\.douyin\.com/video/\d+'),           // 完整链接
+      RegExp(r'^https?://www\.iesdouyin\.com/'),                 // 旧域名
+      RegExp(r'^https?://www\.douyin\.com/user/'),               // 用户主页
+      RegExp(r'^https?://www\.douyin\.com/note/'),               // 图文笔记
+      RegExp(r'^https?://www\.douyin\.com/discover?'),           // 发现页
       // 支持分享文本中的链接（用户可能复制了整段分享文本）
-      RegExp(r'https?://v\.douyin\.com/\w+'),
+      RegExp(r'https?://v\.douyin\.com/[a-zA-Z0-9_-]+'),
     ];
     return patterns.any((pattern) => pattern.hasMatch(url));
   }
@@ -129,17 +130,16 @@ class DouyinService {
   /// 判断是否为快手链接
   bool _isKuaishouUrl(String url) {
     final patterns = [
-      RegExp(r'^https?://v\.kuaishou\.com/\w+'),            // 短链接
-      RegExp(r'^https?://v\.kuaishou\.com/\w+/'),           // 短链接带斜杠
-      RegExp(r'^https?://www\.kuaishou\.com/short-video/'), // 完整链接
-      RegExp(r'^https?://kuaishou\.cn/'),                   // 短域名
-      RegExp(r'^https?://www\.kuaishou\.com/new-reco/'),    // 推荐链接
-      RegExp(r'^https?://m\.kuaishou\.com/'),               // 移动端链接
-      RegExp(r'^https?://www\.kuaishou\.com/short-video/'), // 短视频
-      RegExp(r'^https?://www\.kuaishou\.com/profile/'),     // 个人主页
+      RegExp(r'^https?://v\.kuaishou\.com/[a-zA-Z0-9_-]+'),       // 短链接
+      RegExp(r'^https?://v\.kuaishou\.com/[a-zA-Z0-9_-]+/'),      // 短链接带斜杠
+      RegExp(r'^https?://www\.kuaishou\.com/short-video/'),        // 完整链接
+      RegExp(r'^https?://kuaishou\.cn/'),                          // 短域名
+      RegExp(r'^https?://www\.kuaishou\.com/new-reco/'),           // 推荐链接
+      RegExp(r'^https?://m\.kuaishou\.com/'),                      // 移动端链接
+      RegExp(r'^https?://www\.kuaishou\.com/profile/'),            // 个人主页
       // 支持分享文本中的链接
-      RegExp(r'https?://v\.kuaishou\.com/\w+'),
-      RegExp(r'https?://kuaishou\.cn/\w+'),
+      RegExp(r'https?://v\.kuaishou\.com/[a-zA-Z0-9_-]+'),
+      RegExp(r'https?://kuaishou\.cn/[a-zA-Z0-9_-]+'),
     ];
     return patterns.any((pattern) => pattern.hasMatch(url));
   }
@@ -171,10 +171,11 @@ class DouyinService {
   String? extractUrlFromShareText(String text) {
     // 尝试提取抖音链接（短链接和完整链接）
     final douyinPatterns = [
-      RegExp(r'https?://v\.douyin\.com/[a-zA-Z0-9]+'),
+      RegExp(r'https?://v\.douyin\.com/[a-zA-Z0-9_-]+'),
       RegExp(r'https?://www\.douyin\.com/video/\d+'),
       RegExp(r'https?://www\.iesdouyin\.com/\S+'),
       RegExp(r'https?://www\.douyin\.com/note/\d+'),
+      RegExp(r'https?://www\.douyin\.com/video/\S+'),
     ];
     for (final pattern in douyinPatterns) {
       final match = pattern.firstMatch(text);
@@ -183,7 +184,7 @@ class DouyinService {
 
     // 尝试提取快手链接
     final kuaishouPatterns = [
-      RegExp(r'https?://v\.kuaishou\.com/[a-zA-Z0-9]+'),
+      RegExp(r'https?://v\.kuaishou\.com/[a-zA-Z0-9_-]+'),
       RegExp(r'https?://kuaishou\.cn/\S+'),
       RegExp(r'https?://www\.kuaishou\.com/short-video/\S+'),
       RegExp(r'https?://m\.kuaishou\.com/\S+'),
@@ -191,6 +192,16 @@ class DouyinService {
     for (final pattern in kuaishouPatterns) {
       final match = pattern.firstMatch(text);
       if (match != null) return match.group(0);
+    }
+
+    // 尝试提取通用http链接（兜底，处理非标准格式）
+    final genericMatch = RegExp(r'https?://[^\s<>"\u4e00-\u9fff]+').firstMatch(text);
+    if (genericMatch != null) {
+      final url = genericMatch.group(0) ?? '';
+      // 只返回抖音或快手域名的URL
+      if (url.contains('douyin') || url.contains('kuaishou') || url.contains('iesdouyin')) {
+        return url;
+      }
     }
 
     return null;
@@ -218,66 +229,277 @@ class DouyinService {
     throw ExtractException('不支持的平台：$platform', ExtractErrorType.unsupportedPlatform);
   }
 
-  /// 解析抖音链接
+  /// 解析抖音链接 - 多策略提取文案
+  /// 策略优先级：1.分享页抓取描述 2.API获取描述 3.视频下载+ASR
   Future<String> _parseDouyin(String url) async {
-    // 步骤1：解析抖音短链接，获取视频ID
-    final videoId = await _parseDouyinUrl(url);
-    if (videoId.isEmpty) {
-      throw ExtractException(
-        '无法解析抖音链接，请检查链接格式\n支持格式：https://v.douyin.com/xxx/',
-        ExtractErrorType.parseFailed,
-      );
-    }
+    // 策略1：直接抓取分享页面HTML，提取视频描述文案
+    try {
+      final desc = await _fetchDouyinDescription(url);
+      if (desc.isNotEmpty) return desc;
+    } catch (_) {}
 
-    // 步骤2：获取无水印视频URL
-    final videoUrl = await _getDouyinVideoUrl(videoId);
-    if (videoUrl.isEmpty) {
-      throw ExtractException(
-        '无法获取抖音视频地址，可能是视频已被删除或设为私密',
-        ExtractErrorType.videoUnavailable,
-      );
-    }
+    // 策略2：解析短链接获取videoId → API获取视频描述
+    try {
+      final videoId = await _parseDouyinUrl(url);
+      if (videoId.isNotEmpty) {
+        final desc = await _getDouyinVideoDescription(videoId);
+        if (desc.isNotEmpty) return desc;
 
-    // 步骤3：调用ASR服务将视频音频转为文字
-    final text = await _asrTranscribe(videoUrl);
-    if (text.isEmpty) {
-      throw ExtractException(
-        '语音识别失败，该视频可能没有语音内容',
-        ExtractErrorType.asrFailed,
-      );
-    }
-    return text;
+        // 策略3：API获取视频URL → ASR语音识别
+        final videoUrl = await _getDouyinVideoUrl(videoId);
+        if (videoUrl.isNotEmpty) {
+          final text = await _asrTranscribe(videoUrl);
+          if (text.isNotEmpty) return text;
+        }
+      }
+    } catch (_) {}
+
+    throw ExtractException(
+      '文案提取失败，请尝试：\n1. 点击「手动输入」直接粘贴视频中的文案\n2. 确认链接正确且视频未设为私密\n3. 稍后重试',
+      ExtractErrorType.extractFailed,
+    );
   }
 
-  /// 解析快手链接
+  /// 从抖音分享页面抓取视频描述文案
+  /// 通过访问分享链接的HTML页面，提取RENDER_DATA或meta标签中的文案
+  Future<String> _fetchDouyinDescription(String url) async {
+    try {
+      final response = await _apiClient.get(
+        url,
+        options: Options(
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+            'Referer': 'https://www.douyin.com/',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Cookie': 'ttwid=1%7C',
+          },
+          followRedirects: true,
+          maxRedirects: 5,
+          responseType: ResponseType.plain,
+          validateStatus: (status) => status != null && status < 500,
+          receiveTimeout: const Duration(seconds: 15),
+        ),
+      );
+
+      final html = response.data?.toString() ?? '';
+      if (html.isEmpty) return '';
+
+      // 方法1：从RENDER_DATA提取（抖音SSR页面内嵌的JSON数据）
+      final renderMatch = RegExp(r'<script\s+id="RENDER_DATA"\s+type="application/json">([^<]+)</script>').firstMatch(html);
+      if (renderMatch != null) {
+        try {
+          final encoded = renderMatch.group(1) ?? '';
+          final decoded = Uri.decodeComponent(encoded);
+          final jsonData = jsonDecode(decoded) as Map<String, dynamic>;
+          final desc = _extractDescFromRenderData(jsonData);
+          if (desc.isNotEmpty) return desc;
+        } catch (_) {}
+      }
+
+      // 方法2：从SSR hydration数据提取（新版抖音页面格式）
+      final ssrMatch = RegExp(r'"desc"\s*:\s*"([^"]{2,})"').firstMatch(html);
+      if (ssrMatch != null) {
+        final desc = ssrMatch.group(1) ?? '';
+        if (desc.length > 5) return _unescapeJson(desc);
+      }
+
+      // 方法3：从og:description meta标签提取
+      final ogMatch = RegExp(r'<meta\s+(?:property|name)=["\']og:description["\']\s+content=["\']([^"\']+)["\']').firstMatch(html)
+          ?? RegExp(r'<meta\s+content=["\']([^"\']+)["\']\s+(?:property|name)=["\']og:description["\']').firstMatch(html);
+      if (ogMatch != null) {
+        final desc = ogMatch.group(1) ?? '';
+        if (desc.length > 5) return desc;
+      }
+
+      // 方法4：从<title>标签提取（兜底）
+      final titleMatch = RegExp(r'<title>([^<]+)</title>').firstMatch(html);
+      if (titleMatch != null) {
+        var title = titleMatch.group(1) ?? '';
+        // 清理标题中的平台后缀
+        title = title.replaceAll(RegExp(r'\s*[-|·]\s*抖音.*$'), '').trim();
+        title = title.replaceAll(RegExp(r'^抖音\s*[-|·]?\s*'), '').trim();
+        if (title.length > 5) return title;
+      }
+
+      return '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// 从RENDER_DATA JSON中递归查找视频描述
+  String _extractDescFromRenderData(Map<String, dynamic> data) {
+    // 尝试多种已知的JSON路径
+    final paths = [
+      ['awemeDetail', 'desc'],
+      ['aweme_detail', 'desc'],
+      ['videoDetail', 'desc'],
+      ['detail', 'desc'],
+    ];
+
+    for (final path in paths) {
+      var current = data;
+      for (var i = 0; i < path.length - 1; i++) {
+        final key = path[i];
+        if (current[key] is Map<String, dynamic>) {
+          current = current[key] as Map<String, dynamic>;
+        } else {
+          current = {};
+          break;
+        }
+      }
+      final lastKey = path.last;
+      if (current.containsKey(lastKey) && current[lastKey] is String) {
+        final desc = (current[lastKey] as String).trim();
+        if (desc.isNotEmpty) return desc;
+      }
+    }
+
+    // 递归搜索：查找第一个包含 "desc" 字段且值非空的节点
+    return _findDescRecursive(data);
+  }
+
+  /// 递归搜索JSON中的desc字段
+  String _findDescRecursive(dynamic data, [int depth = 0]) {
+    if (depth > 5) return ''; // 防止递归太深
+    if (data is! Map<String, dynamic>) return '';
+
+    // 优先查找desc字段
+    if (data.containsKey('desc') && data['desc'] is String) {
+      final desc = (data['desc'] as String).trim();
+      if (desc.length > 5) return desc;
+    }
+
+    // 递归搜索子节点
+    for (final value in data.values) {
+      if (value is Map<String, dynamic>) {
+        final result = _findDescRecursive(value, depth + 1);
+        if (result.isNotEmpty) return result;
+      }
+    }
+
+    return '';
+  }
+
+  /// 反转义JSON字符串中的转义字符
+  String _unescapeJson(String s) {
+    return s
+        .replaceAll(r'\\n', '\n')
+        .replaceAll(r'\\t', '\t')
+        .replaceAll(r'\\r', '\r')
+        .replaceAll(r'\\"', '"')
+        .replaceAll(r'\\\\', '\\');
+  }
+
+  /// 通过API获取抖音视频描述文案（不需要下载视频）
+  Future<String> _getDouyinVideoDescription(String videoId) async {
+    try {
+      final response = await _apiClient.get(
+        'https://www.douyin.com/aweme/v1/web/aweme/detail/',
+        queryParameters: {
+          'aweme_id': videoId,
+        },
+        options: Options(
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+            'Referer': 'https://www.douyin.com/',
+          },
+        ),
+      );
+
+      final data = response.data as Map<String, dynamic>;
+      final awemeDetail = data['aweme_detail'] as Map<String, dynamic>?;
+      if (awemeDetail != null) {
+        // 优先取desc字段
+        final desc = awemeDetail['desc'] as String?;
+        if (desc != null && desc.trim().isNotEmpty) return desc.trim();
+      }
+      return '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// 解析快手链接 - 多策略提取文案
   Future<String> _parseKuaishou(String url) async {
-    // 步骤1：解析快手短链接，获取视频ID
-    final videoId = await _parseKuaishouUrl(url);
-    if (videoId.isEmpty) {
-      throw ExtractException(
-        '无法解析快手链接，请检查链接格式\n支持格式：https://v.kuaishou.com/xxx/',
-        ExtractErrorType.parseFailed,
-      );
-    }
+    // 策略1：抓取分享页面提取描述
+    try {
+      final desc = await _fetchKuaishouDescription(url);
+      if (desc.isNotEmpty) return desc;
+    } catch (_) {}
 
-    // 步骤2：获取快手视频URL
-    final videoUrl = await _getKuaishouVideoUrl(videoId);
-    if (videoUrl.isEmpty) {
-      throw ExtractException(
-        '无法获取快手视频地址，可能是视频已被删除或设为私密',
-        ExtractErrorType.videoUnavailable,
-      );
-    }
+    // 策略2：解析短链接获取videoId → API获取视频
+    try {
+      final videoId = await _parseKuaishouUrl(url);
+      if (videoId.isNotEmpty) {
+        final videoUrl = await _getKuaishouVideoUrl(videoId);
+        if (videoUrl.isNotEmpty) {
+          final text = await _asrTranscribe(videoUrl);
+          if (text.isNotEmpty) return text;
+        }
+      }
+    } catch (_) {}
 
-    // 步骤3：调用ASR服务将视频音频转为文字
-    final text = await _asrTranscribe(videoUrl);
-    if (text.isEmpty) {
-      throw ExtractException(
-        '语音识别失败，该视频可能没有语音内容',
-        ExtractErrorType.asrFailed,
+    throw ExtractException(
+      '文案提取失败，请尝试：\n1. 点击「手动输入」直接粘贴视频中的文案\n2. 确认链接正确且视频未设为私密\n3. 稍后重试',
+      ExtractErrorType.extractFailed,
+    );
+  }
+
+  /// 从快手分享页面抓取视频描述文案
+  Future<String> _fetchKuaishouDescription(String url) async {
+    try {
+      final response = await _apiClient.get(
+        url,
+        options: Options(
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+            'Referer': 'https://www.kuaishou.com/',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          },
+          followRedirects: true,
+          maxRedirects: 5,
+          responseType: ResponseType.plain,
+          validateStatus: (status) => status != null && status < 500,
+          receiveTimeout: const Duration(seconds: 15),
+        ),
       );
+
+      final html = response.data?.toString() ?? '';
+      if (html.isEmpty) return '';
+
+      // 从og:description提取
+      final ogMatch = RegExp(r'<meta\s+(?:property|name)=["\']og:description["\']\s+content=["\']([^"\']+)["\']').firstMatch(html)
+          ?? RegExp(r'<meta\s+content=["\']([^"\']+)["\']\s+(?:property|name)=["\']og:description["\']').firstMatch(html);
+      if (ogMatch != null) {
+        final desc = ogMatch.group(1) ?? '';
+        if (desc.length > 5) return desc;
+      }
+
+      // 从window.__APOLLO_STATE__提取
+      final apolloMatch = RegExp(r'window\.__APOLLO_STATE__\s*=\s*(\{.+?\})\s*;?\s*</script>').firstMatch(html);
+      if (apolloMatch != null) {
+        try {
+          final jsonData = jsonDecode(apolloMatch.group(1)!) as Map<String, dynamic>;
+          final desc = _findDescRecursive(jsonData);
+          if (desc.isNotEmpty) return desc;
+        } catch (_) {}
+      }
+
+      // 从<title>提取
+      final titleMatch = RegExp(r'<title>([^<]+)</title>').firstMatch(html);
+      if (titleMatch != null) {
+        var title = titleMatch.group(1) ?? '';
+        title = title.replaceAll(RegExp(r'\s*[-|·]\s*快手.*$'), '').trim();
+        if (title.length > 5) return title;
+      }
+
+      return '';
+    } catch (_) {
+      return '';
     }
-    return text;
   }
 
   /// 解析抖音短链接，提取视频ID
@@ -290,23 +512,58 @@ class DouyinService {
         return directMatch.group(1) ?? '';
       }
 
-      // 请求短链接，获取重定向后的URL
-      final response = await _apiClient.get(
-        url,
-        options: Options(
-          followRedirects: false,
-          validateStatus: (status) => status != null && status < 400,
-        ),
-      );
+      // 尝试请求短链接获取重定向URL
+      try {
+        final response = await _apiClient.get(
+          url,
+          options: Options(
+            followRedirects: false,
+            validateStatus: (status) => status != null && status < 400,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+            },
+          ),
+        );
 
-      // 从重定向URL中提取视频ID
-      final location = response.headers['location']?.first ?? '';
-      // 视频ID通常在URL路径中，格式如 /video/7xxxxxxxx/
-      final regex = RegExp(r'/video/(\d+)');
-      final match = regex.firstMatch(location);
-      if (match != null) {
-        return match.group(1) ?? '';
-      }
+        // 从重定向URL中提取视频ID
+        final location = response.headers['location']?.first ?? '';
+        final regex = RegExp(r'/video/(\d+)');
+        final match = regex.firstMatch(location);
+        if (match != null) {
+          return match.group(1) ?? '';
+        }
+      } catch (_) {}
+
+      // 如果重定向失败，尝试直接访问页面从HTML中提取视频ID
+      try {
+        final response = await _apiClient.get(
+          url,
+          options: Options(
+            followRedirects: true,
+            maxRedirects: 5,
+            responseType: ResponseType.plain,
+            validateStatus: (status) => status != null && status < 500,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+            },
+          ),
+        );
+
+        final html = response.data?.toString() ?? '';
+        // 从最终URL或HTML中提取视频ID
+        final effectiveUrl = response.realUri.toString();
+        final urlMatch = RegExp(r'/video/(\d+)').firstMatch(effectiveUrl);
+        if (urlMatch != null) return urlMatch.group(1) ?? '';
+
+        // 从HTML中的canonical链接提取
+        final canonicalMatch = RegExp(r'<link[^>]*rel="canonical"[^>]*href="[^"]*/video/(\d+)"').firstMatch(html);
+        if (canonicalMatch != null) return canonicalMatch.group(1) ?? '';
+
+        // 从RENDER_DATA中提取aweme_id
+        final renderMatch = RegExp(r'"aweme_id"\s*:\s*"(\d+)"').firstMatch(html);
+        if (renderMatch != null) return renderMatch.group(1) ?? '';
+      } catch (_) {}
+
       return '';
     } catch (_) {
       return '';
@@ -363,14 +620,24 @@ class DouyinService {
         },
         options: Options(
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
             'Referer': 'https://www.douyin.com/',
           },
         ),
       );
 
-      final data = response.data as Map<String, dynamic>;
-      final awemeDetail = data['aweme_detail'] as Map<String, dynamic>?;
+      final data = response.data;
+      // 处理响应可能是字符串的情况
+      Map<String, dynamic> jsonData;
+      if (data is String) {
+        jsonData = jsonDecode(data) as Map<String, dynamic>;
+      } else if (data is Map<String, dynamic>) {
+        jsonData = data;
+      } else {
+        return '';
+      }
+
+      final awemeDetail = jsonData['aweme_detail'] as Map<String, dynamic>?;
       if (awemeDetail != null) {
         final video = awemeDetail['video'] as Map<String, dynamic>?;
         if (video != null) {
