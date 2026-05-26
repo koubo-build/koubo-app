@@ -251,9 +251,9 @@ class ApiConfigIndicator extends ConsumerWidget {
             : config.ttsEngine == 'edge_tts' ? 'Edge-TTS' : 'CosyVoice';
         return 'TTS: $engine ${config.hasAliBailian ? "✅" : "❌"}';
       case ApiConfigIndicatorType.extract:
-        return '改写: ${config.rewriteModel} ${config.hasZhipu ? "✅" : "❌"} | 审核: ${config.auditModel} ${config.hasDeepseek ? "✅" : "❌"}';
+        return '改写: ${config.rewriteModel} ${config.hasZhipu ? "✅" : "❌"} | 审核: ${config.auditModel} ${config.hasAliBailian ? "✅" : "❌"}';
       case ApiConfigIndicatorType.audit:
-        return '审核: ${config.auditModel} ${config.hasDeepseek ? "✅" : "❌"}';
+        return '审核: ${config.auditModel} ${config.hasAliBailian ? "✅" : "❌"}';
     }
   }
 
