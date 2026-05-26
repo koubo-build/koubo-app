@@ -84,21 +84,30 @@ class VoiceCloneService {
   }
 
   /// 注册克隆音色
+  /// 官方API: POST /api/v1/services/audio/tts/customization
+  /// model: "voice-enrollment", input: {action: "create_voice", target_model, prefix, url}
   Future<String> _registerVoice({
     required String audioUrl,
     required String refText,
     required String voiceName,
     required String apiKey,
   }) async {
+    // voiceName作为prefix（音色名称前缀），仅支持小写字母和数字
+    final prefix = voiceName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
     final requestBody = <String, dynamic>{
-      'model': 'cosyvoice-v2',
-      'voice_name': voiceName,
-      'ref_audio_url': audioUrl,
+      'model': 'voice-enrollment',
+      'input': {
+        'action': 'create_voice',
+        'target_model': 'cosyvoice-v2',
+        'prefix': prefix.isNotEmpty ? prefix : 'myvoice',
+        'url': audioUrl,
+      },
     };
 
     // 参考文本可提高克隆质量
     if (refText.isNotEmpty) {
-      requestBody['ref_text'] = refText;
+      (requestBody['input'] as Map<String, dynamic>)['ref_text'] = refText;
     }
 
     final response = await _apiClient.post(
@@ -107,7 +116,7 @@ class VoiceCloneService {
       options: Options(
         headers: {
           'Authorization': 'Bearer $apiKey',
-          'X-DashScope-Async': 'enable',
+          'Content-Type': 'application/json',
         },
       ),
     );

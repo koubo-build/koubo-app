@@ -669,26 +669,27 @@ class _VoicePageState extends ConsumerState<VoicePage>
               child: Column(
                 children: [
                   // 录音按钮
-                  GestureDetector(
-                    onTapDown: state.recordMode == RecordMode.hold
+                  Listener(
+                    onPointerDown: state.recordMode == RecordMode.hold
                         ? (_) => _startRecording()
                         : null,
-                    onTapUp: state.recordMode == RecordMode.hold
+                    onPointerUp: state.recordMode == RecordMode.hold
                         ? (_) => _stopRecording()
                         : null,
-                    onTapCancel: state.recordMode == RecordMode.hold
-                        ? () => _stopRecording()
+                    onPointerCancel: state.recordMode == RecordMode.hold
+                        ? (_) => _stopRecording()
                         : null,
-                    onTap: state.recordMode == RecordMode.tap
-                        ? () {
-                            if (_isRecording) {
-                              _stopRecording();
-                            } else {
-                              _startRecording();
+                    child: GestureDetector(
+                      onTap: state.recordMode == RecordMode.tap
+                          ? () {
+                              if (_isRecording) {
+                                _stopRecording();
+                              } else {
+                                _startRecording();
+                              }
                             }
-                          }
-                        : null,
-                    child: AnimatedBuilder(
+                          : null,
+                      child: AnimatedBuilder(
                       animation: _pulseAnimController,
                       builder: (context, child) {
                         final scale = _isRecording
@@ -724,6 +725,7 @@ class _VoicePageState extends ConsumerState<VoicePage>
                       },
                     ),
                   ),
+                ),
                   const SizedBox(height: 8),
                   // 录音时长
                   Text(

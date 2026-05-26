@@ -106,9 +106,13 @@ class TtsService {
 
   /// 将Edge-TTS音色ID映射为CosyVoice音色名
   String _mapToCosyVoiceId(String voiceId) {
-    // 如果已经是CosyVoice格式的音色ID，直接返回
-    if (!voiceId.contains('-')) return voiceId;
-    return _edgeToCosyVoiceMap[voiceId] ?? 'longanhuan';
+    // 如果已经是CosyVoice格式的音色名（纯小写字母），直接返回
+    if (!voiceId.contains('-') && voiceId.isNotEmpty) return voiceId;
+    // Edge-TTS格式（如zh-CN-YunxiaNeural），查映射表
+    final mapped = _edgeToCosyVoiceMap[voiceId];
+    if (mapped != null) return mapped;
+    // 如果映射表找不到，用默认音色
+    return 'longanhuan';
   }
 
   // ==================== 阿里百炼 CosyVoice（主力方案） ====================
@@ -178,9 +182,10 @@ class TtsService {
     required String filePath,
   }) async {
     // 构建请求体（按官方API格式）
+    final effectiveVoiceId = voiceId.isEmpty ? 'longanhuan' : voiceId;
     final input = <String, dynamic>{
       'text': text,
-      'voice': voiceId,
+      'voice': effectiveVoiceId,
       'format': 'mp3',
       'sample_rate': 24000,
     };
