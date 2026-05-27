@@ -17,8 +17,9 @@ class TtsService {
 
   // ==================== CosyVoice 系统音色映射 ====================
 
-  /// Edge-TTS音色ID → CosyVoice音色名 的映射
-  /// 用户选的是Edge-TTS音色名，实际合成时自动转为CosyVoice对应音色
+  /// Edge-TTS音色ID → CosyVoice基础音色名 的映射
+  /// 注意：实际合成时会根据模型版本自动添加后缀（_v3或_v2）
+  /// longanyang和longanhuan各版本通用，无需后缀
   static const Map<String, String> _edgeToCosyVoiceMap = {
     'zh-CN-XiaoxiaoNeural': 'longanhuan',   // 晓晓 → 龙安欢（欢脱元气女）
     'zh-CN-XiaoyiNeural': 'longanhuan',     // 晓艺 → 龙安欢
@@ -36,6 +37,22 @@ class TtsService {
     'zh-CN-liaoning-XiaobeiNeural': 'longanhuan', // 小北 → 龙安欢
     'zh-CN-shaanxi-XiaoniNeural': 'longanhuan',   // 小妮 → 龙安欢
   };
+
+  /// 不同模型版本需要不同音色后缀
+  /// v3-flash: longshuo → longshuo_v3, longhuhu → longhuhu_v3
+  /// v2: longshuo → longshuo_v2, longhuhu → longhuhu_v2
+  /// longanyang和longanhuan在所有版本中无后缀
+  static const Set<String> _versionNeutralVoices = {
+    'longanyang', 'longanhuan',
+  };
+
+  /// 根据模型版本返回正确的音色名
+  static String _voiceForModel(String baseVoice, String model) {
+    if (_versionNeutralVoices.contains(baseVoice)) return baseVoice;
+    if (model.contains('v3')) return '${baseVoice}_v3';
+    if (model.contains('v2')) return '${baseVoice}_v2';
+    return baseVoice;
+  }
 
   /// CosyVoice 可用系统音色列表（用于UI显示）
   static const List<Map<String, String>> cosyVoiceList = [
@@ -119,18 +136,9 @@ class TtsService {
             emotion: emotion,
           );
         } catch (e) {
-          // CosyVoice失败，尝试Edge-TTS
-          try {
-            return await synthesizeEdgeTts(
-              text: text,
-              voiceId: voiceId,
-              rate: speed == 1.0 ? '+0%' : '${speed > 1.0 ? '+' : '-'}${((speed - 1.0) * 100).abs().round()}%',
-              pitch: pitch == 1.0 ? '+0Hz' : '${pitch > 1.0 ? '+' : '-'}${((pitch - 1.0) * 10).abs().round()}Hz',
-              volume: volume == 1.0 ? '+0%' : '${volume > 1.0 ? '+' : '-'}${((volume - 1.0) * 100).abs().round()}%',
-            );
-          } catch (e2) {
-            throw Exception('语音合成失败：\nCosyVoice: ${e.toString().replaceAll("Exception: ", "")}\nEdge-TTS: ${e2.toString().replaceAll("Exception: ", "")}');
-          }
+          // CosyVoice失败，Edge-TTS也经常被微软403封禁
+          // 不再盲目尝试Edge-TTS，直接给出明确的错误提示
+          throw Exception('语音合成失败：\n${e.toString().replaceAll("Exception: ", "")}\n\n请检查：1.阿里百炼API Key是否正确 2.是否欠费');
         }
     }
   }
@@ -149,9 +157,10 @@ class TtsService {
   // ==================== 阿里百炼 CosyVoice（主力方案） ====================
 
   /// CosyVoice模型优先级列表（自动降级）
+  /// v3-flash推荐优先（速度快、音色多），v2备选
   static const List<String> _cosyVoiceModels = [
-    'cosyvoice-v2',
     'cosyvoice-v3-flash',
+    'cosyvoice-v2',
   ];
 
   /// 使用阿里百炼CosyVoice合成语音
@@ -213,7 +222,10 @@ class TtsService {
     required String filePath,
   }) async {
     // 构建请求体（按官方API格式）
-    final effectiveVoiceId = voiceId.isEmpty ? 'longanhuan' : voiceId;
+    // 关键：不同模型版本需要不同的音色名后缀
+    // v3-flash: longshuo → longshuo_v3; v2: longshuo → longshuo_v2
+    final baseVoiceId = voiceId.isEmpty ? 'longanhuan' : voiceId;
+    final effectiveVoiceId = _voiceForModel(baseVoiceId, model);
     final input = <String, dynamic>{
       'text': text,
       'voice': effectiveVoiceId,
