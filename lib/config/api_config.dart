@@ -76,6 +76,9 @@ class ApiConfig {
     {'value': 'cosyvoice-v2', 'label': 'v2', 'desc': '稳定版，音质好'},
   ];
 
+  // ==================== Edge-TTS WebSocket（国内被墙，已改走qwen_tts，仅保留常量供旧代码编译） ====================
+  static const String edgeTtsBaseUrl = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1';
+
   // ==================== 第三方文案提取API（兜底） ====================
   static const String kuhuyunBaseUrl = 'https://api.kuhuyun.com/api/aibasic';
   static const String kuhuyunVideoAnalysisEndpoint = '/videoanalysis';
