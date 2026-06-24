@@ -1257,14 +1257,6 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  void _showSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
-    );
-  }
-}
-
   /// 带描述的模型选择器（从ApiConfig的选项列表构建）
   Widget _buildModelSelectorWithDesc({
     required String value,
@@ -1306,3 +1298,11 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
+  }
+}
