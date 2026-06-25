@@ -39,12 +39,21 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
   // 提示词控制器
   final _promptController = TextEditingController();
 
+  // 文案手动输入控制器
+  final _scriptTextController = TextEditingController();
+
+  // AI搜索关键词控制器
+  final _scriptTopicController = TextEditingController();
+
   // 视频播放器
   VideoPlayerController? _videoController;
   bool _isVideoInitialized = false;
 
   // 图片选择器
   final ImagePicker _imagePicker = ImagePicker();
+
+  // 是否已同步过文案（防止每次重建都覆盖输入框）
+  bool _hasSyncedScriptText = false;
 
   @override
   void initState() {
@@ -61,11 +70,22 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
     _promptController.addListener(() {
       ref.read(digitalHumanProvider.notifier).setPrompt(_promptController.text);
     });
+
+    // 同步已有文案到输入框（从其他页面跳转过来的初始文案）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final existingScript = ref.read(digitalHumanProvider).scriptText;
+      if (existingScript.isNotEmpty && !_hasSyncedScriptText) {
+        _scriptTextController.text = existingScript;
+        _hasSyncedScriptText = true;
+      }
+    });
   }
 
   @override
   void dispose() {
     _promptController.dispose();
+    _scriptTextController.dispose();
+    _scriptTopicController.dispose();
     _videoController?.dispose();
     super.dispose();
   }
@@ -85,6 +105,12 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
           next.localVideoPath != null &&
           prev?.genState != VideoGenState.completed) {
         _initVideoPlayer(next.localVideoPath!);
+      }
+      // AI生成文案完成后同步到输入框
+      if (next.scriptText.isNotEmpty && 
+          next.scriptText != prev?.scriptText &&
+          !next.isGeneratingScript) {
+        _scriptTextController.text = next.scriptText;
       }
     });
 
@@ -532,7 +558,7 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: const Text(
-                  'AI生成',
+                  'AI搜索生成',
                   style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
                 ),
               ),
@@ -546,64 +572,101 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
           ),
           const SizedBox(height: AppTheme.spacingSmall),
 
-          // 已有文案时显示预览 + 操作按钮
-          if (state.scriptText.isNotEmpty) ...[
-            Container(
-              width: double.infinity,
-              constraints: const BoxConstraints(minHeight: 80),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.darkSurface,
+          // 1. 手动输入/编辑文案
+          const Text(
+            '手动输入文案',
+            style: TextStyle(fontSize: 12, color: AppTheme.textHint, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _scriptTextController,
+            maxLines: 5,
+            minLines: 3,
+            style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.6),
+            decoration: InputDecoration(
+              hintText: '在此粘贴或输入你的口播文案...',
+              hintStyle: TextStyle(fontSize: 14, color: AppTheme.textHint.withOpacity(0.6)),
+              filled: true,
+              fillColor: AppTheme.darkSurface,
+              contentPadding: const EdgeInsets.all(12),
+              border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                borderSide: BorderSide(color: AppTheme.textHint.withOpacity(0.2)),
               ),
-              child: Text(
-                state.scriptText,
-                style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.6),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                borderSide: BorderSide(color: AppTheme.textHint.withOpacity(0.2)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                borderSide: const BorderSide(color: AppTheme.primaryColor, width: 1.5),
               ),
             ),
-            const SizedBox(height: AppTheme.spacingSmall),
-            Row(
-              children: [
-                Expanded(
-                  child: AppButton(
-                    text: '重新生成',
-                    icon: Icons.refresh,
-                    isOutlined: true,
-                    isLoading: state.isGeneratingScript,
-                    onPressed: _canEdit && !state.isGeneratingScript
-                        ? () => ref.read(digitalHumanProvider.notifier).generateScript()
-                        : null,
+            onChanged: (text) {
+              ref.read(digitalHumanProvider.notifier).setScriptText(text);
+            },
+          ),
+          const SizedBox(height: AppTheme.spacingSmall),
+
+          // 2. AI搜索生成区
+          const Text(
+            'AI搜索生成（输入关键词，AI先联网搜素材再生成）',
+            style: TextStyle(fontSize: 12, color: AppTheme.textHint, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _scriptTopicController,
+                  style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary),
+                  decoration: InputDecoration(
+                    hintText: '输入关键词，如：AI最新进展、今日热点',
+                    hintStyle: TextStyle(fontSize: 13, color: AppTheme.textHint.withOpacity(0.6)),
+                    filled: true,
+                    fillColor: AppTheme.darkSurface,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                      borderSide: BorderSide(color: AppTheme.textHint.withOpacity(0.2)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                      borderSide: BorderSide(color: AppTheme.textHint.withOpacity(0.2)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                      borderSide: const BorderSide(color: AppTheme.primaryColor, width: 1.5),
+                    ),
                   ),
+                  onSubmitted: (text) {
+                    if (_canEdit && !state.isGeneratingScript) {
+                      ref.read(digitalHumanProvider.notifier).setScriptTopic(text);
+                      ref.read(digitalHumanProvider.notifier).generateScript();
+                    }
+                  },
                 ),
-                const SizedBox(width: AppTheme.spacingSmall),
-                Expanded(
-                  child: AppButton(
-                    text: '清除',
-                    icon: Icons.delete_outline,
-                    isOutlined: true,
-                    onPressed: _canEdit && !state.isGeneratingScript
-                        ? () => ref.read(digitalHumanProvider.notifier).setScriptText('')
-                        : null,
-                  ),
-                ),
-              ],
-            ),
-          ] else ...[
-            // 无文案时显示生成按钮
-            AppButton(
-              text: state.isGeneratingScript ? 'AI生成中...' : 'AI生成口播文案',
-              icon: Icons.auto_awesome,
-              isLoading: state.isGeneratingScript,
-              onPressed: _canEdit && !state.isGeneratingScript
-                  ? () => ref.read(digitalHumanProvider.notifier).generateScript()
-                  : null,
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              '根据配音内容自动生成适合口播的文案',
-              style: TextStyle(fontSize: 11, color: AppTheme.textHint),
-            ),
-          ],
+              ),
+              const SizedBox(width: 8),
+              AppButton(
+                text: state.isGeneratingScript ? '搜索中...' : '搜索生成',
+                icon: Icons.search,
+                isLoading: state.isGeneratingScript,
+                onPressed: _canEdit && !state.isGeneratingScript
+                    ? () {
+                        final topic = _scriptTopicController.text.trim();
+                        ref.read(digitalHumanProvider.notifier).setScriptTopic(topic);
+                        ref.read(digitalHumanProvider.notifier).generateScript();
+                      }
+                    : null,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '提示：使用阿里百炼qwen-plus时支持联网搜索，其他模型将直接创作',
+            style: TextStyle(fontSize: 10, color: AppTheme.textHint),
+          ),
         ],
       ),
     );

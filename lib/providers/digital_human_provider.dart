@@ -28,6 +28,9 @@ class DigitalHumanState {
   /// 口播文案
   final String scriptText;
 
+  /// 文案搜索关键词（用于AI搜索生成）
+  final String scriptTopic;
+
   /// 画面提示词（可选，用于控制生成效果）
   final String prompt;
 
@@ -65,6 +68,7 @@ class DigitalHumanState {
     this.avatarImagePath,
     this.audioPath,
     this.scriptText = '',
+    this.scriptTopic = '',
     this.prompt = '',
     this.outputResolution = 720,
     this.fastMode = false,
@@ -84,6 +88,7 @@ class DigitalHumanState {
     String? audioPath,
     bool clearAudio = false,
     String? scriptText,
+    String? scriptTopic,
     String? prompt,
     int? outputResolution,
     bool? fastMode,
@@ -102,6 +107,7 @@ class DigitalHumanState {
       avatarImagePath: clearAvatar ? null : (avatarImagePath ?? this.avatarImagePath),
       audioPath: clearAudio ? null : (audioPath ?? this.audioPath),
       scriptText: scriptText ?? this.scriptText,
+      scriptTopic: scriptTopic ?? this.scriptTopic,
       prompt: prompt ?? this.prompt,
       outputResolution: outputResolution ?? this.outputResolution,
       fastMode: fastMode ?? this.fastMode,
@@ -247,6 +253,11 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
     state = state.copyWith(scriptText: text);
   }
 
+  /// 设置文案搜索关键词
+  void setScriptTopic(String topic) {
+    state = state.copyWith(scriptTopic: topic);
+  }
+
   /// 设置画面提示词
   void setPrompt(String prompt) {
     state = state.copyWith(prompt: prompt);
@@ -371,6 +382,9 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
     state = state.copyWith(isGeneratingScript: true, errorMessage: null);
 
     try {
+      final topic = state.scriptTopic.trim();
+      final hasTopic = topic.isNotEmpty;
+
       // 构建提示词上下文
       final contextHints = <String>[];
       if (state.prompt.isNotEmpty) {
@@ -387,24 +401,42 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
       // 读取设置中的文案生成模型偏好
       final scriptModel = StorageUtil.getScriptModel();
 
+      // 构建系统提示词
+      String systemPrompt;
+      String userPrompt;
+
+      if (hasTopic) {
+        // 有搜索关键词：AI先联网搜索再创作
+        systemPrompt = '你是一位专业的短视频口播文案创作专家，擅长根据最新网络热点和资讯创作口播文案。'
+            '你可以根据用户提供的关键词先联网搜索相关最新信息，然后基于搜索结果创作高质量口播文案。'
+            '文案要求：\n'
+            '1. 适合1-3分钟口播，节奏感强\n'
+            '2. 开头3秒抓住注意力\n'
+            '3. 口语化表达，自然流畅\n'
+            '4. 内容基于最新网络信息，有数据有案例\n'
+            '5. 结尾有明确行动号召\n'
+            '6. 直接输出文案正文，不要标题、不要解释';
+        userPrompt = '请以「$topic」为主题，先联网搜索最新相关信息和素材，然后为我创作一段数字人口播文案，'
+            '要求生动有感染力、内容有料有据。$contextPart';
+      } else {
+        // 无搜索关键词：直接创作
+        systemPrompt = '你是一位专业的短视频口播文案创作专家。你创作的文案要求：\n'
+            '1. 适合1-3分钟口播，节奏感强\n'
+            '2. 开头3秒抓住注意力\n'
+            '3. 口语化表达，自然流畅\n'
+            '4. 结尾有明确行动号召\n'
+            '5. 直接输出文案正文，不要标题、不要解释';
+        userPrompt = '请为我创作一段数字人口播文案，要求生动有感染力。$contextPart';
+      }
+
       final result = await _apiClient.chatSmart(
         messages: [
-          {
-            'role': 'system',
-            'content': '你是一位专业的短视频口播文案创作专家。你创作的文案要求：\n'
-                '1. 适合1-3分钟口播，节奏感强\n'
-                '2. 开头3秒抓住注意力\n'
-                '3. 口语化表达，自然流畅\n'
-                '4. 结尾有明确行动号召\n'
-                '5. 直接输出文案正文，不要标题、不要解释',
-          },
-          {
-            'role': 'user',
-            'content': '请为我创作一段数字人口播文案，要求生动有感染力。$contextPart',
-          },
+          {'role': 'system', 'content': systemPrompt},
+          {'role': 'user', 'content': userPrompt},
         ],
         temperature: 0.8,
         modelOverride: scriptModel,
+        enableSearch: hasTopic,
       );
 
       state = state.copyWith(

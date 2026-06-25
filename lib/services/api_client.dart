@@ -137,15 +137,21 @@ class ApiClient {
     required List<Map<String, String>> messages,
     double temperature = 0.7,
     int maxTokens = 4096,
+    bool enableSearch = false,
   }) async {
+    final body = <String, dynamic>{
+      'model': model,
+      'messages': messages,
+      'temperature': temperature,
+      'max_tokens': maxTokens,
+    };
+    // 阿里百炼qwen-plus支持联网搜索
+    if (enableSearch && (baseUrl.contains('dashscope') || baseUrl.contains('ali'))) {
+      body['enable_search'] = true;
+    }
     final response = await _dio.post(
       '$baseUrl/chat/completions',
-      data: {
-        'model': model,
-        'messages': messages,
-        'temperature': temperature,
-        'max_tokens': maxTokens,
-      },
+      data: body,
       options: Options(
         headers: {
           'Authorization': 'Bearer $apiKey',
@@ -317,10 +323,11 @@ class ApiClient {
     double temperature = 0.7,
     bool preferReasoning = false,
     String? modelOverride,
+    bool enableSearch = false,
   }) async {
     // 如果指定了模型，直接用对应Provider
     if (modelOverride != null && modelOverride != '自动选择') {
-      return _chatWithModel(modelOverride, messages, temperature);
+      return _chatWithModel(modelOverride, messages, temperature, enableSearch: enableSearch);
     }
 
     final errors = <String>[];
@@ -350,6 +357,7 @@ class ApiClient {
           model: provider.model,
           messages: messages,
           temperature: temperature,
+          enableSearch: enableSearch,
         );
       } on DioException catch (e) {
         final statusCode = e.response?.statusCode;
@@ -444,7 +452,7 @@ class ApiClient {
 
   /// 根据模型标识路由到对应Provider
   /// 支持：qwen-plus, glm-4.7-flash, Qwen2.5-7B, ai32-qwen-plus, ai32-deepseek
-  Future<String> _chatWithModel(String model, List<Map<String, String>> messages, double temperature) async {
+  Future<String> _chatWithModel(String model, List<Map<String, String>> messages, double temperature, {bool enableSearch = false}) async {
     // 32AI中转路由
     if (model.startsWith('ai32-')) {
       final apiKey = await StorageUtil.getSecure(ApiConfig.ai32ApiKeyKey);
@@ -460,6 +468,7 @@ class ApiClient {
         model: chatModel,
         messages: messages,
         temperature: temperature,
+        enableSearch: enableSearch,
       );
     }
 
@@ -475,6 +484,7 @@ class ApiClient {
         model: 'qwen-plus',
         messages: messages,
         temperature: temperature,
+        enableSearch: enableSearch,
       );
     }
 
