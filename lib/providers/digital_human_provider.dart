@@ -176,7 +176,29 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
   final ApiClient _apiClient;
 
   DigitalHumanNotifier(this._service, this._apiClient) : super(const DigitalHumanState()) {
+    _loadDraft();
     _loadHistory();
+  }
+
+  /// 从存储恢复数字人页面草稿
+  void _loadDraft() {
+    final scriptText = StorageUtil.getDhScriptText();
+    final scriptTopic = StorageUtil.getDhScriptTopic();
+    final prompt = StorageUtil.getDhPrompt();
+    final resolution = StorageUtil.getDhResolution();
+    final fastMode = StorageUtil.getDhFastMode();
+    final avatarPath = StorageUtil.getDhAvatarPath();
+    final audioPath = StorageUtil.getDhAudioPath();
+
+    state = DigitalHumanState(
+      scriptText: scriptText,
+      scriptTopic: scriptTopic,
+      prompt: prompt,
+      outputResolution: resolution,
+      fastMode: fastMode,
+      avatarImagePath: avatarPath,
+      audioPath: audioPath,
+    );
   }
 
   /// 加载历史记录
@@ -229,6 +251,7 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
       genState: VideoGenState.idle,
       progressMessage: '',
     );
+    StorageUtil.setDhAvatarPath(path);
   }
 
   /// 清除照片
@@ -237,46 +260,56 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
       clearAvatar: true,
       genState: VideoGenState.idle,
     );
+    StorageUtil.setDhAvatarPath(null);
   }
 
   /// 设置配音路径（从语音合成页带入）
   void setAudioPath(String? path) {
     if (path == null) {
       state = state.copyWith(clearAudio: true);
+      StorageUtil.setDhAudioPath(null);
     } else {
       state = state.copyWith(audioPath: path);
+      StorageUtil.setDhAudioPath(path);
     }
   }
 
   /// 设置文案
   void setScriptText(String text) {
     state = state.copyWith(scriptText: text);
+    StorageUtil.setDhScriptText(text);
   }
 
   /// 设置文案搜索关键词
   void setScriptTopic(String topic) {
     state = state.copyWith(scriptTopic: topic);
+    StorageUtil.setDhScriptTopic(topic);
   }
 
   /// 设置画面提示词
   void setPrompt(String prompt) {
     state = state.copyWith(prompt: prompt);
+    StorageUtil.setDhPrompt(prompt);
   }
 
   /// 设置输出分辨率
   void setOutputResolution(int resolution) {
     state = state.copyWith(outputResolution: resolution);
+    StorageUtil.setDhResolution(resolution);
     // 调整快速模式：480P建议开启（更省额度）
     if (resolution == 480) {
       state = state.copyWith(fastMode: true);
+      StorageUtil.setDhFastMode(true);
     } else {
       state = state.copyWith(fastMode: false);
+      StorageUtil.setDhFastMode(false);
     }
   }
 
   /// 设置快速模式
   void setFastMode(bool enabled) {
     state = state.copyWith(fastMode: enabled);
+    StorageUtil.setDhFastMode(enabled);
   }
 
   /// 生成视频
@@ -443,6 +476,7 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
         scriptText: result.trim(),
         isGeneratingScript: false,
       );
+      StorageUtil.setDhScriptText(result.trim());
     } catch (e) {
       state = state.copyWith(
         isGeneratingScript: false,

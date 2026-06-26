@@ -71,12 +71,17 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
       ref.read(digitalHumanProvider.notifier).setPrompt(_promptController.text);
     });
 
-    // 同步已有文案到输入框（从其他页面跳转过来的初始文案）
+    // 同步已有数据到输入框（从存储恢复 + 从其他页面跳转）
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final existingScript = ref.read(digitalHumanProvider).scriptText;
-      if (existingScript.isNotEmpty && !_hasSyncedScriptText) {
-        _scriptTextController.text = existingScript;
+      final dhState = ref.read(digitalHumanProvider);
+      // 同步文案
+      if (dhState.scriptText.isNotEmpty && !_hasSyncedScriptText) {
+        _scriptTextController.text = dhState.scriptText;
         _hasSyncedScriptText = true;
+      }
+      // 同步提示词
+      if (dhState.prompt.isNotEmpty && _promptController.text.isEmpty) {
+        _promptController.text = dhState.prompt;
       }
     });
   }

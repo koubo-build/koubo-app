@@ -335,6 +335,94 @@ class StorageUtil {
     return setString('tts_voice_model', model);
   }
 
+  // ==================== 数字人页面状态持久化 ====================
+
+  /// 获取数字人页面草稿
+  static String getDhScriptText() {
+    return getString('dh_script_text') ?? '';
+  }
+  static Future<bool> setDhScriptText(String text) {
+    return setString('dh_script_text', text);
+  }
+
+  static String getDhScriptTopic() {
+    return getString('dh_script_topic') ?? '';
+  }
+  static Future<bool> setDhScriptTopic(String topic) {
+    return setString('dh_script_topic', topic);
+  }
+
+  static String getDhPrompt() {
+    return getString('dh_prompt') ?? '';
+  }
+  static Future<bool> setDhPrompt(String prompt) {
+    return setString('dh_prompt', prompt);
+  }
+
+  static int getDhResolution() {
+    return getInt('dh_resolution') ?? 720;
+  }
+  static Future<bool> setDhResolution(int resolution) {
+    return setInt('dh_resolution', resolution);
+  }
+
+  static bool getDhFastMode() {
+    return getBool('dh_fast_mode') ?? false;
+  }
+  static Future<bool> setDhFastMode(bool fast) {
+    return setBool('dh_fast_mode', fast);
+  }
+
+  /// 获取数字人页面照片路径（需验证文件存在）
+  static String? getDhAvatarPath() {
+    final path = getString('dh_avatar_path');
+    if (path != null && path.isNotEmpty) {
+      // 验证文件是否还在
+      if (File(path).existsSync()) {
+        return path;
+      }
+      // 文件已不存在，清除记录
+      _ensurePrefs.remove('dh_avatar_path');
+    }
+    return null;
+  }
+  static Future<bool> setDhAvatarPath(String? path) {
+    if (path == null || path.isEmpty) {
+      return _ensurePrefs.remove('dh_avatar_path');
+    }
+    return setString('dh_avatar_path', path);
+  }
+
+  /// 获取数字人页面音频路径（需验证文件存在）
+  static String? getDhAudioPath() {
+    final path = getString('dh_audio_path');
+    if (path != null && path.isNotEmpty) {
+      if (File(path).existsSync()) {
+        return path;
+      }
+      _ensurePrefs.remove('dh_audio_path');
+    }
+    return null;
+  }
+  static Future<bool> setDhAudioPath(String? path) {
+    if (path == null || path.isEmpty) {
+      return _ensurePrefs.remove('dh_audio_path');
+    }
+    return setString('dh_audio_path', path);
+  }
+
+  /// 清除数字人页面所有草稿
+  static Future<void> clearDhDraft() async {
+    final prefs = _ensurePrefs;
+    prefs.remove('dh_script_text');
+    prefs.remove('dh_script_topic');
+    prefs.remove('dh_prompt');
+    prefs.remove('dh_resolution');
+    prefs.remove('dh_fast_mode');
+    prefs.remove('dh_avatar_path');
+    prefs.remove('dh_audio_path');
+  }
+
   // ==================== 文案记录 CRUD ====================
 
   /// 新增文案记录
