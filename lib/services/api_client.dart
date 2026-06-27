@@ -516,6 +516,20 @@ class ApiClient {
       );
     }
 
+    if (model == 'agnes-2.0-flash') {
+      final apiKey = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey);
+      if (apiKey == null || apiKey.isEmpty) {
+        throw Exception('请先配置Agnes AI API Key');
+      }
+      return chatCompletion(
+        baseUrl: ApiConfig.agnesBaseUrl,
+        apiKey: apiKey,
+        model: ApiConfig.agnesModelFlash,
+        messages: messages,
+        temperature: temperature,
+      );
+    }
+
     throw Exception('不支持的模型：$model');
   }
 }
@@ -563,6 +577,9 @@ class _AuthInterceptor extends Interceptor {
     } else if (url.contains('dashscope')) {
       // 阿里百炼
       storageKey = ApiConfig.aliBailianApiKeyKey;
+    } else if (url.contains('agnes-ai.com')) {
+      // Agnes AI
+      storageKey = ApiConfig.agnesApiKeyKey;
     }
 
     if (storageKey != null) {

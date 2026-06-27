@@ -26,6 +26,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _aliBailianKeyController = TextEditingController();
   final _tikhubKeyController = TextEditingController();
   final _ai32KeyController = TextEditingController();
+  final _agnesKeyController = TextEditingController();
 
 
   // API Key显示/隐藏状态
@@ -34,6 +35,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _aliBailianKeyVisible = false;
   bool _tikhubKeyVisible = false;
   bool _ai32KeyVisible = false;
+  bool _agnesKeyVisible = false;
 
 
   // API Key有效性检测状态：null=未检测, 'valid'=有效, 'invalid'=无效
@@ -42,6 +44,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _aliBailianKeyStatus;
   String? _tikhubKeyStatus;
   String? _ai32KeyStatus;
+  String? _agnesKeyStatus;
 
 
   // 正在检测的Key标识
@@ -85,6 +88,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _aliBailianKeyController.dispose();
     _tikhubKeyController.dispose();
     _ai32KeyController.dispose();
+    _agnesKeyController.dispose();
 
     _customWordController.dispose();
     super.dispose();
@@ -98,6 +102,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _aliBailianKeyController.text = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey) ?? '';
     _tikhubKeyController.text = await StorageUtil.getSecure(ApiConfig.tikhubApiKeyKey) ?? '';
     _ai32KeyController.text = await StorageUtil.getSecure(ApiConfig.ai32ApiKeyKey) ?? '';
+    _agnesKeyController.text = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey) ?? '';
 
 
     // 加载模型偏好
@@ -248,6 +253,25 @@ class _SettingsPageState extends State<SettingsPage> {
               isTesting: _testingKey == 'ai32',
               onTest: () => _testApiKey('ai32'),
               onClear: () => _clearApiKey('ai32'),
+            ),
+
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // Agnes AI
+            _buildApiKeyCard(
+              platformName: 'Agnes AI',
+              platformDesc: '全模态免费平台，Agnes-2.0-Flash',
+              icon: Icons.smart_toy_outlined,
+              iconColor: const Color(0xFF00E676),
+              controller: _agnesKeyController,
+              hintText: '输入 Agnes AI API Key（platform.agnes-ai.com）',
+              isVisible: _agnesKeyVisible,
+              onToggleVisibility: () => setState(() => _agnesKeyVisible = !_agnesKeyVisible),
+              status: _agnesKeyStatus,
+              isTesting: _testingKey == 'agnes',
+              onTest: () => _testApiKey('agnes'),
+              onClear: () => _clearApiKey('agnes'),
+              isFree: true,
             ),
 
             const SizedBox(height: AppTheme.spacingMedium),
@@ -856,6 +880,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ApiConfig.aliBailianApiKeyKey: _aliBailianKeyController.text.trim(),
         ApiConfig.tikhubApiKeyKey: _tikhubKeyController.text.trim(),
         ApiConfig.ai32ApiKeyKey: _ai32KeyController.text.trim(),
+        ApiConfig.agnesApiKeyKey: _agnesKeyController.text.trim(),
       });
 
       // 保存模型偏好到SharedPreferences
@@ -908,6 +933,11 @@ class _SettingsPageState extends State<SettingsPage> {
           apiKey = _ai32KeyController.text.trim();
           testUrl = '${ApiConfig.ai32BaseUrl}/chat/completions';
           model = 'qwen-plus';
+          break;
+        case 'agnes':
+          apiKey = _agnesKeyController.text.trim();
+          testUrl = '${ApiConfig.agnesBaseUrl}/chat/completions';
+          model = ApiConfig.agnesModelFlash;
           break;
         default:
           return;
@@ -984,6 +1014,7 @@ class _SettingsPageState extends State<SettingsPage> {
           case 'alibailian': _aliBailianKeyStatus = isValid ? 'valid' : 'invalid'; break;
           case 'tikhub': _tikhubKeyStatus = isValid ? 'valid' : 'invalid'; break;
           case 'ai32': _ai32KeyStatus = isValid ? 'valid' : 'invalid'; break;
+            case 'agnes': _agnesKeyStatus = isValid ? 'valid' : 'invalid'; break;
         }
       });
 
@@ -1005,6 +1036,7 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
             case 'tikhub': _tikhubKeyStatus = 'invalid'; break;
             case 'ai32': _ai32KeyStatus = 'invalid'; break;
+            case 'agnes': _agnesKeyStatus = 'invalid'; break;
           }
         });
       } else if (e.response?.statusCode == 429) {
@@ -1043,6 +1075,7 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
             case 'tikhub': _tikhubKeyStatus = 'invalid'; break;
             case 'ai32': _ai32KeyStatus = 'invalid'; break;
+            case 'agnes': _agnesKeyStatus = 'invalid'; break;
           }
         });
       }
@@ -1055,6 +1088,7 @@ class _SettingsPageState extends State<SettingsPage> {
           case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
           case 'tikhub': _tikhubKeyStatus = 'invalid'; break;
           case 'ai32': _ai32KeyStatus = 'invalid'; break;
+          case 'agnes': _agnesKeyStatus = 'invalid'; break;
         }
       });
       _showSnackBar('✗ 检测失败，请稍后重试');
@@ -1091,6 +1125,11 @@ class _SettingsPageState extends State<SettingsPage> {
         storageKey = ApiConfig.ai32ApiKeyKey;
         _ai32KeyController.clear();
         _ai32KeyStatus = null;
+        break;
+      case 'agnes':
+        storageKey = ApiConfig.agnesApiKeyKey;
+        _agnesKeyController.clear();
+        _agnesKeyStatus = null;
         break;
       default:
         return;

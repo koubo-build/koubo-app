@@ -58,6 +58,7 @@ class ApiConfig {
     {'value': 'Qwen2.5-7B', 'label': 'Qwen2.5-7B', 'desc': '硅基流动，免费'},
     {'value': 'ai32-qwen-plus', 'label': '32AI/qwen-plus', 'desc': '中转站，约官方价56%'},
     {'value': 'ai32-deepseek', 'label': '32AI/DeepSeek', 'desc': '中转站，性价比高'},
+    {'value': 'agnes-2.0-flash', 'label': 'Agnes-2.0-Flash', 'desc': 'Agnes AI，免费'},
   ];
   /// 数字人视频可选模型
   static const List<Map<String, String>> videoModelOptions = [
@@ -96,6 +97,10 @@ class ApiConfig {
   /// 32AI视频生成接口（豆包Seedance等）
   static const String ai32VideoGenEndpoint = '/contents/generations/tasks';
 
+  // ==================== Agnes AI（全模态免费平台） ====================
+  static const String agnesBaseUrl = 'https://api.agnes-ai.com/v1';
+  static const String agnesModelFlash = 'agnes-2.0-flash';
+
   // ==================== API Key存储键名 ====================
   static const String zhipuApiKeyKey = 'zhipu_api_key';
   static const String siliconFlowApiKeyKey = 'siliconflow_api_key';
@@ -103,4 +108,5 @@ class ApiConfig {
   static const String kuhuyunApiKeyKey = 'kuhuyun_api_key';
   static const String tikhubApiKeyKey = 'tikhub_api_key';
   static const String ai32ApiKeyKey = 'ai32_api_key';
+  static const String agnesApiKeyKey = 'agnes_api_key';
 }
