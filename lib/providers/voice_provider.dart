@@ -241,9 +241,35 @@ class VoiceNotifier extends StateNotifier<VoiceState> {
       // 加载克隆音色列表
       final clonedVoices = await _loadClonedVoices();
 
+      // 恢复上次选中的音色
+      VoiceModel? restoredVoice;
+      final savedVoiceId = StorageUtil.getDhTtsVoiceId();
+      if (savedVoiceId != null && savedVoiceId.isNotEmpty) {
+        // 先从克隆音色中找
+        for (final v in clonedVoices) {
+          if (v.voiceId == savedVoiceId) {
+            restoredVoice = v;
+            break;
+          }
+        }
+        // 再从系统音色中找
+        if (restoredVoice == null) {
+          for (final v in systemVoices) {
+            if (v.voiceId == savedVoiceId) {
+              restoredVoice = v;
+              break;
+            }
+          }
+        }
+      } else if (clonedVoices.isNotEmpty) {
+        // 没有保存过选择，默认选第一个克隆音色
+        restoredVoice = clonedVoices.first;
+      }
+
       state = state.copyWith(
         systemVoices: systemVoices,
         clonedVoices: clonedVoices,
+        selectedVoice: restoredVoice,
         isLoadingVoices: false,
       );
     } catch (e) {
@@ -305,6 +331,8 @@ class VoiceNotifier extends StateNotifier<VoiceState> {
   /// 选择音色
   void selectVoice(VoiceModel voice) {
     state = state.copyWith(selectedVoice: voice);
+    // 持久化音色ID，供数字人页面分段生成TTS使用
+    StorageUtil.setDhTtsVoiceId(voice.voiceId);
   }
 
   /// 设置搜索关键词

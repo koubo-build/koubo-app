@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import '../config/api_config.dart';
 import '../utils/storage_util.dart';
 import 'api_client.dart';
+import 'tts_service.dart';
 
 /// 数字人视频服务 - 支持多种视频生成模型
 /// 
@@ -23,14 +24,87 @@ import 'api_client.dart';
 /// 6. 下载视频到本地
 class DigitalHumanService {
   final ApiClient _apiClient;
+  final TtsService _ttsService;
   final Dio _dio;
 
-  DigitalHumanService(this._apiClient)
+  DigitalHumanService(this._apiClient, this._ttsService)
       : _dio = Dio(BaseOptions(
           connectTimeout: const Duration(seconds: 30),
           receiveTimeout: const Duration(minutes: 15),
           sendTimeout: const Duration(minutes: 5),
         ));
+
+  // ==================== 文案校验与切割 ====================
+
+  /// 文案最大总字数限制
+  static const int maxTotalChars = 180;
+
+  /// 每段文案最大字数（控制单段音频 ≤ 18s）
+  static const int maxCharsPerSegment = 55;
+
+  /// 校验文案总长度，超过上限则抛出异常
+  void validateText(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      throw Exception('文案不能为空，请输入口播文案');
+    }
+    if (trimmed.length > maxTotalChars) {
+      throw Exception('文案总长不能超过$maxTotalChars字（当前${trimmed.length}字），请精简后重试');
+    }
+  }
+
+  /// 将文案按标点符号智能切割为多段，每段不超过 maxCharsPerSegment 字
+  /// 切割优先级：句号 > 逗号 > 强制截断
+  List<String> splitText(String text) {
+    final rawText = text.trim();
+    if (rawText.isEmpty) return [];
+    if (rawText.length <= maxCharsPerSegment) return [rawText];
+
+    final chunkList = <String>[];
+    int start = 0;
+    final textLen = rawText.length;
+
+    while (start < textLen) {
+      int end = start + maxCharsPerSegment;
+      if (end >= textLen) {
+        // 剩余部分不足一段，直接加入
+        chunkList.add(rawText.substring(start).trim());
+        break;
+      }
+
+      final subStr = rawText.substring(start, end);
+      // 在子串中从后往前找最后一个句号或逗号
+      int splitPos = -1;
+      for (int i = subStr.length - 1; i >= 0; i--) {
+        final ch = subStr[i];
+        if (ch == '。' || ch == '！' || ch == '？' || ch == '；') {
+          splitPos = i;
+          break;
+        }
+      }
+      if (splitPos == -1) {
+        for (int i = subStr.length - 1; i >= 0; i--) {
+          if (subStr[i] == '，' || subStr[i] == '、' || subStr[i] == ',' || subStr[i] == '.') {
+            splitPos = i;
+            break;
+          }
+        }
+      }
+
+      if (splitPos == -1) {
+        // 没有找到合适的标点，强制在 maxCharsPerSegment 处截断
+        chunkList.add(rawText.substring(start, end).trim());
+        start = end;
+      } else {
+        // 在标点处切割（保留标点）
+        final cutIdx = start + splitPos + 1;
+        chunkList.add(rawText.substring(start, cutIdx).trim());
+        start = cutIdx;
+      }
+    }
+
+    return chunkList.where((s) => s.isNotEmpty).toList();
+  }
 
   // ==================== 公共方法 ====================
 
@@ -392,7 +466,142 @@ class DigitalHumanService {
 
   // ==================== 完整流程 ====================
 
-  /// 完整流程：根据设置中的videoModel路由到对应的视频生成后端
+  /// 多段视频生成结果
+  /// 包含每段的文案、本地视频路径、段序号
+  /// 用于数字人分段生成场景，每段文案独立生成TTS和数字人视频
+  /// 调用方拿到列表后可逐段播放或合并展示
+  /// totalSegments 为总段数，方便UI显示进度（如"第1/3段"）
+  /// segmentTexts 为每段原文，方便回溯
+  class VideoSegmentResult {
+    final int segmentIndex;
+    final int totalSegments;
+    final String segmentText;
+    final String localVideoPath;
+
+    const VideoSegmentResult({
+      required this.segmentIndex,
+      required this.totalSegments,
+      required this.segmentText,
+      required this.localVideoPath,
+    });
+  }
+
+  /// 完整流程（分段版）：文案校验 → 切割 → 逐段TTS+视频生成 → 汇总
+  /// 
+  /// [scriptText] 口播文案原文（必填，≤180字）
+  /// [imagePath] 数字人照片路径（必填）
+  /// [prompt] 画面表情提示词（可选）
+  /// [outputResolution] 输出分辨率，默认720
+  /// [onProgress] 进度回调：stage=阶段描述, progress=0-100, segmentIdx=当前段序号, totalSegments=总段数
+  /// 
+  /// 返回每段视频的 VideoSegmentResult 列表
+  Future<List<VideoSegmentResult>> generateVideoMultiSegment({
+    required String scriptText,
+    required String imagePath,
+    String? prompt,
+    int outputResolution = 720,
+    void Function(String stage, int progress, int segmentIdx, int totalSegments)? onProgress,
+  }) async {
+    // 1. 文案前置校验（180字上限）
+    validateText(scriptText);
+
+    // 2. 文本切割（每段≤55字）
+    final segments = splitText(scriptText);
+    final totalSegments = segments.length;
+
+    // 3. 读取视频模型偏好
+    final videoModel = StorageUtil.getVideoModel();
+
+    final results = <VideoSegmentResult>[];
+
+    // 4. 逐段生成：TTS → 视频
+    for (int i = 0; i < totalSegments; i++) {
+      final segText = segments[i];
+      final segIdx = i + 1;
+
+      onProgress?.call('第$segIdx/$totalSegments段：生成配音...', ((i) / totalSegments * 100).round(), segIdx, totalSegments);
+
+      // 4.1 为该段生成TTS音频
+      final ttsEngine = StorageUtil.getTtsEngine();
+      String provider;
+      switch (ttsEngine) {
+        case 'CosyVoice':
+          provider = 'cosyvoice';
+          break;
+        case 'Edge-TTS':
+          provider = 'edge_tts';
+          break;
+        default:
+          provider = 'cosyvoice';
+      }
+      final voiceId = StorageUtil.getDhTtsVoiceId() ?? 'longanhuan';
+      
+      String audioPath;
+      try {
+        audioPath = await _ttsService.synthesize(
+          text: segText,
+          voiceId: voiceId,
+          provider: provider,
+        );
+      } catch (e) {
+        throw Exception('第$segIdx段配音生成失败：${e.toString().replaceAll("Exception: ", "")}');
+      }
+
+      onProgress?.call('第$segIdx/$totalSegments段：上传素材...', ((i + 0.2) / totalSegments * 100).round(), segIdx, totalSegments);
+
+      // 4.2 根据视频模型路由生成
+      String localVideoPath;
+      switch (videoModel) {
+        case 'ai32-seedance':
+          localVideoPath = await _generateWith32AISeedance(
+            imagePath: imagePath,
+            audioPath: audioPath,
+            prompt: prompt,
+            outputResolution: outputResolution,
+            onProgress: (stage, progress) {
+              final actualProgress = ((i + progress / 100) / totalSegments * 100).round();
+              onProgress?.call('第$segIdx/$totalSegments段：$stage', actualProgress, segIdx, totalSegments);
+            },
+          );
+          break;
+        case 'happyhorse-1.0-i2v':
+          localVideoPath = await _generateWithHappyHorse(
+            imagePath: imagePath,
+            prompt: prompt,
+            outputResolution: outputResolution,
+            onProgress: (stage, progress) {
+              final actualProgress = ((i + progress / 100) / totalSegments * 100).round();
+              onProgress?.call('第$segIdx/$totalSegments段：$stage', actualProgress, segIdx, totalSegments);
+            },
+          );
+          break;
+        case 'wan2.2-s2v':
+        default:
+          localVideoPath = await _generateWithWanx(
+            imagePath: imagePath,
+            audioPath: audioPath,
+            prompt: prompt,
+            outputResolution: outputResolution,
+            onProgress: (stage, progress) {
+              final actualProgress = ((i + progress / 100) / totalSegments * 100).round();
+              onProgress?.call('第$segIdx/$totalSegments段：$stage', actualProgress, segIdx, totalSegments);
+            },
+          );
+      }
+
+      results.add(VideoSegmentResult(
+        segmentIndex: segIdx,
+        totalSegments: totalSegments,
+        segmentText: segText,
+        localVideoPath: localVideoPath,
+      ));
+    }
+
+    onProgress?.call('全部完成！', 100, totalSegments, totalSegments);
+    return results;
+  }
+
+  /// 单段视频生成（兼容旧流程：用户自带音频时仍可使用）
   Future<String> generateVideoFullPipeline({
     required String imagePath,
     required String audioPath,
@@ -734,5 +943,5 @@ class DigitalHumanService {
 
 /// DigitalHumanService的Riverpod Provider
 final digitalHumanServiceProvider = Provider<DigitalHumanService>((ref) {
-  return DigitalHumanService(ref.read(apiClientProvider));
+  return DigitalHumanService(ref.read(apiClientProvider), ref.read(ttsServiceProvider));
 });

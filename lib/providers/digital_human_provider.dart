@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/digital_human_service.dart';
 import '../services/api_client.dart';
 import '../services/ai_rewrite_service.dart';
+import '../services/tts_service.dart';
 import '../utils/storage_util.dart';
 
 /// 视频生成状态枚举
@@ -17,12 +18,12 @@ enum VideoGenState {
   failed          // 失败
 }
 
-/// 数字人页面状态类（OmniHuman1.5版）
+/// 数字人页面状态类（分段生成版）
 class DigitalHumanState {
   /// 照片路径
   final String? avatarImagePath;
 
-  /// 配音路径（从语音合成页带入）
+  /// 配音路径（从语音合成页带入，可选，有则用旧流程）
   final String? audioPath;
 
   /// 口播文案
@@ -37,7 +38,7 @@ class DigitalHumanState {
   /// 输出分辨率：480或720，默认720
   final int outputResolution;
 
-  /// 快速模式：720p建议true，1080p建议false
+  /// 快速模式（万相强制关闭）
   final bool fastMode;
 
   /// 视频生成状态
@@ -49,8 +50,17 @@ class DigitalHumanState {
   /// 进度描述信息
   final String progressMessage;
 
-  /// 本地视频路径
+  /// 本地视频路径（单段模式）
   final String? localVideoPath;
+
+  /// 分段生成结果列表（多段模式）
+  final List<DigitalHumanService.VideoSegmentResult> segmentResults;
+
+  /// 当前段序号（分段生成时）
+  final int currentSegment;
+
+  /// 总段数（分段生成时）
+  final int totalSegments;
 
   /// 历史生成列表
   final List<VideoHistoryItem> historyList;
@@ -76,6 +86,9 @@ class DigitalHumanState {
     this.progress = 0,
     this.progressMessage = '',
     this.localVideoPath,
+    this.segmentResults = const [],
+    this.currentSegment = 0,
+    this.totalSegments = 0,
     this.historyList = const [],
     this.errorMessage,
     this.isLoading = false,
@@ -97,6 +110,10 @@ class DigitalHumanState {
     String? progressMessage,
     String? localVideoPath,
     bool clearLocalVideoPath = false,
+    List<DigitalHumanService.VideoSegmentResult>? segmentResults,
+    bool clearSegmentResults = false,
+    int? currentSegment,
+    int? totalSegments,
     List<VideoHistoryItem>? historyList,
     String? errorMessage,
     bool clearError = false,
@@ -115,6 +132,9 @@ class DigitalHumanState {
       progress: progress ?? this.progress,
       progressMessage: progressMessage ?? this.progressMessage,
       localVideoPath: clearLocalVideoPath ? null : (localVideoPath ?? this.localVideoPath),
+      segmentResults: clearSegmentResults ? [] : (segmentResults ?? this.segmentResults),
+      currentSegment: currentSegment ?? this.currentSegment,
+      totalSegments: totalSegments ?? this.totalSegments,
       historyList: historyList ?? this.historyList,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       isLoading: isLoading ?? this.isLoading,
@@ -122,13 +142,15 @@ class DigitalHumanState {
     );
   }
 
-  /// 是否可以生成视频
+  /// 是否可以生成视频（有照片+有文案即可，不再强制要求音频）
   bool get canGenerate {
     final hasPhoto = avatarImagePath != null;
-    final hasAudio = audioPath != null;
     final hasText = scriptText.trim().isNotEmpty;
-    return hasPhoto && hasAudio && hasText;
+    return hasPhoto && hasText;
   }
+
+  /// 是否为多段生成结果
+  bool get hasSegments => segmentResults.isNotEmpty;
 
   /// 照片是否已就绪
   bool get photoReady => avatarImagePath != null;
@@ -174,8 +196,9 @@ class VideoHistoryItem {
 class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
   final DigitalHumanService _service;
   final ApiClient _apiClient;
+  final TtsService _ttsService;
 
-  DigitalHumanNotifier(this._service, this._apiClient) : super(const DigitalHumanState()) {
+  DigitalHumanNotifier(this._service, this._apiClient, this._ttsService) : super(const DigitalHumanState()) {
     _loadDraft();
     _loadHistory();
   }
@@ -312,77 +335,85 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
     StorageUtil.setDhFastMode(enabled);
   }
 
-  /// 生成视频
+  /// 生成视频（分段模式）
+  /// 自动将文案切割为多段，每段独立生成TTS配音+数字人视频
+  /// 万相模型快速模式强制关闭
   Future<void> generateVideo() async {
     if (!state.canGenerate) {
-      state = state.copyWith(errorMessage: '请完善所有必填信息：照片、配音、文案');
+      state = state.copyWith(errorMessage: '请完善所有必填信息：照片、文案');
       return;
     }
+
+    // 万相模型强制关闭快速模式
+    final videoModel = StorageUtil.getVideoModel();
+    final forceFastModeOff = (videoModel == 'wan2.2-s2v');
 
     state = state.copyWith(
       genState: VideoGenState.processingImage,
       progress: 0,
-      progressMessage: '准备生成...',
+      progressMessage: '校验文案...',
       errorMessage: null,
       clearLocalVideoPath: true,
+      clearSegmentResults: true,
+      currentSegment: 0,
+      totalSegments: 0,
+      fastMode: forceFastModeOff ? false : state.fastMode,
     );
 
     try {
-      // 调用服务执行完整流程
-      final localPath = await _service.generateVideoFullPipeline(
+      // 使用多段生成流程：文案校验 → 切割 → 逐段TTS+视频
+      final results = await _service.generateVideoMultiSegment(
+        scriptText: state.scriptText,
         imagePath: state.avatarImagePath!,
-        audioPath: state.audioPath!,
         prompt: state.prompt.isNotEmpty ? state.prompt : null,
         outputResolution: state.outputResolution,
-        fastMode: state.fastMode,
-        onProgress: (stage, progress) {
-          // 根据阶段更新状态
+        onProgress: (stage, progress, segmentIdx, totalSegments) {
           VideoGenState genState;
-          switch (stage) {
-            case '处理图片中...':
-              genState = VideoGenState.processingImage;
-              break;
-            case '上传配音中...':
-              genState = VideoGenState.uploadingAudio;
-              break;
-            case '提交生成任务...':
-              genState = VideoGenState.submitting;
-              break;
-            default:
-              genState = VideoGenState.processing;
+          if (stage.contains('配音')) {
+            genState = VideoGenState.processingImage;
+          } else if (stage.contains('上传')) {
+            genState = VideoGenState.uploadingAudio;
+          } else if (stage.contains('提交')) {
+            genState = VideoGenState.submitting;
+          } else {
+            genState = VideoGenState.processing;
           }
           state = state.copyWith(
             genState: stage.contains('完成') ? VideoGenState.completed : genState,
             progress: progress,
             progressMessage: stage,
+            currentSegment: segmentIdx,
+            totalSegments: totalSegments,
           );
         },
       );
 
-      // 生成成功，保存到历史记录
-      final historyItem = VideoHistoryItem(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        videoPath: localPath,
-        createdAt: DateTime.now(),
-        resolution: '${state.outputResolution}p',
-      );
-
-      final updatedHistory = [historyItem, ...state.historyList];
+      // 生成成功，保存每段视频到历史记录
+      final updatedHistory = List<VideoHistoryItem>.from(state.historyList);
+      for (final seg in results) {
+        updatedHistory.insert(0, VideoHistoryItem(
+          id: '${DateTime.now().millisecondsSinceEpoch}_seg${seg.segmentIndex}',
+          videoPath: seg.localVideoPath,
+          createdAt: DateTime.now(),
+          resolution: '${state.outputResolution}p',
+        ));
+      }
 
       state = state.copyWith(
         genState: VideoGenState.completed,
         progress: 100,
-        progressMessage: '生成完成！',
-        localVideoPath: localPath,
+        progressMessage: '全部完成！共${results.length}段',
+        segmentResults: results,
         historyList: updatedHistory,
       );
 
       await _saveHistory();
     } catch (e) {
+      final errorMsg = e.toString().replaceAll('Exception: ', '');
       state = state.copyWith(
         genState: VideoGenState.failed,
         progress: 0,
-        errorMessage: '视频生成失败：$e',
+        errorMessage: errorMsg,
       );
     }
   }
@@ -406,6 +437,9 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
       progress: 0,
       progressMessage: '',
       clearLocalVideoPath: true,
+      clearSegmentResults: true,
+      currentSegment: 0,
+      totalSegments: 0,
     );
   }
 
@@ -491,5 +525,6 @@ final digitalHumanProvider = StateNotifierProvider<DigitalHumanNotifier, Digital
   return DigitalHumanNotifier(
     ref.read(digitalHumanServiceProvider),
     ref.read(apiClientProvider),
+    ref.read(ttsServiceProvider),
   );
 });

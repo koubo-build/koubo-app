@@ -307,7 +307,7 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
     );
   }
 
-  // ==================== B. 配音信息区 ====================
+  // ==================== B. 配音信息区（可选） ====================
 
   Widget _buildAudioSection(DigitalHumanState state) {
     return AppCard(
@@ -318,26 +318,49 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
             children: [
               const Icon(Icons.audiotrack, color: AppTheme.accentColor, size: 20),
               const SizedBox(width: 8),
-              const Text('配音信息', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              const Text('配音', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: AppTheme.accentColor.withOpacity(0.15),
+                  color: AppTheme.primaryColor.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: const Text(
-                  '来自语音合成',
-                  style: TextStyle(fontSize: 10, color: AppTheme.accentColor, fontWeight: FontWeight.w600),
+                  '自动生成',
+                  style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppTheme.spacingMedium),
+          const SizedBox(height: AppTheme.spacingSmall),
 
+          // 说明文案：分段生成时自动配音
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppTheme.darkSurface,
+              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.auto_fix_high, size: 14, color: AppTheme.primaryColor),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    '系统会自动将文案分段并生成配音，每段独立合成数字人视频。无需手动制作音频。',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 如果有外部带入的配音，显示出来
           if (state.audioPath != null) ...[
+            const SizedBox(height: AppTheme.spacingSmall),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: AppTheme.darkSurface,
                 borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
@@ -345,74 +368,49 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
               child: Row(
                 children: [
                   Container(
-                    width: 36,
-                    height: 36,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
                       color: AppTheme.accentColor.withOpacity(0.15),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.music_note, color: AppTheme.accentColor, size: 18),
+                    child: const Icon(Icons.music_note, color: AppTheme.accentColor, size: 16),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          '已合成配音',
-                          style: TextStyle(fontSize: 13, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
+                          '已有外部配音',
+                          style: TextStyle(fontSize: 12, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
                         ),
-                        const SizedBox(height: 2),
                         Text(
-                          '可直接用于生成数字人视频',
-                          style: TextStyle(fontSize: 11, color: AppTheme.textHint),
+                          '将使用分段自动生成流程',
+                          style: TextStyle(fontSize: 10, color: AppTheme.textHint),
                         ),
                       ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppTheme.safeColor.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      '就绪',
-                      style: TextStyle(fontSize: 11, color: AppTheme.safeColor, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ] else ...[
-            Container(
-              padding: const EdgeInsets.all(AppTheme.spacingLarge),
-              decoration: BoxDecoration(
-                color: AppTheme.darkSurface,
-                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-              ),
-              child: Column(
-                children: [
-                  const Icon(Icons.music_off, color: AppTheme.textHint, size: 32),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '暂无配音',
-                    style: TextStyle(color: AppTheme.textHint, fontSize: 13),
-                  ),
-                  const SizedBox(height: 4),
-                  TextButton.icon(
-                    onPressed: () => Navigator.pushNamed(context, AppRoutes.voice),
-                    icon: const Icon(Icons.add, size: 16),
-                    label: const Text('去生成配音'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppTheme.accentColor,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     ),
                   ),
                 ],
               ),
             ),
           ],
+
+          const SizedBox(height: AppTheme.spacingSmall),
+
+          // 可选：去语音合成页精细调音
+          TextButton.icon(
+            onPressed: () => Navigator.pushNamed(context, AppRoutes.voice),
+            icon: const Icon(Icons.tune, size: 14),
+            label: const Text('想精细调音？去语音合成页', style: TextStyle(fontSize: 12)),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.accentColor,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
         ],
       ),
     );
@@ -454,28 +452,6 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
               _buildResolutionChip('480P', state),
               const SizedBox(width: 8),
               _buildResolutionChip('720P', state),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-
-          // 快速模式
-          Row(
-            children: [
-              const Text('快速模式', style: TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
-              const SizedBox(width: 8),
-              Tooltip(
-                message: '480P更便宜，720P更清晰',
-                child: Icon(Icons.help_outline, size: 14, color: AppTheme.textHint),
-              ),
-              const Spacer(),
-              Switch(
-                value: state.fastMode,
-                onChanged: _canEdit
-                    ? (v) => ref.read(digitalHumanProvider.notifier).setFastMode(v)
-                    : null,
-                activeColor: AppTheme.primaryColor,
-              ),
             ],
           ),
 
@@ -679,6 +655,9 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
 
   // ==================== E. 视频生成区 ====================
 
+  // 分段视频播放器当前选中索引
+  int _currentSegmentIndex = 0;
+
   Widget _buildVideoGenSection(DigitalHumanState state) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -690,7 +669,10 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
             icon: Icons.smart_display,
             isLoading: false,
             onPressed: state.canGenerate
-                ? () => ref.read(digitalHumanProvider.notifier).generateVideo()
+                ? () {
+                    _currentSegmentIndex = 0;
+                    ref.read(digitalHumanProvider.notifier).generateVideo();
+                  }
                 : null,
           ),
 
@@ -701,6 +683,13 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
           AppCard(
             child: Column(
               children: [
+                // 分段进度标题
+                if (state.totalSegments > 0)
+                  Text(
+                    '正在生成第 ${state.currentSegment}/${state.totalSegments} 段',
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.primaryColor),
+                  ),
+                const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -714,8 +703,8 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      _getGenStateText(state.genState),
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      state.progressMessage,
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
                     ),
                   ],
                 ),
@@ -734,8 +723,8 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      state.progressMessage,
-                      style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                      '文案已切割为${state.totalSegments}段，逐段生成配音+视频',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.textHint),
                     ),
                     Text(
                       '${state.progress}%',
@@ -749,7 +738,7 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
                 ),
                 const SizedBox(height: AppTheme.spacingSmall),
                 const Text(
-                  '万相数字人生成通常需要1-3分钟，请耐心等待',
+                  '万相数字人每段通常需要1-3分钟，请耐心等待',
                   style: TextStyle(fontSize: 11, color: AppTheme.textHint),
                 ),
               ],
@@ -757,8 +746,142 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
           ),
         ],
 
-        // 视频预览（完成状态）
-        if (state.genState == VideoGenState.completed && state.localVideoPath != null) ...[
+        // 多段视频预览（完成状态 - 分段模式）
+        if (state.genState == VideoGenState.completed && state.hasSegments) ...[
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.play_circle, color: AppTheme.safeColor, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      '视频预览（共${state.segmentResults.length}段）',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppTheme.spacingMedium),
+
+                // 分段切换标签
+                if (state.segmentResults.length > 1)
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: List.generate(state.segmentResults.length, (i) {
+                        final isSelected = i == _currentSegmentIndex;
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() => _currentSegmentIndex = i);
+                            _initVideoPlayer(state.segmentResults[i].localVideoPath);
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppTheme.primaryColor.withOpacity(0.15)
+                                  : AppTheme.darkSurface,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: isSelected ? AppTheme.primaryColor : Colors.transparent,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Text(
+                              '第${i + 1}段',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                color: isSelected ? AppTheme.primaryColor : AppTheme.textSecondary,
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+
+                // 当前段文案显示
+                if (_currentSegmentIndex < state.segmentResults.length)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.darkSurface,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                    ),
+                    child: Text(
+                      '「${state.segmentResults[_currentSegmentIndex].segmentText}」',
+                      style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+
+                // 视频播放器
+                _buildVideoPlayerByPath(
+                  _currentSegmentIndex < state.segmentResults.length
+                      ? state.segmentResults[_currentSegmentIndex].localVideoPath
+                      : null,
+                ),
+                const SizedBox(height: AppTheme.spacingMedium),
+
+                // 操作按钮
+                Row(
+                  children: [
+                    Expanded(
+                      child: AppButton(
+                        text: '下载当前段',
+                        icon: Icons.download,
+                        onPressed: _currentSegmentIndex < state.segmentResults.length
+                            ? () => _downloadVideo(state.segmentResults[_currentSegmentIndex].localVideoPath)
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: AppTheme.spacingSmall),
+                    Expanded(
+                      child: AppButton(
+                        text: '分享',
+                        icon: Icons.share,
+                        isOutlined: true,
+                        onPressed: _currentSegmentIndex < state.segmentResults.length
+                            ? () => _shareVideo(state.segmentResults[_currentSegmentIndex].localVideoPath)
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppTheme.spacingSmall),
+
+                // 全部下载按钮（多段时）
+                if (state.segmentResults.length > 1)
+                  AppButton(
+                    text: '下载全部${state.segmentResults.length}段',
+                    icon: Icons.download_done,
+                    isOutlined: true,
+                    onPressed: () => _downloadAllSegments(state.segmentResults),
+                  ),
+                const SizedBox(height: AppTheme.spacingSmall),
+                AppButton(
+                  text: '重新生成',
+                  icon: Icons.refresh,
+                  isOutlined: true,
+                  onPressed: () {
+                    _videoController?.dispose();
+                    _videoController = null;
+                    _currentSegmentIndex = 0;
+                    ref.read(digitalHumanProvider.notifier).resetGenState();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // 单段视频预览（完成状态 - 旧流程兼容）
+        if (state.genState == VideoGenState.completed && !state.hasSegments && state.localVideoPath != null) ...[
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1143,6 +1266,102 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
     _videoController!.addListener(() {
       if (mounted) setState(() {});
     });
+  }
+
+  /// 按路径构建视频播放器（用于分段模式）
+  Widget _buildVideoPlayerByPath(String? videoPath) {
+    if (videoPath == null) {
+      return const SizedBox(height: 240, child: Center(child: Text('无视频')));
+    }
+    // 复用已有播放器组件的逻辑，但使用当前选中的路径
+    return Container(
+      width: double.infinity,
+      height: 240,
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+      ),
+      child: _isVideoInitialized && _videoController != null
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+              child: Stack(
+                alignment: Alignment.bottomCenter,
+                children: [
+                  AspectRatio(
+                    aspectRatio: _videoController!.value.aspectRatio,
+                    child: VideoPlayer(_videoController!),
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _videoController!.value.isPlaying
+                            ? _videoController!.pause()
+                            : _videoController!.play();
+                      });
+                    },
+                    child: Container(
+                      color: Colors.transparent,
+                      child: Center(
+                        child: AnimatedOpacity(
+                          opacity: _videoController!.value.isPlaying ? 0.0 : 1.0,
+                          duration: const Duration(milliseconds: 300),
+                          child: Container(
+                            width: 56,
+                            height: 56,
+                            decoration: const BoxDecoration(
+                              color: Colors.black54,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.play_arrow, color: Colors.white, size: 36),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  VideoProgressIndicator(
+                    _videoController!,
+                    allowScrubbing: true,
+                    colors: VideoProgressColors(
+                      playedColor: AppTheme.primaryColor,
+                      bufferedColor: AppTheme.primaryColor.withOpacity(0.3),
+                      backgroundColor: AppTheme.textHint.withOpacity(0.3),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: AppTheme.primaryColor),
+                  SizedBox(height: 12),
+                  Text('加载视频中...', style: TextStyle(color: Colors.white54, fontSize: 13)),
+                ],
+              ),
+            ),
+    );
+  }
+
+  /// 批量下载所有分段视频
+  Future<void> _downloadAllSegments(List<DigitalHumanService.VideoSegmentResult> segments) async {
+    try {
+      final saveDir = await StorageUtil.getVideoDirectory();
+      int successCount = 0;
+      for (final seg in segments) {
+        try {
+          final fileName = 'wanx_seg${seg.segmentIndex}_${DateTime.now().millisecondsSinceEpoch}.mp4';
+          final savePath = '$saveDir/$fileName';
+          await File(seg.localVideoPath).copy(savePath);
+          successCount++;
+        } catch (_) {
+          // 单段下载失败不影响其他段
+        }
+      }
+      _showSnackBar('已下载 $successCount/${segments.length} 段视频到本地存储');
+    } catch (e) {
+      _showSnackBar('批量下载失败：$e', isError: true);
+    }
   }
 
   Future<void> _downloadVideo(String videoPath) async {

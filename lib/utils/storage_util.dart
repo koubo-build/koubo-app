@@ -411,6 +411,17 @@ class StorageUtil {
     return setString('dh_audio_path', path);
   }
 
+  /// 获取数字人页面TTS使用的音色ID
+  static String? getDhTtsVoiceId() {
+    return getString('dh_tts_voice_id');
+  }
+  static Future<bool> setDhTtsVoiceId(String? voiceId) {
+    if (voiceId == null || voiceId.isEmpty) {
+      return _ensurePrefs.remove('dh_tts_voice_id');
+    }
+    return setString('dh_tts_voice_id', voiceId);
+  }
+
   /// 清除数字人页面所有草稿
   static Future<void> clearDhDraft() async {
     final prefs = _ensurePrefs;
