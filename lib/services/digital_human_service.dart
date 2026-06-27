@@ -8,6 +8,26 @@ import '../utils/storage_util.dart';
 import 'api_client.dart';
 import 'tts_service.dart';
 
+/// 多段视频生成结果
+/// 包含每段的文案、本地视频路径、段序号
+/// 用于数字人分段生成场景，每段文案独立生成TTS和数字人视频
+/// 调用方拿到列表后可逐段播放或合并展示
+/// totalSegments 为总段数，方便UI显示进度（如"第1/3段"）
+/// segmentTexts 为每段原文，方便回溯
+class VideoSegmentResult {
+  final int segmentIndex;
+  final int totalSegments;
+  final String segmentText;
+  final String localVideoPath;
+
+  const VideoSegmentResult({
+    required this.segmentIndex,
+    required this.totalSegments,
+    required this.segmentText,
+    required this.localVideoPath,
+  });
+}
+
 /// 数字人视频服务 - 支持多种视频生成模型
 /// 
 /// 支持的模型：
@@ -465,26 +485,6 @@ class DigitalHumanService {
   }
 
   // ==================== 完整流程 ====================
-
-  /// 多段视频生成结果
-  /// 包含每段的文案、本地视频路径、段序号
-  /// 用于数字人分段生成场景，每段文案独立生成TTS和数字人视频
-  /// 调用方拿到列表后可逐段播放或合并展示
-  /// totalSegments 为总段数，方便UI显示进度（如"第1/3段"）
-  /// segmentTexts 为每段原文，方便回溯
-  class VideoSegmentResult {
-    final int segmentIndex;
-    final int totalSegments;
-    final String segmentText;
-    final String localVideoPath;
-
-    const VideoSegmentResult({
-      required this.segmentIndex,
-      required this.totalSegments,
-      required this.segmentText,
-      required this.localVideoPath,
-    });
-  }
 
   /// 完整流程（分段版）：文案校验 → 切割 → 逐段TTS+视频生成 → 汇总
   /// 

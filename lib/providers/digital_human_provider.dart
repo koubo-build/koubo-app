@@ -54,7 +54,7 @@ class DigitalHumanState {
   final String? localVideoPath;
 
   /// 分段生成结果列表（多段模式）
-  final List<DigitalHumanService.VideoSegmentResult> segmentResults;
+  final List<VideoSegmentResult> segmentResults;
 
   /// 当前段序号（分段生成时）
   final int currentSegment;
@@ -110,7 +110,7 @@ class DigitalHumanState {
     String? progressMessage,
     String? localVideoPath,
     bool clearLocalVideoPath = false,
-    List<DigitalHumanService.VideoSegmentResult>? segmentResults,
+    List<VideoSegmentResult>? segmentResults,
     bool clearSegmentResults = false,
     int? currentSegment,
     int? totalSegments,

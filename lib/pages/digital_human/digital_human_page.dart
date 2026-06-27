@@ -1344,7 +1344,7 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
   }
 
   /// 批量下载所有分段视频
-  Future<void> _downloadAllSegments(List<DigitalHumanService.VideoSegmentResult> segments) async {
+  Future<void> _downloadAllSegments(List<VideoSegmentResult> segments) async {
     try {
       final saveDir = await StorageUtil.getVideoDirectory();
       int successCount = 0;
