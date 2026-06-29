@@ -310,6 +310,10 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
   // ==================== B. 配音信息区（可选） ====================
 
   Widget _buildAudioSection(DigitalHumanState state) {
+    // 获取当前选中的音色名称
+    final currentVoiceId = StorageUtil.getDhTtsVoiceId() ?? 'longanhuan';
+    final currentVoiceName = _getVoiceDisplayName(currentVoiceId);
+
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -350,6 +354,52 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
                   child: Text(
                     '系统会自动将文案分段并生成配音，每段独立合成数字人视频。无需手动制作音频。',
                     style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 当前音色显示
+          const SizedBox(height: AppTheme.spacingSmall),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppTheme.accentColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+              border: Border.all(
+                color: AppTheme.accentColor.withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.record_voice_over, size: 16, color: AppTheme.accentColor),
+                const SizedBox(width: 8),
+                Text(
+                  '当前音色：$currentVoiceName',
+                  style: const TextStyle(fontSize: 12, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => Navigator.pushNamed(context, AppRoutes.voice),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.accentColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.swap_horiz, size: 14, color: AppTheme.accentColor),
+                        SizedBox(width: 4),
+                        Text(
+                          '切换音色',
+                          style: TextStyle(fontSize: 11, color: AppTheme.accentColor, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -399,7 +449,7 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
 
           const SizedBox(height: AppTheme.spacingSmall),
 
-          // 可选：去语音合成页精细调音
+          // 语音合成页入口
           TextButton.icon(
             onPressed: () => Navigator.pushNamed(context, AppRoutes.voice),
             icon: const Icon(Icons.tune, size: 14),
@@ -414,6 +464,41 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
         ],
       ),
     );
+  }
+
+  /// 获取音色显示名称
+  String _getVoiceDisplayName(String voiceId) {
+    // 系统音色列表
+    const systemVoices = [
+      {'id': 'longanyang', 'name': '龙安洋'},
+      {'id': 'longanhuan', 'name': '龙安欢'},
+      {'id': 'longxiaochun', 'name': '龙小淳'},
+      {'id': 'longshuo', 'name': '龙硕'},
+      {'id': 'longhuhu', 'name': '龙呼呼'},
+    ];
+
+    for (final v in systemVoices) {
+      if (v['id'] == voiceId) {
+        return '${v['name']}（系统）';
+      }
+    }
+
+    // 克隆音色（从存储中读取）
+    final clonedVoicesJson = StorageUtil.getString('cloned_voices');
+    if (clonedVoicesJson != null && clonedVoicesJson.isNotEmpty) {
+      final entries = clonedVoicesJson.split(';');
+      for (final entry in entries) {
+        if (entry.isNotEmpty) {
+          final parts = entry.split('|');
+          if (parts.isNotEmpty && parts[0] == voiceId) {
+            final name = parts.length > 1 ? parts[1] : '克隆音色';
+            return '$name（克隆）';
+          }
+        }
+      }
+    }
+
+    return '克隆音色';
   }
 
   // ==================== C. 画面参数设置 ====================
@@ -772,10 +857,7 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
                       children: List.generate(state.segmentResults.length, (i) {
                         final isSelected = i == _currentSegmentIndex;
                         return GestureDetector(
-                          onTap: () {
-                            setState(() => _currentSegmentIndex = i);
-                            _initVideoPlayer(state.segmentResults[i].localVideoPath);
-                          },
+                          onTap: () => _onSegmentChanged(i, state.segmentResults[i].localVideoPath),
                           child: Container(
                             margin: const EdgeInsets.only(right: 8),
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -1504,6 +1586,20 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+
+  /// 分段Tab切换处理
+  /// 确保切换时正确更新视频播放器
+  void _onSegmentChanged(int newIndex, String videoPath) {
+    if (newIndex == _currentSegmentIndex) return;
+
+    // 先更新索引
+    setState(() {
+      _currentSegmentIndex = newIndex;
+    });
+
+    // 再初始化对应段的视频
+    _initVideoPlayer(videoPath);
   }
 
   String _formatDate(DateTime date) {

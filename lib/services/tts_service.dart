@@ -91,11 +91,79 @@ class TtsService {
     {'id': 'longhuhu', 'name': '龙呼呼', 'gender': 'female', 'style': '童声'},
   ];
 
+  // ==================== 统一音色列表 ====================
+
+  /// 获取统一音色列表（系统音色+克隆音色）
+  /// 返回合并后的列表，系统音色在前，克隆音色在后
+  /// [clonedVoices] 克隆音色列表，每项格式: {voiceId, voiceName}
+  static List<Map<String, String>> getUnifiedVoiceList({
+    List<Map<String, String>>? clonedVoices,
+  }) {
+    final voices = <Map<String, String>>[];
+
+    // 系统音色（统一使用CosyVoice格式）
+    for (final v in cosyVoiceList) {
+      voices.add({
+        'id': v['id'] ?? '',
+        'name': v['name'] ?? '',
+        'gender': v['gender'] ?? '',
+        'style': v['style'] ?? '',
+        'desc': v['desc'] ?? '',
+        'source': '系统',
+        'provider': 'cosyvoice',
+      });
+    }
+
+    // 克隆音色
+    if (clonedVoices != null) {
+      for (final v in clonedVoices) {
+        voices.add({
+          'id': v['id'] ?? '',
+          'name': v['name'] ?? '克隆音色',
+          'gender': v['gender'] ?? '',
+          'style': v['style'] ?? '克隆音色',
+          'desc': '克隆音色',
+          'source': '克隆',
+          'provider': 'qwen_tts',
+        });
+      }
+    }
+
+    return voices;
+  }
+
+  /// 根据音色ID获取音色显示名称
+  /// [voiceId] 音色ID
+  /// [clonedVoices] 克隆音色列表（可选）
+  static String getVoiceNameById(
+    String voiceId, {
+    List<Map<String, String>>? clonedVoices,
+  }) {
+    // 先在系统音色中找
+    for (final v in cosyVoiceList) {
+      if (v['id'] == voiceId) {
+        return '${v['name']}（系统）';
+      }
+    }
+    // 再在克隆音色中找
+    if (clonedVoices != null) {
+      for (final v in clonedVoices) {
+        if (v['id'] == voiceId) {
+          return '${v['name']}（克隆）';
+        }
+      }
+    }
+    // 找不到就返回"克隆音色"
+    return '克隆音色';
+  }
+
   // ==================== 统一合成接口 ====================
 
   /// 统一语音合成接口
   /// [provider] 引擎类型: 'cosyvoice' | 'edge_tts' | 'qwen_tts'
   /// 注意：qwen_tts 主要用于克隆音色合成，克隆音色ID会通过voiceId传入
+  /// 
+  /// 回退链：CosyVoice → qwen_tts（任何失败都回退）
   Future<String> synthesize({
     required String text,
     required String voiceId,
@@ -105,48 +173,40 @@ class TtsService {
     double volume = 1.0,
     String? emotion,
   }) async {
-    // 根据引擎类型选择合成方式
-    switch (provider) {
-      case 'qwen_tts':
-        // Qwen TTS - 用于克隆音色合成
-        return synthesizeQwenTts(
-          text: text,
-          voiceId: voiceId,
-          emotion: emotion,
-        );
-      case 'edge_tts':
-        // Edge-TTS WebSocket在国内被墙，改用qwen3.5-omni-flash（同样支持CosyVoice音色）
-        final mappedVoiceId = _mapToCosyVoiceId(voiceId);
-        return synthesizeQwenTts(
+    // qwen_tts: 克隆音色专用，直接走qwen_tts
+    if (provider == 'qwen_tts') {
+      return synthesizeQwenTts(
+        text: text,
+        voiceId: voiceId,
+        emotion: emotion,
+      );
+    }
+
+    // edge_tts / cosyvoice / default: 统一先尝试CosyVoice，失败则回退到qwen_tts
+    try {
+      final cosyVoiceId = _mapToCosyVoiceId(voiceId);
+      debugPrint('[TTS] 尝试CosyVoice合成，音色: $cosyVoiceId');
+      return await synthesizeCosyVoice(
+        text: text,
+        voiceId: cosyVoiceId,
+        speed: speed,
+        pitch: pitch,
+        emotion: emotion,
+      );
+    } catch (e) {
+      // 任何CosyVoice失败都回退到qwen_tts
+      final mappedVoiceId = _mapToCosyVoiceId(voiceId);
+      debugPrint('[TTS] CosyVoice失败，回退到qwen_tts: $e');
+      try {
+        return await synthesizeQwenTts(
           text: text,
           voiceId: mappedVoiceId,
           emotion: emotion,
         );
-      case 'cosyvoice':
-      default:
-        // 阿里百炼CosyVoice优先，失败则回退到qwen_tts
-        try {
-          final cosyVoiceId = _mapToCosyVoiceId(voiceId);
-          return await synthesizeCosyVoice(
-            text: text,
-            voiceId: cosyVoiceId,
-            speed: speed,
-            pitch: pitch,
-            emotion: emotion,
-          );
-        } catch (e) {
-          final msg = e.toString();
-          // CosyVoice 403/权限问题，回退到qwen_tts
-          if (msg.contains('403') || msg.contains('无权限') || msg.contains('NoPermission')) {
-            final cosyVoiceId = _mapToCosyVoiceId(voiceId);
-            return synthesizeQwenTts(
-              text: text,
-              voiceId: cosyVoiceId,
-              emotion: emotion,
-            );
-          }
-          throw Exception('语音合成失败：\n${msg.replaceAll("Exception: ", "")}\n\n请检查：1.阿里百炼API Key是否正确 2.是否欠费');
-        }
+      } catch (e2) {
+        debugPrint('[TTS] qwen_tts也失败了: $e2');
+        throw Exception('语音合成失败，请检查API Key配置或网络连接');
+      }
     }
   }
 
