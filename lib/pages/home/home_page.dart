@@ -184,6 +184,7 @@ class _HomePageState extends State<HomePage> {
       (Icons.record_voice_over, '语音合成', const Color(0xFFE57373), AppRoutes.voice),
       (Icons.smart_toy_outlined, '数字人', const Color(0xFFBA68C8), AppRoutes.digitalHuman),
       (Icons.movie_edit, '视频混剪', const Color(0xFF26C6DA), AppRoutes.videoEdit),
+      (Icons.theaters, 'AI短剧', const Color(0xFFFF6B9D), AppRoutes.dramaList),
       (Icons.publish, '一键发布', const Color(0xFFFF8A65), AppRoutes.publish),
       (Icons.dashboard, '监控台', const Color(0xFF7E57C2), AppRoutes.monitor),
       (Icons.history, '历史记录', const Color(0xFF4DD0E1), AppRoutes.history),

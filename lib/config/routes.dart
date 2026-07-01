@@ -12,6 +12,9 @@ import '../pages/monitor/monitor_page.dart';
 import '../pages/settings/settings_page.dart';
 import '../pages/history/history_page.dart';
 import '../pages/help/help_page.dart';
+import '../pages/drama/drama_list_page.dart';
+import '../pages/drama/drama_editor_page.dart';
+import '../pages/drama/storyboard_page.dart';
 
 /// 路由配置 - 统一管理所有页面路由
 class AppRoutes {
@@ -31,6 +34,9 @@ class AppRoutes {
   static const String settings = '/settings';
   static const String history = '/history';           // 历史记录
   static const String help = '/help';                 // 使用帮助
+  static const String dramaList = '/drama';           // AI短剧列表
+  static const String dramaEditor = '/drama/editor';  // 短剧编辑器
+  static const String storyboard = '/drama/storyboard'; // 分镜工作台
 
   // ==================== 路由表 ====================
   static final Map<String, WidgetBuilder> routes = {
@@ -41,6 +47,7 @@ class AppRoutes {
     settings: (context) => const SettingsPage(),
     history: (context) => const HistoryPage(),
     help: (context) => const HelpPage(),
+    dramaList: (context) => const DramaListPage(),
   };
 
   // ==================== 动态路由 ====================
@@ -105,6 +112,25 @@ class AppRoutes {
             videoPath: args['videoPath'] as String?,
             coverPath: args['coverPath'] as String?,
             title: args['title'] as String?,
+          ),
+          settings: settings,
+        );
+
+      case dramaEditor:
+        // 短剧编辑器页面，支持接收dramaId参数
+        return MaterialPageRoute(
+          builder: (context) => DramaEditorPage(
+            dramaId: args['dramaId'] as int?,
+          ),
+          settings: settings,
+        );
+
+      case storyboard:
+        // 分镜工作台页面，支持接收episodeId和dramaId参数
+        return MaterialPageRoute(
+          builder: (context) => StoryboardPage(
+            episodeId: args['episodeId'] as int,
+            dramaId: args['dramaId'] as int,
           ),
           settings: settings,
         );
