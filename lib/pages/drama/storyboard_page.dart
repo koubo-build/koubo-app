@@ -9,6 +9,7 @@ import '../../models/drama.dart';
 import '../../services/drama_service.dart';
 import '../../services/image_gen_service.dart';
 import '../../services/tts_service.dart';
+import '../../services/api_client.dart';
 import '../../utils/storage_util.dart';
 
 /// 分镜工作台页面
@@ -182,7 +183,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     });
 
     try {
-      final ttsService = TtsService();
+      final ttsService = TtsService(ref.read(apiClientProvider));
       final audioDir = await StorageUtil.getDramaAudioDirectory();
 
       for (int i = 0; i < needAudioShots.length; i++) {
@@ -654,7 +655,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           );
         }
       } else if (action == 'audio') {
-        final ttsService = TtsService();
+        final ttsService = TtsService(ref.read(apiClientProvider));
 
         final audioPath = await ttsService.synthesize(
           text: shot.dialogue,
