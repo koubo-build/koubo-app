@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
+import '../models/drama.dart';
 
 /// 本地存储工具 - 统一管理本地存储操作
 /// 包含：安全存储（API Key）、SharedPreferences（轻量配置）、SQLite数据库（历史记录）、文件目录管理
@@ -25,7 +26,7 @@ class StorageUtil {
   static const String _dbName = 'koubo_app.db';
 
   // 数据库版本
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
 
   /// 初始化SharedPreferences
   static Future<void> init() async {
@@ -173,11 +174,140 @@ class StorageUtil {
         created_at TEXT NOT NULL
       )
     ''');
+
+    // ==================== 短剧相关表（v2新增） ====================
+
+    // 短剧项目表
+    await db.execute('''
+      CREATE TABLE dramas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        style TEXT DEFAULT 'anime',
+        genre TEXT DEFAULT '',
+        aspect_ratio TEXT DEFAULT '16:9',
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+      )
+    ''');
+
+    // 剧集表
+    await db.execute('''
+      CREATE TABLE drama_episodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        drama_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        episode_number INTEGER NOT NULL,
+        summary TEXT DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+      )
+    ''');
+
+    // 镜头表
+    await db.execute('''
+      CREATE TABLE drama_shots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        episode_id INTEGER NOT NULL,
+        shot_number INTEGER NOT NULL,
+        visual_description TEXT NOT NULL,
+        dialogue TEXT DEFAULT '',
+        character_desc TEXT DEFAULT '',
+        camera_direction TEXT DEFAULT '',
+        duration INTEGER DEFAULT 5,
+        image_model TEXT DEFAULT 'wanx',
+        prompt_enhanced TEXT DEFAULT '',
+        image_path TEXT,
+        audio_path TEXT,
+        video_path TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        character_ids TEXT DEFAULT '',
+        FOREIGN KEY (episode_id) REFERENCES drama_episodes(id) ON DELETE CASCADE
+      )
+    ''');
+
+    // 角色表
+    await db.execute('''
+      CREATE TABLE drama_characters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        drama_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        personality TEXT DEFAULT '',
+        reference_image TEXT,
+        prompt_template TEXT DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+      )
+    ''');
   }
 
   /// 数据库升级
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // 后续版本升级时添加迁移逻辑
+    if (oldVersion < 2) {
+      // 短剧相关表迁移（v1 → v2）
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS dramas (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          description TEXT DEFAULT '',
+          style TEXT DEFAULT 'anime',
+          genre TEXT DEFAULT '',
+          aspect_ratio TEXT DEFAULT '16:9',
+          created_at TEXT NOT NULL,
+          updated_at TEXT
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS drama_episodes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          drama_id INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          episode_number INTEGER NOT NULL,
+          summary TEXT DEFAULT '',
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS drama_shots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          episode_id INTEGER NOT NULL,
+          shot_number INTEGER NOT NULL,
+          visual_description TEXT NOT NULL,
+          dialogue TEXT DEFAULT '',
+          character_desc TEXT DEFAULT '',
+          camera_direction TEXT DEFAULT '',
+          duration INTEGER DEFAULT 5,
+          image_model TEXT DEFAULT 'wanx',
+          prompt_enhanced TEXT DEFAULT '',
+          image_path TEXT,
+          audio_path TEXT,
+          video_path TEXT,
+          status TEXT DEFAULT 'pending',
+          created_at TEXT NOT NULL,
+          character_ids TEXT DEFAULT '',
+          FOREIGN KEY (episode_id) REFERENCES drama_episodes(id) ON DELETE CASCADE
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS drama_characters (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          drama_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          personality TEXT DEFAULT '',
+          reference_image TEXT,
+          prompt_template TEXT DEFAULT '',
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        )
+      ''');
+    }
   }
 
   // ==================== 安全存储（加密） ====================
@@ -1013,5 +1143,394 @@ class StorageUtil {
       return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     }
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+  }
+
+  // ==================== 短剧项目 CRUD ====================
+
+  /// 新增短剧项目
+  static Future<int> insertDrama(Drama drama) async {
+    final map = drama.toMap();
+    map['created_at'] = DateTime.now().toIso8601String();
+    return await _ensureDb.insert('dramas', map);
+  }
+
+  /// 查询所有短剧项目（附带统计）
+  static Future<List<Drama>> getAllDramas() async {
+    final dramas = <Drama>[];
+    final results = await _ensureDb.query(
+      'dramas',
+      orderBy: 'created_at DESC',
+    );
+
+    for (final row in results) {
+      final drama = Drama.fromMap(row);
+
+      // 查询剧集数
+      final epCount = await _ensureDb.rawQuery(
+        'SELECT COUNT(*) as count FROM drama_episodes WHERE drama_id = ?',
+        [drama.id],
+      );
+      drama.episodeCount = Sqflite.firstIntValue(epCount) ?? 0;
+
+      // 查询镜头数和完成数
+      final shotStats = await _ensureDb.rawQuery('''
+        SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'video_ready' THEN 1 ELSE 0 END) as completed
+        FROM drama_shots 
+        WHERE episode_id IN (
+          SELECT id FROM drama_episodes WHERE drama_id = ?
+        )
+      ''', [drama.id]);
+      
+      if (shotStats.isNotEmpty) {
+        drama.totalShots = shotStats.first['total'] as int? ?? 0;
+        drama.completedShots = shotStats.first['completed'] as int? ?? 0;
+      }
+
+      dramas.add(drama);
+    }
+    return dramas;
+  }
+
+  /// 按ID查询短剧项目
+  static Future<Drama?> getDrama(int id) async {
+    final results = await _ensureDb.query(
+      'dramas',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (results.isEmpty) return null;
+
+    final drama = Drama.fromMap(results.first);
+
+    // 查询剧集数
+    final epCount = await _ensureDb.rawQuery(
+      'SELECT COUNT(*) as count FROM drama_episodes WHERE drama_id = ?',
+      [id],
+    );
+    drama.episodeCount = Sqflite.firstIntValue(epCount) ?? 0;
+
+    // 查询镜头数和完成数
+    final shotStats = await _ensureDb.rawQuery('''
+      SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'video_ready' THEN 1 ELSE 0 END) as completed
+      FROM drama_shots 
+      WHERE episode_id IN (
+        SELECT id FROM drama_episodes WHERE drama_id = ?
+      )
+    ''', [id]);
+    
+    if (shotStats.isNotEmpty) {
+      drama.totalShots = shotStats.first['total'] as int? ?? 0;
+      drama.completedShots = shotStats.first['completed'] as int? ?? 0;
+    }
+
+    return drama;
+  }
+
+  /// 更新短剧项目
+  static Future<void> updateDrama(Drama drama) async {
+    await _ensureDb.update(
+      'dramas',
+      drama.toMap()..['updated_at'] = DateTime.now().toIso8601String(),
+      where: 'id = ?',
+      whereArgs: [drama.id],
+    );
+  }
+
+  /// 删除短剧项目（级联删除episodes和shots）
+  static Future<void> deleteDrama(int id) async {
+    // 先删除关联的镜头
+    await _ensureDb.delete(
+      'drama_shots',
+      where: 'episode_id IN (SELECT id FROM drama_episodes WHERE drama_id = ?)',
+      whereArgs: [id],
+    );
+    // 删除关联的剧集
+    await _ensureDb.delete(
+      'drama_episodes',
+      where: 'drama_id = ?',
+      whereArgs: [id],
+    );
+    // 删除关联的角色
+    await _ensureDb.delete(
+      'drama_characters',
+      where: 'drama_id = ?',
+      whereArgs: [id],
+    );
+    // 删除短剧本身
+    await _ensureDb.delete(
+      'dramas',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ==================== 角色 CRUD ====================
+
+  /// 新增角色
+  static Future<int> insertCharacter(DramaCharacter character) async {
+    final map = character.toMap();
+    map['created_at'] = DateTime.now().toIso8601String();
+    return await _ensureDb.insert('drama_characters', map);
+  }
+
+  /// 批量新增角色
+  static Future<void> insertCharacters(List<DramaCharacter> characters) async {
+    await _ensureDb.transaction((txn) async {
+      for (final character in characters) {
+        final map = character.toMap();
+        map['created_at'] = DateTime.now().toIso8601String();
+        await txn.insert('drama_characters', map);
+      }
+    });
+  }
+
+  /// 查询短剧的所有角色
+  static Future<List<DramaCharacter>> getCharactersByDrama(int dramaId) async {
+    final results = await _ensureDb.query(
+      'drama_characters',
+      where: 'drama_id = ?',
+      whereArgs: [dramaId],
+      orderBy: 'created_at ASC',
+    );
+    return results.map((r) => DramaCharacter.fromMap(r)).toList();
+  }
+
+  /// 按ID查询角色
+  static Future<DramaCharacter?> getCharacter(int id) async {
+    final results = await _ensureDb.query(
+      'drama_characters',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (results.isEmpty) return null;
+    return DramaCharacter.fromMap(results.first);
+  }
+
+  /// 更新角色
+  static Future<void> updateCharacter(DramaCharacter character) async {
+    await _ensureDb.update(
+      'drama_characters',
+      character.toMap(),
+      where: 'id = ?',
+      whereArgs: [character.id],
+    );
+  }
+
+  /// 删除角色
+  static Future<void> deleteCharacter(int id) async {
+    await _ensureDb.delete(
+      'drama_characters',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ==================== 剧集 CRUD ====================
+
+  /// 新增剧集
+  static Future<int> insertEpisode(DramaEpisode episode) async {
+    final map = episode.toMap();
+    map['created_at'] = DateTime.now().toIso8601String();
+    return await _ensureDb.insert('drama_episodes', map);
+  }
+
+  /// 批量新增剧集（包含镜头）
+  static Future<void> insertEpisodesWithShots(List<DramaEpisode> episodes) async {
+    await _ensureDb.transaction((txn) async {
+      for (final episode in episodes) {
+        final epMap = episode.toMap();
+        epMap['created_at'] = DateTime.now().toIso8601String();
+        final episodeId = await txn.insert('drama_episodes', epMap);
+
+        // 插入镜头
+        for (final shot in episode.shots) {
+          final shotMap = shot.copyWith(episodeId: episodeId).toMap();
+          shotMap['created_at'] = DateTime.now().toIso8601String();
+          await txn.insert('drama_shots', shotMap);
+        }
+      }
+    });
+  }
+
+  /// 查询短剧的所有剧集（不包含镜头）
+  static Future<List<DramaEpisode>> getEpisodesByDrama(int dramaId) async {
+    final results = await _ensureDb.query(
+      'drama_episodes',
+      where: 'drama_id = ?',
+      whereArgs: [dramaId],
+      orderBy: 'episode_number ASC',
+    );
+    return results.map((r) => DramaEpisode.fromMap(r)).toList();
+  }
+
+  /// 查询剧集（包含镜头）
+  static Future<DramaEpisode?> getEpisodeWithShots(int episodeId) async {
+    final results = await _ensureDb.query(
+      'drama_episodes',
+      where: 'id = ?',
+      whereArgs: [episodeId],
+    );
+    if (results.isEmpty) return null;
+
+    final episode = DramaEpisode.fromMap(results.first);
+
+    // 查询镜头
+    final shots = await getShotsByEpisode(episodeId);
+    return episode.copyWith(shots: shots);
+  }
+
+  /// 按ID查询剧集
+  static Future<DramaEpisode?> getEpisode(int id) async {
+    final results = await _ensureDb.query(
+      'drama_episodes',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (results.isEmpty) return null;
+    return DramaEpisode.fromMap(results.first);
+  }
+
+  /// 更新剧集
+  static Future<void> updateEpisode(DramaEpisode episode) async {
+    await _ensureDb.update(
+      'drama_episodes',
+      episode.toMap(),
+      where: 'id = ?',
+      whereArgs: [episode.id],
+    );
+  }
+
+  /// 删除剧集（级联删除镜头）
+  static Future<void> deleteEpisode(int id) async {
+    await _ensureDb.delete(
+      'drama_shots',
+      where: 'episode_id = ?',
+      whereArgs: [id],
+    );
+    await _ensureDb.delete(
+      'drama_episodes',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ==================== 镜头 CRUD ====================
+
+  /// 新增镜头
+  static Future<int> insertShot(DramaShot shot) async {
+    final map = shot.toMap();
+    map['created_at'] = DateTime.now().toIso8601String();
+    return await _ensureDb.insert('drama_shots', map);
+  }
+
+  /// 批量插入镜头（AI生成剧本时用）
+  static Future<void> batchInsertShots(List<DramaShot> shots) async {
+    await _ensureDb.transaction((txn) async {
+      for (final shot in shots) {
+        final map = shot.toMap();
+        map['created_at'] = DateTime.now().toIso8601String();
+        await txn.insert('drama_shots', map);
+      }
+    });
+  }
+
+  /// 查询剧集的所有镜头
+  static Future<List<DramaShot>> getShotsByEpisode(int episodeId) async {
+    final results = await _ensureDb.query(
+      'drama_shots',
+      where: 'episode_id = ?',
+      whereArgs: [episodeId],
+      orderBy: 'shot_number ASC',
+    );
+    return results.map((r) => DramaShot.fromMap(r)).toList();
+  }
+
+  /// 按ID查询镜头
+  static Future<DramaShot?> getShot(int id) async {
+    final results = await _ensureDb.query(
+      'drama_shots',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (results.isEmpty) return null;
+    return DramaShot.fromMap(results.first);
+  }
+
+  /// 更新镜头（更新图片/音频/视频路径、状态等）
+  static Future<void> updateShot(DramaShot shot) async {
+    await _ensureDb.update(
+      'drama_shots',
+      shot.toMap(),
+      where: 'id = ?',
+      whereArgs: [shot.id],
+    );
+  }
+
+  /// 删除镜头
+  static Future<void> deleteShot(int id) async {
+    await _ensureDb.delete(
+      'drama_shots',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// 获取短剧下所有待处理的镜头
+  static Future<List<DramaShot>> getPendingShots(int dramaId, {int limit = 10}) async {
+    final results = await _ensureDb.rawQuery('''
+      SELECT s.* FROM drama_shots s
+      INNER JOIN drama_episodes e ON s.episode_id = e.id
+      WHERE e.drama_id = ? AND s.status != 'video_ready'
+      ORDER BY e.episode_number ASC, s.shot_number ASC
+      LIMIT ?
+    ''', [dramaId, limit]);
+    return results.map((r) => DramaShot.fromMap(r)).toList();
+  }
+
+  /// 获取短剧下所有镜头
+  static Future<List<DramaShot>> getAllShotsByDrama(int dramaId) async {
+    final results = await _ensureDb.rawQuery('''
+      SELECT s.* FROM drama_shots s
+      INNER JOIN drama_episodes e ON s.episode_id = e.id
+      WHERE e.drama_id = ?
+      ORDER BY e.episode_number ASC, s.shot_number ASC
+    ''', [dramaId]);
+    return results.map((r) => DramaShot.fromMap(r)).toList();
+  }
+
+  // ==================== 短剧文件目录 ====================
+
+  /// 获取短剧图片目录
+  static Future<String> getDramaImageDirectory() async {
+    final appDir = await getAppDirectory();
+    final imageDir = Directory('$appDir/drama_images');
+    if (!await imageDir.exists()) {
+      await imageDir.create(recursive: true);
+    }
+    return imageDir.path;
+  }
+
+  /// 获取短剧音频目录
+  static Future<String> getDramaAudioDirectory() async {
+    final appDir = await getAppDirectory();
+    final audioDir = Directory('$appDir/drama_audio');
+    if (!await audioDir.exists()) {
+      await audioDir.create(recursive: true);
+    }
+    return audioDir.path;
+  }
+
+  /// 获取短剧视频目录
+  static Future<String> getDramaVideoDirectory() async {
+    final appDir = await getAppDirectory();
+    final videoDir = Directory('$appDir/drama_videos');
+    if (!await videoDir.exists()) {
+      await videoDir.create(recursive: true);
+    }
+    return videoDir.path;
   }
 }

@@ -109,4 +109,20 @@ class ApiConfig {
   static const String tikhubApiKeyKey = 'tikhub_api_key';
   static const String ai32ApiKeyKey = 'ai32_api_key';
   static const String agnesApiKeyKey = 'agnes_api_key';
+
+  // ==================== 阿里百炼 Wanxiang 文生图 ====================
+  /// Wanxiang文生图提交接口（异步）
+  static const String wanxT2ISubmitUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis';
+  /// Wanxiang任务状态查询接口
+  static const String wanxT2ITaskQueryUrl = 'https://dashscope.aliyuncs.com/api/v1/tasks/';
+  /// Wanxiang文生图模型名
+  static const String wanxT2IModel = 'wanx2.1-t2i-turbo';
+
+  // ==================== 本地 Stable Diffusion ====================
+  /// 本地SD WebUI默认地址（Android模拟器访问主机用10.0.2.2）
+  static const String defaultLocalSdUrl = 'http://10.0.2.2:7860';
+  /// 本地SD文生图接口
+  static const String localSdTxt2ImgEndpoint = '/sdapi/v1/txt2img';
+  /// 本地SD API Key配置键名
+  static const String localSdUrlKey = 'local_sd_url';
 }
