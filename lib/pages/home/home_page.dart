@@ -178,7 +178,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildGrid() {
     final items = [
-      (Icons.auto_awesome, '创作工作台', const Color(0xFF1A73E8), AppRoutes.extract),
+      (Icons.content_paste, '文案提取', const Color(0xFF1A73E8), AppRoutes.extract),
       (Icons.edit_note, 'AI改写', const Color(0xFF81C784), AppRoutes.rewrite),
       (Icons.shield_outlined, '法务审核', const Color(0xFFFFB74D), AppRoutes.audit),
       (Icons.record_voice_over, '语音合成', const Color(0xFFE57373), AppRoutes.voice),

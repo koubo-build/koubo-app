@@ -11,7 +11,10 @@ import '../../widgets/risk_badge.dart';
 
 /// AI改写工作台 - 多种改写模式 + 多版本生成 + 对比展示
 class RewritePage extends ConsumerStatefulWidget {
-  const RewritePage({super.key});
+  /// 从文案提取页跳转时传入的初始文案
+  final String? initialText;
+
+  const RewritePage({super.key, this.initialText});
 
   @override
   ConsumerState<RewritePage> createState() => _RewritePageState();
@@ -26,6 +29,15 @@ class _RewritePageState extends ConsumerState<RewritePage> {
 
   // 改写结果
   List<Map<String, dynamic>> _versions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    // 接收从文案提取页传入的初始文案
+    if (widget.initialText != null && widget.initialText!.isNotEmpty) {
+      _sourceController.text = widget.initialText!;
+    }
+  }
 
   @override
   void dispose() {

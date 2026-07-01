@@ -36,7 +36,6 @@ class AppRoutes {
   static final Map<String, WidgetBuilder> routes = {
     home: (context) => const HomePage(),
     extract: (context) => const ExtractPage(),
-    rewrite: (context) => const RewritePage(),
     audit: (context) => const AuditPage(),
     monitor: (context) => const MonitorPage(),
     settings: (context) => const SettingsPage(),
@@ -50,6 +49,15 @@ class AppRoutes {
     final args = settings.arguments as Map<String, dynamic>? ?? {};
 
     switch (routeName) {
+      case rewrite:
+        // AI改写页面，支持接收初始文案参数
+        return MaterialPageRoute(
+          builder: (context) => RewritePage(
+            initialText: args['initialText'] as String?,
+          ),
+          settings: settings,
+        );
+
       case rewriteCompare:
         return MaterialPageRoute(
           builder: (context) => RewriteComparePage(
@@ -74,7 +82,7 @@ class AppRoutes {
         // 数字人视频页面，支持接收文案和音频参数
         return MaterialPageRoute(
           builder: (context) => DigitalHumanPage(
-            initialText: args['text'] as String?,
+            initialText: args['initialText'] as String?,
             audioPath: args['audioPath'] as String?,
           ),
           settings: settings,
