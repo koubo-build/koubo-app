@@ -749,6 +749,10 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                 if (presetUrl.isNotEmpty && _textBaseUrl.isEmpty) {
                   _textBaseUrl = presetUrl;
                 }
+                final presetKey = _getPresetApiKey(v);
+                if (presetKey.isNotEmpty && _textApiKey.isEmpty) {
+                  _textApiKey = presetKey;
+                }
               });
             },
             apiKey: _textApiKey,
@@ -799,6 +803,16 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
         return 'https://api.deepseek.com';
       case 'doubao-pro':
         return 'https://ark.cn-beijing.volces.com/api/v3';
+      default:
+        return '';
+    }
+  }
+
+  /// 获取预设模型的默认API Key（仅Agnes AI预填，其他需用户自行输入）
+  static String _getPresetApiKey(String model) {
+    switch (model) {
+      case 'agnes-2.0-flash':
+        return 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
       default:
         return '';
     }
@@ -878,10 +892,13 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                 const SizedBox(height: 12),
                 TextField(
                   obscureText: true,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'API Key',
-                    hintText: '输入该服务的API Key',
+                    hintText: _getPresetApiKey(selectedModel).isNotEmpty
+                        ? '已预填（可修改）'
+                        : '输入该服务的API Key',
                   ),
+                  controller: TextEditingController(text: apiKey),
                   onChanged: onApiKeyChanged,
                 ),
                 const SizedBox(height: 12),

@@ -600,11 +600,13 @@ $truncatedText
     } else if (config.textModel != 'auto' && config.textModel.isNotEmpty) {
       // 检查是否有预设的Base URL和用户填的API Key
       final presetUrl = _getPresetBaseUrl(config.textModel);
-      if (presetUrl.isNotEmpty && config.textApiKey.isNotEmpty) {
-        // 有预设URL且有API Key：直接调用
+      final presetKey = _getPresetApiKey(config.textModel);
+      final effectiveApiKey = config.textApiKey.isNotEmpty ? config.textApiKey : presetKey;
+      if (presetUrl.isNotEmpty && effectiveApiKey.isNotEmpty) {
+        // 有预设URL且有API Key（用户填的或预设的）：直接调用
         return _apiClient.chatCompletion(
           baseUrl: config.textBaseUrl.isNotEmpty ? config.textBaseUrl : presetUrl,
-          apiKey: config.textApiKey,
+          apiKey: effectiveApiKey,
           model: config.textModel,
           messages: messages.map((m) => {'role': m['role']!, 'content': m['content']!}).toList(),
           temperature: temperature,
@@ -636,6 +638,16 @@ $truncatedText
         return 'https://api.deepseek.com';
       case 'doubao-pro':
         return 'https://ark.cn-beijing.volces.com/api/v3';
+      default:
+        return '';
+    }
+  }
+
+  /// 获取预设模型的默认API Key（仅Agnes AI有内置Key）
+  static String _getPresetApiKey(String model) {
+    switch (model) {
+      case 'agnes-2.0-flash':
+        return 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
       default:
         return '';
     }

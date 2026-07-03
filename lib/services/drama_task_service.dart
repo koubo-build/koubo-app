@@ -28,6 +28,7 @@ class DramaTaskService {
     required List<DramaShot> shots,
     required List<DramaCharacter> characters,
     required Drama drama,
+    int maxRetries = 0,
     void Function(int completed, int total, String currentShot)? onProgress,
   }) async {
     if (_isRunning) {
@@ -52,47 +53,56 @@ class DramaTaskService {
 
         onProgress?.call(completed, total, '生成图片: 镜头 #${shot.shotNumber}');
 
-        try {
-          // 构建增强的prompt（注入角色描述和画风）
-          final enhancedPrompt = ImageGenService.enhancePrompt(
-            shot.visualDescription,
-            drama.style,
-            _buildCharacterDescForShot(shot, characters),
-          );
+        bool shotSuccess = false;
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            if (attempt > 0) {
+              onProgress?.call(completed, total, '重试 #${shot.shotNumber} (${attempt}/${maxRetries})');
+              await Future.delayed(const Duration(seconds: 2));
+            }
 
-          // 解析画面比例
-          final size = ImageGenService.parseAspectRatio(drama.aspectRatio);
+            // 构建增强的prompt（注入角色描述和画风）
+            final enhancedPrompt = ImageGenService.enhancePrompt(
+              shot.visualDescription,
+              drama.style,
+              _buildCharacterDescForShot(shot, characters),
+            );
 
-          // 生成图片
-          final imagePath = await _imageGenService.generateImage(
-            prompt: enhancedPrompt,
-            width: size['width']!,
-            height: size['height']!,
-            model: config.imageModel,
-            customApiKey: config.imageApiKey.isNotEmpty ? config.imageApiKey : null,
-            customBaseUrl: config.imageBaseUrl.isNotEmpty ? config.imageBaseUrl : null,
-            onProgress: (stage, progress) {
-              // 可选：细化每个镜头的生成进度
-            },
-          );
+            // 解析画面比例
+            final size = ImageGenService.parseAspectRatio(drama.aspectRatio);
 
-          // 更新镜头状态和图片路径
-          final updatedShot = shot.copyWith(
-            imagePath: imagePath,
-            promptEnhanced: enhancedPrompt,
-            status: 'image_ready',
-          );
-          await StorageUtil.updateShot(updatedShot);
+            // 生成图片
+            final imagePath = await _imageGenService.generateImage(
+              prompt: enhancedPrompt,
+              width: size['width']!,
+              height: size['height']!,
+              model: config.imageModel,
+              customApiKey: config.imageApiKey.isNotEmpty ? config.imageApiKey : null,
+              customBaseUrl: config.imageBaseUrl.isNotEmpty ? config.imageBaseUrl : null,
+              onProgress: (stage, progress) {},
+            );
 
-          completed++;
+            // 更新镜头状态和图片路径
+            final updatedShot = shot.copyWith(
+              imagePath: imagePath,
+              promptEnhanced: enhancedPrompt,
+              status: 'image_ready',
+            );
+            await StorageUtil.updateShot(updatedShot);
+            shotSuccess = true;
+            break;
+          } catch (e) {
+            if (attempt < maxRetries) continue;
+            // 所有重试都失败
+            final errStr = e.toString();
+            final finalFailedShot = shot.copyWith(status: 'failed');
+            await StorageUtil.updateShot(finalFailedShot);
+            onProgress?.call(completed, total, '镜头 #${shot.shotNumber} 失败: ${errStr.length > 50 ? errStr.substring(0, 50) : errStr}');
+          }
+        }
+        completed++;
+        if (shotSuccess) {
           onProgress?.call(completed, total, '镜头 #${shot.shotNumber} 图片完成');
-        } catch (e) {
-          // 单个镜头失败不中断整个批次
-          final failedShot = shot.copyWith(status: 'failed');
-          await StorageUtil.updateShot(failedShot);
-
-          completed++;
-          onProgress?.call(completed, total, '镜头 #${shot.shotNumber} 失败: ${e.toString().substring(0, e.toString().length > 50 ? 50 : e.toString().length)}');
         }
       }
     } finally {

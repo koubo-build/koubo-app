@@ -39,6 +39,9 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   bool _hasInterruptedTasks = false;
   int _currentProcessingIndex = -1;
   String _currentStage = '';
+  static const int _maxRetries = 2;
+  // key: "${shotId}_${stage}" → retry count
+  final Map<String, int> _shotRetryCounts = {};
   final Dio _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 30),
     receiveTimeout: const Duration(minutes: 15),
@@ -681,6 +684,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
             shots: allPendingShots,
             characters: _characters,
             drama: _drama!,
+            maxRetries: _maxRetries,
             onProgress: (completed, total, currentShot) {
               if (mounted) {
                 setState(() {
@@ -707,30 +711,59 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
             .toList();
         for (int i = 0; i < needAudioShots.length; i++) {
           final shot = needAudioShots[i];
+          final retryKey = '${shot.id}_audio';
+          int retryCount = 0;
+          bool audioSuccess = false;
+
           if (mounted) {
             setState(() {
               _currentProcessingIndex = _shots.indexWhere((s) => s.id == shot.id);
               _generateProgress = '[音频 ${i + 1}/${needAudioShots.length}] 镜头 #${shot.shotNumber}';
             });
           }
-          try {
-            final audioPath = await ttsService.synthesize(
-              text: shot.dialogue,
-              voiceId: 'longanhuan',
-              provider: 'cosyvoice',
-            );
-            final updatedShot = shot.copyWith(
-              audioPath: audioPath,
-              status: shot.imagePath != null ? 'audio_ready' : 'pending',
-            );
-            await StorageUtil.updateShot(updatedShot);
-            if (mounted) {
-              setState(() {
-                final idx = _shots.indexWhere((s) => s.id == shot.id);
-                if (idx != -1) _shots[idx] = updatedShot;
-              });
+
+          for (int attempt = 0; attempt <= _maxRetries; attempt++) {
+            try {
+              if (attempt > 0) {
+                retryCount = attempt;
+                _shotRetryCounts[retryKey] = retryCount;
+                if (mounted) {
+                  setState(() {
+                    _generateProgress = '[音频 ${i + 1}/${needAudioShots.length}] 镜头 #${shot.shotNumber} 重试 $attempt/$_maxRetries';
+                  });
+                }
+                await Future.delayed(const Duration(seconds: 2));
+              }
+
+              final audioPath = await ttsService.synthesize(
+                text: shot.dialogue,
+                voiceId: 'longanhuan',
+                provider: 'cosyvoice',
+              );
+              final updatedShot = shot.copyWith(
+                audioPath: audioPath,
+                status: shot.imagePath != null ? 'audio_ready' : 'pending',
+              );
+              await StorageUtil.updateShot(updatedShot);
+              if (mounted) {
+                setState(() {
+                  final idx = _shots.indexWhere((s) => s.id == shot.id);
+                  if (idx != -1) _shots[idx] = updatedShot;
+                });
+              }
+              audioSuccess = true;
+              break;
+            } catch (_) {
+              if (attempt >= _maxRetries) {
+                _shotRetryCounts[retryKey] = _maxRetries + 1; // mark as fully failed
+              }
             }
-          } catch (_) { /* skip single failure */ }
+          }
+          if (!audioSuccess && mounted) {
+            setState(() {
+              _generateProgress = '[音频 ${i + 1}/${needAudioShots.length}] 镜头 #${shot.shotNumber} 失败（已重试$_maxRetries次）';
+            });
+          }
         }
         await _loadData();
       } catch (_) { /* skip */ }
@@ -748,35 +781,62 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
             .toList();
         for (int i = 0; i < readyShots.length; i++) {
           final shot = readyShots[i];
+          final retryKey = '${shot.id}_video';
+          bool videoSuccess = false;
+
           if (mounted) {
             setState(() {
               _currentProcessingIndex = _shots.indexWhere((s) => s.id == shot.id);
               _generateProgress = '[视频 ${i + 1}/${readyShots.length}] 镜头 #${shot.shotNumber}';
             });
           }
-          try {
-            String videoPath;
-            if (shot.audioPath != null && shot.audioPath!.isNotEmpty) {
-              videoPath = await _generateVideoWithAudio(
-                imagePath: shot.imagePath!,
-                audioPath: shot.audioPath!,
-                prompt: shot.visualDescription,
-              );
-            } else {
-              videoPath = await _generateHappyHorseVideo(
-                imagePath: shot.imagePath!,
-                prompt: shot.visualDescription,
-              );
+
+          for (int attempt = 0; attempt <= _maxRetries; attempt++) {
+            try {
+              if (attempt > 0) {
+                _shotRetryCounts[retryKey] = attempt;
+                if (mounted) {
+                  setState(() {
+                    _generateProgress = '[视频 ${i + 1}/${readyShots.length}] 镜头 #${shot.shotNumber} 重试 $attempt/$_maxRetries';
+                  });
+                }
+                await Future.delayed(const Duration(seconds: 2));
+              }
+
+              String videoPath;
+              if (shot.audioPath != null && shot.audioPath!.isNotEmpty) {
+                videoPath = await _generateVideoWithAudio(
+                  imagePath: shot.imagePath!,
+                  audioPath: shot.audioPath!,
+                  prompt: shot.visualDescription,
+                );
+              } else {
+                videoPath = await _generateHappyHorseVideo(
+                  imagePath: shot.imagePath!,
+                  prompt: shot.visualDescription,
+                );
+              }
+              final updatedShot = shot.copyWith(videoPath: videoPath, status: 'video_ready');
+              await StorageUtil.updateShot(updatedShot);
+              if (mounted) {
+                setState(() {
+                  final idx = _shots.indexWhere((s) => s.id == shot.id);
+                  if (idx != -1) _shots[idx] = updatedShot;
+                });
+              }
+              videoSuccess = true;
+              break;
+            } catch (_) {
+              if (attempt >= _maxRetries) {
+                _shotRetryCounts[retryKey] = _maxRetries + 1; // mark as fully failed
+              }
             }
-            final updatedShot = shot.copyWith(videoPath: videoPath, status: 'video_ready');
-            await StorageUtil.updateShot(updatedShot);
-            if (mounted) {
-              setState(() {
-                final idx = _shots.indexWhere((s) => s.id == shot.id);
-                if (idx != -1) _shots[idx] = updatedShot;
-              });
-            }
-          } catch (_) { /* skip single failure */ }
+          }
+          if (!videoSuccess && mounted) {
+            setState(() {
+              _generateProgress = '[视频 ${i + 1}/${readyShots.length}] 镜头 #${shot.shotNumber} 失败（已重试$_maxRetries次）';
+            });
+          }
         }
         await _loadData();
       } catch (_) { /* skip */ }
@@ -801,6 +861,186 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('生成异常：$e')),
         );
+      }
+    }
+  }
+
+  /// 手动重试单个失败镜头的生成
+  Future<void> _retrySingleShot(DramaShot shot) async {
+    if (_isGenerating) return;
+
+    setState(() {
+      _isGenerating = true;
+      _currentProcessingIndex = _shots.indexWhere((s) => s.id == shot.id);
+    });
+
+    try {
+      // 根据当前状态决定需要重试的阶段
+      final needsImage = shot.imagePath == null || shot.status == 'failed';
+      final needsAudio = shot.dialogue.isNotEmpty && shot.audioPath == null;
+      final needsVideo = shot.imagePath != null && shot.status != 'video_ready';
+
+      if (needsImage && _drama != null) {
+        setState(() {
+          _currentStage = 'image';
+          _generateProgress = '重试图片: 镜头 #${shot.shotNumber}';
+        });
+        final config = _drama!.parsedModelConfig;
+        final imageService = ImageGenService();
+        final enhancedPrompt = ImageGenService.enhancePrompt(
+          shot.visualDescription,
+          _drama!.style,
+          _buildCharacterDescForShot(shot, _characters),
+        );
+        final size = ImageGenService.parseAspectRatio(_drama!.aspectRatio);
+        bool success = false;
+        for (int attempt = 0; attempt <= _maxRetries; attempt++) {
+          try {
+            if (attempt > 0) {
+              _shotRetryCounts['${shot.id}_image'] = attempt;
+              setState(() {
+                _generateProgress = '重试图片: 镜头 #${shot.shotNumber} (第$attempt次)';
+              });
+              await Future.delayed(const Duration(seconds: 2));
+            }
+            final imagePath = await imageService.generateImage(
+              prompt: enhancedPrompt,
+              width: size['width']!,
+              height: size['height']!,
+              model: config.imageModel,
+              customApiKey: config.imageApiKey.isNotEmpty ? config.imageApiKey : null,
+              customBaseUrl: config.imageBaseUrl.isNotEmpty ? config.imageBaseUrl : null,
+            );
+            var updated = shot.copyWith(imagePath: imagePath, promptEnhanced: enhancedPrompt, status: 'image_ready');
+            await StorageUtil.updateShot(updated);
+            if (mounted) setState(() {
+              final idx = _shots.indexWhere((s) => s.id == shot.id);
+              if (idx != -1) _shots[idx] = updated;
+              shot = updated;
+            });
+            success = true;
+            break;
+          } catch (_) {
+            if (attempt >= _maxRetries) {
+              _shotRetryCounts['${shot.id}_image'] = _maxRetries + 1;
+            }
+          }
+        }
+        if (!success) {
+          if (mounted) setState(() {
+            _isGenerating = false;
+            _currentStage = '';
+            _currentProcessingIndex = -1;
+          });
+          return;
+        }
+      }
+
+      if (needsAudio) {
+        setState(() {
+          _currentStage = 'audio';
+          _generateProgress = '重试音频: 镜头 #${shot.shotNumber}';
+        });
+        final ttsService = TtsService(ref.read(apiClientProvider));
+        bool success = false;
+        for (int attempt = 0; attempt <= _maxRetries; attempt++) {
+          try {
+            if (attempt > 0) {
+              _shotRetryCounts['${shot.id}_audio'] = attempt;
+              setState(() {
+                _generateProgress = '重试音频: 镜头 #${shot.shotNumber} (第$attempt次)';
+              });
+              await Future.delayed(const Duration(seconds: 2));
+            }
+            final audioPath = await ttsService.synthesize(
+              text: shot.dialogue,
+              voiceId: 'longanhuan',
+              provider: 'cosyvoice',
+            );
+            var updated = shot.copyWith(audioPath: audioPath, status: shot.imagePath != null ? 'audio_ready' : 'pending');
+            await StorageUtil.updateShot(updated);
+            if (mounted) setState(() {
+              final idx = _shots.indexWhere((s) => s.id == shot.id);
+              if (idx != -1) _shots[idx] = updated;
+              shot = updated;
+            });
+            success = true;
+            break;
+          } catch (_) {
+            if (attempt >= _maxRetries) {
+              _shotRetryCounts['${shot.id}_audio'] = _maxRetries + 1;
+            }
+          }
+        }
+        if (!success) {
+          if (mounted) setState(() {
+            _isGenerating = false;
+            _currentStage = '';
+            _currentProcessingIndex = -1;
+          });
+          return;
+        }
+      }
+
+      if (needsVideo && shot.imagePath != null) {
+        setState(() {
+          _currentStage = 'video';
+          _generateProgress = '重试视频: 镜头 #${shot.shotNumber}';
+        });
+        bool success = false;
+        for (int attempt = 0; attempt <= _maxRetries; attempt++) {
+          try {
+            if (attempt > 0) {
+              _shotRetryCounts['${shot.id}_video'] = attempt;
+              setState(() {
+                _generateProgress = '重试视频: 镜头 #${shot.shotNumber} (第$attempt次)';
+              });
+              await Future.delayed(const Duration(seconds: 2));
+            }
+            String videoPath;
+            if (shot.audioPath != null && shot.audioPath!.isNotEmpty) {
+              videoPath = await _generateVideoWithAudio(
+                imagePath: shot.imagePath!,
+                audioPath: shot.audioPath!,
+                prompt: shot.visualDescription,
+              );
+            } else {
+              videoPath = await _generateHappyHorseVideo(
+                imagePath: shot.imagePath!,
+                prompt: shot.visualDescription,
+              );
+            }
+            var updated = shot.copyWith(videoPath: videoPath, status: 'video_ready');
+            await StorageUtil.updateShot(updated);
+            if (mounted) setState(() {
+              final idx = _shots.indexWhere((s) => s.id == shot.id);
+              if (idx != -1) _shots[idx] = updated;
+            });
+            success = true;
+            break;
+          } catch (_) {
+            if (attempt >= _maxRetries) {
+              _shotRetryCounts['${shot.id}_video'] = _maxRetries + 1;
+            }
+          }
+        }
+        if (!success && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('镜头 #${shot.shotNumber} 重试失败，已尝试$_maxRetries次')),
+          );
+        }
+      }
+
+      await _loadData();
+    } catch (e) {
+      // ignore
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGenerating = false;
+          _currentStage = '';
+          _currentProcessingIndex = -1;
+        });
       }
     }
   }
@@ -1189,14 +1429,31 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     final isProcessing = index == _currentProcessingIndex && _isGenerating;
     final hasImage =
         shot.imagePath != null && File(shot.imagePath!).existsSync();
+    final isFailed = shot.status == 'failed';
+    final imgRetryKey = '${shot.id}_image';
+    final audioRetryKey = '${shot.id}_audio';
+    final videoRetryKey = '${shot.id}_video';
+    final imgRetries = _shotRetryCounts[imgRetryKey] ?? 0;
+    final audioRetries = _shotRetryCounts[audioRetryKey] ?? 0;
+    final videoRetries = _shotRetryCounts[videoRetryKey] ?? 0;
+    final totalRetries = imgRetries + audioRetries + videoRetries;
+
+    Color borderColor;
+    if (isProcessing) {
+      borderColor = const Color(0xFFFF6B9D); // 粉色：正在处理
+    } else if (isFailed && totalRetries > _maxRetries) {
+      borderColor = Colors.red; // 红色：彻底失败
+    } else if (isFailed) {
+      borderColor = Colors.orange; // 橙色：失败但可重试
+    } else {
+      borderColor = Colors.transparent;
+    }
 
     return Card(
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: isProcessing
-            ? const BorderSide(color: Color(0xFFFF6B9D), width: 2)
-            : BorderSide.none,
+        side: BorderSide(color: borderColor, width: 2),
       ),
       child: InkWell(
         onTap: () => _showShotDetailDialog(shot),
@@ -1263,10 +1520,34 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
                       ),
                     ),
                   ),
+                  // 重试次数标记
+                  if (totalRetries > 0)
+                    Positioned(
+                      bottom: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: totalRetries > _maxRetries ? Colors.red : Colors.orange,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.refresh, size: 10, color: Colors.white),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${totalRetries > _maxRetries ? _maxRetries : totalRetries}/$_maxRetries',
+                              style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
-            // 描述
+            // 描述 + 重试按钮
             Expanded(
               flex: 2,
               child: Padding(
@@ -1308,6 +1589,29 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
                         ],
                       ),
                     ],
+                    // 手动重试按钮
+                    if (isFailed && !_isGenerating)
+                      Align(
+                        alignment: Alignment.bottomRight,
+                        child: GestureDetector(
+                          onTap: () => _retrySingleShot(shot),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF6B9D),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.refresh, size: 11, color: Colors.white),
+                                SizedBox(width: 3),
+                                Text('重试', style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
