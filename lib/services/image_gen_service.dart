@@ -49,8 +49,8 @@ class ImageGenService {
       );
     } else if (model == 'agnes-image') {
       // 使用Agnes AI图像生成（OpenAI兼容格式）
-      final agnesKey = customApiKey.isNotEmpty
-          ? customApiKey
+      final agnesKey = (customApiKey?.isNotEmpty ?? false)
+          ? customApiKey!
           : 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
       return _generateWithCustom(
         prompt: prompt,
