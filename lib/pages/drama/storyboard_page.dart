@@ -865,6 +865,24 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     }
   }
 
+  /// 根据镜头关联的角色ID构建角色描述
+  String _buildCharacterDescForShot(DramaShot shot, List<DramaCharacter> characters) {
+    if (shot.characterIds.isEmpty || characters.isEmpty) {
+      return '';
+    }
+    final charIds = shot.characterIdList;
+    final descParts = <String>[];
+    for (final charId in charIds) {
+      try {
+        final character = characters.firstWhere((c) => c.id == charId);
+        if (character.description.isNotEmpty) {
+          descParts.add('${character.name}: ${character.description}');
+        }
+      } catch (_) {}
+    }
+    return descParts.join('; ');
+  }
+
   /// 手动重试单个失败镜头的生成
   Future<void> _retrySingleShot(DramaShot shot) async {
     if (_isGenerating) return;
