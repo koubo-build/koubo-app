@@ -37,6 +37,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   bool _isGenerating = false;
   String _generateProgress = '';
   bool _hasInterruptedTasks = false;
+  int _currentProcessingIndex = -1;
+  String _currentStage = '';
   final Dio _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 30),
     receiveTimeout: const Duration(minutes: 15),
@@ -101,6 +103,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
 
     setState(() {
       _isGenerating = true;
+      _currentStage = 'image';
+      _currentProcessingIndex = 0;
       _generateProgress = '正在准备批量生成...';
     });
 
@@ -117,6 +121,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           if (mounted) {
             setState(() {
               _generateProgress = '[$completed/$total] $currentShot';
+              _currentProcessingIndex = completed < total ? completed : -1;
             });
           }
         },
@@ -126,7 +131,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       await _loadData();
 
       if (mounted) {
-        setState(() => _isGenerating = false);
+        setState(() {
+          _isGenerating = false;
+          _currentStage = '';
+          _currentProcessingIndex = -1;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('图片生成完成')),
         );
@@ -136,7 +145,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       await _loadData();
 
       if (mounted) {
-        setState(() => _isGenerating = false);
+        setState(() {
+          _isGenerating = false;
+          _currentStage = '';
+          _currentProcessingIndex = -1;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('生成异常：$e')),
         );
@@ -202,6 +215,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
 
     setState(() {
       _isGenerating = true;
+      _currentStage = 'audio';
+      _currentProcessingIndex = 0;
       _generateProgress = '正在生成音频...';
     });
 
@@ -211,7 +226,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       for (int i = 0; i < needAudioShots.length; i++) {
         final shot = needAudioShots[i];
         setState(() {
-          _generateProgress = '正在生成第${i + 1}/${needAudioShots.length}个音频...';
+          _currentProcessingIndex = _shots.indexWhere((s) => s.id == shot.id);
+          _generateProgress = '[音频 ${i + 1}/${needAudioShots.length}] 镜头 #${shot.shotNumber}';
         });
 
         try {
@@ -251,14 +267,22 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       }
 
       if (mounted) {
-        setState(() => _isGenerating = false);
+        setState(() {
+          _isGenerating = false;
+          _currentStage = '';
+          _currentProcessingIndex = -1;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('音频生成完成')),
         );
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isGenerating = false);
+        setState(() {
+          _isGenerating = false;
+          _currentStage = '';
+          _currentProcessingIndex = -1;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('生成失败：$e')),
         );
@@ -280,6 +304,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
 
     setState(() {
       _isGenerating = true;
+      _currentStage = 'video';
+      _currentProcessingIndex = 0;
       _generateProgress = '正在生成视频...';
     });
 
@@ -287,7 +313,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       for (int i = 0; i < readyShots.length; i++) {
         final shot = readyShots[i];
         setState(() {
-          _generateProgress = '正在生成第${i + 1}/${readyShots.length}个视频...';
+          _currentProcessingIndex = _shots.indexWhere((s) => s.id == shot.id);
+          _generateProgress = '[视频 ${i + 1}/${readyShots.length}] 镜头 #${shot.shotNumber}';
         });
 
         try {
@@ -331,14 +358,22 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       }
 
       if (mounted) {
-        setState(() => _isGenerating = false);
+        setState(() {
+          _isGenerating = false;
+          _currentStage = '';
+          _currentProcessingIndex = -1;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('视频生成完成')),
         );
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isGenerating = false);
+        setState(() {
+          _isGenerating = false;
+          _currentStage = '';
+          _currentProcessingIndex = -1;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('生成失败：$e')),
         );
@@ -625,9 +660,149 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   }
 
   Future<void> _generateAll() async {
-    await _generateImages();
-    await _generateAudios();
-    await _generateVideos();
+    // 全流程生成：内联各阶段逻辑，统一控制状态
+    final allPendingShots = _shots.where((s) => s.status == 'pending' || s.status == 'failed').toList();
+
+    setState(() {
+      _isGenerating = true;
+      _currentStage = 'image';
+      _currentProcessingIndex = 0;
+      _generateProgress = '全流程生成开始...';
+    });
+
+    try {
+      // ===== 阶段1: 图片 =====
+      if (allPendingShots.isNotEmpty && _drama != null) {
+        try {
+          final taskService = ref.read(dramaTaskServiceProvider);
+          await taskService.batchGenerateImages(
+            dramaId: widget.dramaId,
+            episodeId: widget.episodeId,
+            shots: allPendingShots,
+            characters: _characters,
+            drama: _drama!,
+            onProgress: (completed, total, currentShot) {
+              if (mounted) {
+                setState(() {
+                  _generateProgress = '[图片 $completed/$total] $currentShot';
+                });
+              }
+            },
+          );
+          await _loadData();
+        } catch (_) { /* 单阶段失败不中断 */ }
+      }
+      if (!mounted) return;
+
+      // ===== 阶段2: 音频 =====
+      setState(() {
+        _currentStage = 'audio';
+        _currentProcessingIndex = 0;
+        _generateProgress = '开始生成音频...';
+      });
+      try {
+        final ttsService = TtsService(ref.read(apiClientProvider));
+        final needAudioShots = _shots
+            .where((s) => s.dialogue.isNotEmpty && s.audioPath == null)
+            .toList();
+        for (int i = 0; i < needAudioShots.length; i++) {
+          final shot = needAudioShots[i];
+          if (mounted) {
+            setState(() {
+              _currentProcessingIndex = _shots.indexWhere((s) => s.id == shot.id);
+              _generateProgress = '[音频 ${i + 1}/${needAudioShots.length}] 镜头 #${shot.shotNumber}';
+            });
+          }
+          try {
+            final audioPath = await ttsService.synthesize(
+              text: shot.dialogue,
+              voiceId: 'longanhuan',
+              provider: 'cosyvoice',
+            );
+            final updatedShot = shot.copyWith(
+              audioPath: audioPath,
+              status: shot.imagePath != null ? 'audio_ready' : 'pending',
+            );
+            await StorageUtil.updateShot(updatedShot);
+            if (mounted) {
+              setState(() {
+                final idx = _shots.indexWhere((s) => s.id == shot.id);
+                if (idx != -1) _shots[idx] = updatedShot;
+              });
+            }
+          } catch (_) { /* skip single failure */ }
+        }
+        await _loadData();
+      } catch (_) { /* skip */ }
+      if (!mounted) return;
+
+      // ===== 阶段3: 视频 =====
+      setState(() {
+        _currentStage = 'video';
+        _currentProcessingIndex = 0;
+        _generateProgress = '开始生成视频...';
+      });
+      try {
+        final readyShots = _shots
+            .where((s) => s.imagePath != null && s.status != 'video_ready')
+            .toList();
+        for (int i = 0; i < readyShots.length; i++) {
+          final shot = readyShots[i];
+          if (mounted) {
+            setState(() {
+              _currentProcessingIndex = _shots.indexWhere((s) => s.id == shot.id);
+              _generateProgress = '[视频 ${i + 1}/${readyShots.length}] 镜头 #${shot.shotNumber}';
+            });
+          }
+          try {
+            String videoPath;
+            if (shot.audioPath != null && shot.audioPath!.isNotEmpty) {
+              videoPath = await _generateVideoWithAudio(
+                imagePath: shot.imagePath!,
+                audioPath: shot.audioPath!,
+                prompt: shot.visualDescription,
+              );
+            } else {
+              videoPath = await _generateHappyHorseVideo(
+                imagePath: shot.imagePath!,
+                prompt: shot.visualDescription,
+              );
+            }
+            final updatedShot = shot.copyWith(videoPath: videoPath, status: 'video_ready');
+            await StorageUtil.updateShot(updatedShot);
+            if (mounted) {
+              setState(() {
+                final idx = _shots.indexWhere((s) => s.id == shot.id);
+                if (idx != -1) _shots[idx] = updatedShot;
+              });
+            }
+          } catch (_) { /* skip single failure */ }
+        }
+        await _loadData();
+      } catch (_) { /* skip */ }
+
+      if (mounted) {
+        setState(() {
+          _isGenerating = false;
+          _currentStage = '';
+          _currentProcessingIndex = -1;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('全流程生成完成！')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isGenerating = false;
+          _currentStage = '';
+          _currentProcessingIndex = -1;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('生成异常：$e')),
+        );
+      }
+    }
   }
 
   Future<void> _generateSingleShot(DramaShot shot, String action) async {
@@ -935,8 +1110,9 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
                 // 中断任务提示条
                 if (_hasInterruptedTasks && !_isGenerating)
                   _buildInterruptedBanner(),
+                if (_isGenerating) _buildPipelineView(),
                 Expanded(child: _buildShotGrid()),
-                if (_isGenerating) _buildProgressBar(),
+                if (!_isGenerating && _generateProgress.isNotEmpty) _buildProgressBar(),
                 _buildBottomBar(),
               ],
             ),
@@ -1004,17 +1180,24 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       itemCount: _shots.length,
       itemBuilder: (context, index) {
         final shot = _shots[index];
-        return _buildShotCard(shot);
+        return _buildShotCard(shot, index);
       },
     );
   }
 
-  Widget _buildShotCard(DramaShot shot) {
+  Widget _buildShotCard(DramaShot shot, int index) {
+    final isProcessing = index == _currentProcessingIndex && _isGenerating;
     final hasImage =
         shot.imagePath != null && File(shot.imagePath!).existsSync();
 
     return Card(
       clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: isProcessing
+            ? const BorderSide(color: Color(0xFFFF6B9D), width: 2)
+            : BorderSide.none,
+      ),
       child: InkWell(
         onTap: () => _showShotDetailDialog(shot),
         child: Column(
@@ -1146,6 +1329,110 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildPipelineView() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      color: AppTheme.darkSurface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 阶段步骤条
+          Row(
+            children: [
+              _buildPipelineStep('图片生成', Icons.image, _currentStage == 'image',
+                  _currentStage == 'audio' || _currentStage == 'video'),
+              _buildPipelineArrow(),
+              _buildPipelineStep('音频生成', Icons.audiotrack, _currentStage == 'audio',
+                  _currentStage == 'video'),
+              _buildPipelineArrow(),
+              _buildPipelineStep('视频生成', Icons.videocam, _currentStage == 'video', false),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // 进度条
+          LinearProgressIndicator(
+            value: _shots.isEmpty ? 0 : _getCompletedCount() / _shots.length,
+            backgroundColor: Colors.grey[800],
+            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF6B9D)),
+          ),
+          const SizedBox(height: 8),
+          // 当前处理信息
+          Row(
+            children: [
+              const SizedBox(
+                width: 14, height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFF6B9D)),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _generateProgress,
+                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                '${_getCompletedCount()}/${_shots.length}',
+                style: const TextStyle(fontSize: 12, color: AppTheme.textHint),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPipelineStep(String label, IconData icon, bool isActive, bool isCompleted) {
+    final color = isActive
+        ? const Color(0xFFFF6B9D)
+        : isCompleted
+            ? AppTheme.primaryColor
+            : AppTheme.textHint;
+    return Expanded(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 28, height: 28,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isCompleted ? AppTheme.primaryColor.withOpacity(0.2) : Colors.transparent,
+              border: Border.all(color: color, width: 1.5),
+            ),
+            child: Icon(icon, size: 14, color: color),
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: color,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPipelineArrow() {
+    return const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 2),
+      child: Icon(Icons.arrow_forward, size: 16, color: AppTheme.textHint),
+    );
+  }
+
+  int _getCompletedCount() {
+    return _shots.where((s) =>
+        s.status == 'image_ready' ||
+        s.status == 'audio_ready' ||
+        s.status == 'video_ready').length;
   }
 
   Widget _buildProgressBar() {

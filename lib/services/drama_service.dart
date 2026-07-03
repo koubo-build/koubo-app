@@ -582,12 +582,11 @@ $truncatedText
     required List<Map<String, String>> messages,
     double temperature = 0.7,
   }) async {
-    // 获取Drama的模型配置
     final drama = await StorageUtil.getDrama(dramaId);
     final config = drama?.parsedModelConfig ?? DramaModelConfig();
 
     if (config.textModel == 'custom') {
-      // 自定义配置：直接使用用户提供的API
+      // 自定义配置
       if (config.textApiKey.isEmpty || config.textBaseUrl.isEmpty) {
         throw Exception('自定义文本模型需要配置API Key和Base URL');
       }
@@ -599,18 +598,46 @@ $truncatedText
         temperature: temperature,
       );
     } else if (config.textModel != 'auto' && config.textModel.isNotEmpty) {
-      // 指定模型：使用chatSmart的modelOverride
-      return _apiClient.chatSmart(
-        messages: messages,
-        temperature: temperature,
-        modelOverride: config.textModel,
-      );
+      // 检查是否有预设的Base URL和用户填的API Key
+      final presetUrl = _getPresetBaseUrl(config.textModel);
+      if (presetUrl.isNotEmpty && config.textApiKey.isNotEmpty) {
+        // 有预设URL且有API Key：直接调用
+        return _apiClient.chatCompletion(
+          baseUrl: config.textBaseUrl.isNotEmpty ? config.textBaseUrl : presetUrl,
+          apiKey: config.textApiKey,
+          model: config.textModel,
+          messages: messages.map((m) => {'role': m['role']!, 'content': m['content']!}).toList(),
+          temperature: temperature,
+        );
+      } else {
+        // 没有API Key：尝试走chatSmart
+        return _apiClient.chatSmart(
+          messages: messages,
+          temperature: temperature,
+          modelOverride: config.textModel,
+        );
+      }
     } else {
-      // auto：走默认智能路由
+      // auto
       return _apiClient.chatSmart(
         messages: messages,
         temperature: temperature,
       );
+    }
+  }
+
+  /// 获取预设模型的默认Base URL
+  static String _getPresetBaseUrl(String model) {
+    switch (model) {
+      case 'agnes-2.0-flash':
+        return 'https://api.agnes-ai.com/v1';
+      case 'deepseek-v4-flash':
+      case 'deepseek-v4-pro':
+        return 'https://api.deepseek.com';
+      case 'doubao-pro':
+        return 'https://ark.cn-beijing.volces.com/api/v3';
+      default:
+        return '';
     }
   }
 }

@@ -77,7 +77,10 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     {'value': 'auto', 'label': '智能路由 (auto)'},
     {'value': 'qwen-plus', 'label': '通义千问 Plus'},
     {'value': 'glm-4.7-flash', 'label': '智谱 GLM-4.7 Flash'},
-    {'value': 'agnes-2.0-flash', 'label': 'Agnes 2.0 Flash'},
+    {'value': 'agnes-2.0-flash', 'label': 'Agnes 2.0 Flash (免费)'},
+    {'value': 'deepseek-v4-flash', 'label': 'DeepSeek V4 Flash'},
+    {'value': 'deepseek-v4-pro', 'label': 'DeepSeek V4 Pro'},
+    {'value': 'doubao-pro', 'label': '豆包 Pro (火山引擎)'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
 
@@ -739,7 +742,15 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
             initiallyExpanded: false,
             selectedModel: _textModel,
             models: _textModels,
-            onModelChanged: (v) => setState(() => _textModel = v),
+            onModelChanged: (v) {
+              setState(() {
+                _textModel = v;
+                final presetUrl = _getPresetBaseUrl(v);
+                if (presetUrl.isNotEmpty && _textBaseUrl.isEmpty) {
+                  _textBaseUrl = presetUrl;
+                }
+              });
+            },
             apiKey: _textApiKey,
             onApiKeyChanged: (v) => setState(() => _textApiKey = v),
             baseUrl: _textBaseUrl,
@@ -776,6 +787,21 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
         ],
       ),
     );
+  }
+
+  /// 获取预设模型的默认Base URL
+  static String _getPresetBaseUrl(String model) {
+    switch (model) {
+      case 'agnes-2.0-flash':
+        return 'https://api.agnes-ai.com/v1';
+      case 'deepseek-v4-flash':
+      case 'deepseek-v4-pro':
+        return 'https://api.deepseek.com';
+      case 'doubao-pro':
+        return 'https://ark.cn-beijing.volces.com/api/v3';
+      default:
+        return '';
+    }
   }
 
   Widget _buildModelGroup({
@@ -827,7 +853,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                   if (value != null) onModelChanged(value);
                 },
               ),
-              // 自定义时才显示API Key和Base URL
+              // 自定义时显示API Key和Base URL
               if (isCustom) ...[
                 const SizedBox(height: 12),
                 TextField(
@@ -844,6 +870,27 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                     labelText: 'Base URL',
                     hintText: '输入API Base URL',
                   ),
+                  onChanged: onBaseUrlChanged,
+                ),
+              ]
+              // 预设模型有默认Base URL时，也显示API Key和Base URL
+              else if (_getPresetBaseUrl(selectedModel).isNotEmpty) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'API Key',
+                    hintText: '输入该服务的API Key',
+                  ),
+                  onChanged: onApiKeyChanged,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  decoration: InputDecoration(
+                    labelText: 'Base URL',
+                    hintText: _getPresetBaseUrl(selectedModel),
+                  ),
+                  controller: TextEditingController(text: baseUrl),
                   onChanged: onBaseUrlChanged,
                 ),
               ],
