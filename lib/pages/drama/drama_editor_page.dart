@@ -43,12 +43,18 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   String _textModel = 'auto';
   String _textApiKey = '';
   String _textBaseUrl = '';
+  final _textApiKeyController = TextEditingController();
+  final _textBaseUrlController = TextEditingController();
   String _imageModel = 'wanx';
   String _imageApiKey = '';
   String _imageBaseUrl = '';
+  final _imageApiKeyController = TextEditingController();
+  final _imageBaseUrlController = TextEditingController();
   String _videoModel = 'happyhorse';
   String _videoApiKey = '';
   String _videoBaseUrl = '';
+  final _videoApiKeyController = TextEditingController();
+  final _videoBaseUrlController = TextEditingController();
 
   static const _styles = [
     {'value': 'anime', 'label': '动漫'},
@@ -111,6 +117,12 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     _titleController.dispose();
     _descController.dispose();
     _scriptTextController.dispose();
+    _textApiKeyController.dispose();
+    _textBaseUrlController.dispose();
+    _imageApiKeyController.dispose();
+    _imageBaseUrlController.dispose();
+    _videoApiKeyController.dispose();
+    _videoBaseUrlController.dispose();
     super.dispose();
   }
 
@@ -750,17 +762,27 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                 final presetUrl = _getPresetBaseUrl(v);
                 if (presetUrl.isNotEmpty && _textBaseUrl.isEmpty) {
                   _textBaseUrl = presetUrl;
+                  _textBaseUrlController.text = presetUrl;
                 }
                 final presetKey = _getPresetApiKey(v);
                 if (presetKey.isNotEmpty && _textApiKey.isEmpty) {
                   _textApiKey = presetKey;
+                  _textApiKeyController.text = presetKey;
                 }
               });
             },
             apiKey: _textApiKey,
-            onApiKeyChanged: (v) => setState(() => _textApiKey = v),
+            onApiKeyChanged: (v) => setState(() {
+              _textApiKey = v;
+              _textApiKeyController.text = v;
+            }),
             baseUrl: _textBaseUrl,
-            onBaseUrlChanged: (v) => setState(() => _textBaseUrl = v),
+            onBaseUrlChanged: (v) => setState(() {
+              _textBaseUrl = v;
+              _textBaseUrlController.text = v;
+            }),
+            apiKeyController: _textApiKeyController,
+            baseUrlController: _textBaseUrlController,
           ),
           const SizedBox(height: 8),
           // 图像模型
@@ -776,17 +798,27 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                 final presetUrl = _getPresetBaseUrl(v);
                 if (presetUrl.isNotEmpty && _imageBaseUrl.isEmpty) {
                   _imageBaseUrl = presetUrl;
+                  _imageBaseUrlController.text = presetUrl;
                 }
                 final presetKey = _getPresetApiKey(v);
                 if (presetKey.isNotEmpty && _imageApiKey.isEmpty) {
                   _imageApiKey = presetKey;
+                  _imageApiKeyController.text = presetKey;
                 }
               });
             },
             apiKey: _imageApiKey,
-            onApiKeyChanged: (v) => setState(() => _imageApiKey = v),
+            onApiKeyChanged: (v) => setState(() {
+              _imageApiKey = v;
+              _imageApiKeyController.text = v;
+            }),
             baseUrl: _imageBaseUrl,
-            onBaseUrlChanged: (v) => setState(() => _imageBaseUrl = v),
+            onBaseUrlChanged: (v) => setState(() {
+              _imageBaseUrl = v;
+              _imageBaseUrlController.text = v;
+            }),
+            apiKeyController: _imageApiKeyController,
+            baseUrlController: _imageBaseUrlController,
           ),
           const SizedBox(height: 8),
           // 视频模型
@@ -802,17 +834,27 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                 final presetUrl = _getPresetBaseUrl(v);
                 if (presetUrl.isNotEmpty && _videoBaseUrl.isEmpty) {
                   _videoBaseUrl = presetUrl;
+                  _videoBaseUrlController.text = presetUrl;
                 }
                 final presetKey = _getPresetApiKey(v);
                 if (presetKey.isNotEmpty && _videoApiKey.isEmpty) {
                   _videoApiKey = presetKey;
+                  _videoApiKeyController.text = presetKey;
                 }
               });
             },
             apiKey: _videoApiKey,
-            onApiKeyChanged: (v) => setState(() => _videoApiKey = v),
+            onApiKeyChanged: (v) => setState(() {
+              _videoApiKey = v;
+              _videoApiKeyController.text = v;
+            }),
             baseUrl: _videoBaseUrl,
-            onBaseUrlChanged: (v) => setState(() => _videoBaseUrl = v),
+            onBaseUrlChanged: (v) => setState(() {
+              _videoBaseUrl = v;
+              _videoBaseUrlController.text = v;
+            }),
+            apiKeyController: _videoApiKeyController,
+            baseUrlController: _videoBaseUrlController,
           ),
         ],
       ),
@@ -859,8 +901,11 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     required ValueChanged<String> onApiKeyChanged,
     required String baseUrl,
     required ValueChanged<String> onBaseUrlChanged,
+    TextEditingController? apiKeyController,
+    TextEditingController? baseUrlController,
   }) {
-    final isCustom = selectedModel == 'custom';
+    final hasPreset = _getPresetBaseUrl(selectedModel).isNotEmpty;
+    final showFields = selectedModel == 'custom' || hasPreset;
 
     return ExpansionTile(
       initiallyExpanded: initiallyExpanded,
@@ -897,47 +942,27 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                   if (value != null) onModelChanged(value);
                 },
               ),
-              // 自定义时显示API Key和Base URL
-              if (isCustom) ...[
+              // 显示API Key和Base URL
+              if (showFields) ...[
                 const SizedBox(height: 12),
                 TextField(
                   obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'API Key',
-                    hintText: '输入API Key',
-                  ),
-                  onChanged: onApiKeyChanged,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: 'Base URL',
-                    hintText: '输入API Base URL',
-                  ),
-                  onChanged: onBaseUrlChanged,
-                ),
-              ]
-              // 预设模型有默认Base URL时，也显示API Key和Base URL
-              else if (_getPresetBaseUrl(selectedModel).isNotEmpty) ...[
-                const SizedBox(height: 12),
-                TextField(
-                  obscureText: true,
+                  controller: apiKeyController,
                   decoration: InputDecoration(
                     labelText: 'API Key',
-                    hintText: _getPresetApiKey(selectedModel).isNotEmpty
+                    hintText: hasPreset && _getPresetApiKey(selectedModel).isNotEmpty
                         ? '已预填（可修改）'
-                        : '输入该服务的API Key',
+                        : '输入API Key',
                   ),
-                  controller: TextEditingController(text: apiKey),
                   onChanged: onApiKeyChanged,
                 ),
                 const SizedBox(height: 12),
                 TextField(
+                  controller: baseUrlController,
                   decoration: InputDecoration(
                     labelText: 'Base URL',
-                    hintText: _getPresetBaseUrl(selectedModel),
+                    hintText: hasPreset ? _getPresetBaseUrl(selectedModel) : '输入API Base URL',
                   ),
-                  controller: TextEditingController(text: baseUrl),
                   onChanged: onBaseUrlChanged,
                 ),
               ],

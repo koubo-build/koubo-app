@@ -49,13 +49,16 @@ class ImageGenService {
       );
     } else if (model == 'agnes-image') {
       // 使用Agnes AI图像生成（OpenAI兼容格式）
+      final agnesKey = customApiKey.isNotEmpty
+          ? customApiKey
+          : 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
       return _generateWithCustom(
         prompt: prompt,
         negativePrompt: negativePrompt,
         width: width,
         height: height,
-        apiKey: customApiKey ?? '',
-        baseUrl: customBaseUrl ?? 'https://api.agnes-ai.com/v1',
+        apiKey: agnesKey,
+        baseUrl: customBaseUrl?.isNotEmpty == true ? customBaseUrl! : 'https://api.agnes-ai.com/v1',
         modelName: 'agnes-image-2.1-flash',
         onProgress: onProgress,
       );
