@@ -823,7 +823,9 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                     child: Text(m['label']!, style: const TextStyle(fontSize: 14)),
                   );
                 }).toList(),
-                onChanged: onModelChanged,
+                onChanged: (value) {
+                  if (value != null) onModelChanged(value);
+                },
               ),
               // 自定义时才显示API Key和Base URL
               if (isCustom) ...[
