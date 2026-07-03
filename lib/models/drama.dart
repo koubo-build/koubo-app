@@ -1,5 +1,91 @@
 import 'dart:convert';
 
+/// 项目级模型配置（Drama维度，覆盖全局设置）
+class DramaModelConfig {
+  final String textModel;      // 文本模型：auto/qwen-plus/glm-4.7-flash/agnes-2.0-flash/custom
+  final String textApiKey;     // 自定义文本模型的API Key
+  final String textBaseUrl;    // 自定义文本模型的Base URL
+  final String imageModel;     // 图像模型：wanx/local_sd/custom
+  final String imageApiKey;    // 自定义图像模型的API Key
+  final String imageBaseUrl;   // 自定义图像模型的Base URL
+  final String videoModel;     // 视频模型：happyhorse/wanx-s2v/custom
+  final String videoApiKey;    // 自定义视频模型的API Key
+  final String videoBaseUrl;   // 自定义视频模型的Base URL
+
+  DramaModelConfig({
+    this.textModel = 'auto',
+    this.textApiKey = '',
+    this.textBaseUrl = '',
+    this.imageModel = 'wanx',
+    this.imageApiKey = '',
+    this.imageBaseUrl = '',
+    this.videoModel = 'happyhorse',
+    this.videoApiKey = '',
+    this.videoBaseUrl = '',
+  });
+
+  factory DramaModelConfig.fromJson(Map<String, dynamic> json) {
+    return DramaModelConfig(
+      textModel: json['text_model'] as String? ?? 'auto',
+      textApiKey: json['text_api_key'] as String? ?? '',
+      textBaseUrl: json['text_base_url'] as String? ?? '',
+      imageModel: json['image_model'] as String? ?? 'wanx',
+      imageApiKey: json['image_api_key'] as String? ?? '',
+      imageBaseUrl: json['image_base_url'] as String? ?? '',
+      videoModel: json['video_model'] as String? ?? 'happyhorse',
+      videoApiKey: json['video_api_key'] as String? ?? '',
+      videoBaseUrl: json['video_base_url'] as String? ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'text_model': textModel,
+      'text_api_key': textApiKey,
+      'text_base_url': textBaseUrl,
+      'image_model': imageModel,
+      'image_api_key': imageApiKey,
+      'image_base_url': imageBaseUrl,
+      'video_model': videoModel,
+      'video_api_key': videoApiKey,
+      'video_base_url': videoBaseUrl,
+    };
+  }
+
+  DramaModelConfig copyWith({
+    String? textModel,
+    String? textApiKey,
+    String? textBaseUrl,
+    String? imageModel,
+    String? imageApiKey,
+    String? imageBaseUrl,
+    String? videoModel,
+    String? videoApiKey,
+    String? videoBaseUrl,
+  }) {
+    return DramaModelConfig(
+      textModel: textModel ?? this.textModel,
+      textApiKey: textApiKey ?? this.textApiKey,
+      textBaseUrl: textBaseUrl ?? this.textBaseUrl,
+      imageModel: imageModel ?? this.imageModel,
+      imageApiKey: imageApiKey ?? this.imageApiKey,
+      imageBaseUrl: imageBaseUrl ?? this.imageBaseUrl,
+      videoModel: videoModel ?? this.videoModel,
+      videoApiKey: videoApiKey ?? this.videoApiKey,
+      videoBaseUrl: videoBaseUrl ?? this.videoBaseUrl,
+    );
+  }
+
+  /// 是否为自定义文本模型
+  bool get isCustomTextModel => textModel == 'custom';
+
+  /// 是否为自定义图像模型
+  bool get isCustomImageModel => imageModel == 'custom';
+
+  /// 是否为自定义视频模型
+  bool get isCustomVideoModel => videoModel == 'custom';
+}
+
 /// 短剧项目
 class Drama {
   final int? id;
@@ -8,6 +94,8 @@ class Drama {
   final String style;           // 画风：anime/realistic/3d/watercolor 等
   final String genre;           // 类型：romance/sci-fi/comedy/thriller 等
   final String aspectRatio;     // 画面比例：16:9 / 9:16 / 1:1
+  final String modelConfig;     // JSON字符串，存储项目级模型配置
+  final String sourceText;      // 用户输入的原始剧本/小说文本
   final DateTime createdAt;
   final DateTime? updatedAt;
 
@@ -23,6 +111,8 @@ class Drama {
     this.style = 'anime',
     this.genre = '',
     this.aspectRatio = '16:9',
+    this.modelConfig = '{}',
+    this.sourceText = '',
     DateTime? createdAt,
     this.updatedAt,
     this.episodeCount = 0,
@@ -39,6 +129,8 @@ class Drama {
       style: map['style'] as String? ?? 'anime',
       genre: map['genre'] as String? ?? '',
       aspectRatio: map['aspect_ratio'] as String? ?? '16:9',
+      modelConfig: map['model_config'] as String? ?? '{}',
+      sourceText: map['source_text'] as String? ?? '',
       createdAt: map['created_at'] != null
           ? DateTime.parse(map['created_at'] as String)
           : DateTime.now(),
@@ -59,6 +151,8 @@ class Drama {
       style: json['style'] as String? ?? 'anime',
       genre: json['genre'] as String? ?? '',
       aspectRatio: json['aspect_ratio'] as String? ?? '16:9',
+      modelConfig: json['model_config'] as String? ?? '{}',
+      sourceText: json['source_text'] as String? ?? '',
     );
   }
 
@@ -71,6 +165,8 @@ class Drama {
       'style': style,
       'genre': genre,
       'aspect_ratio': aspectRatio,
+      'model_config': modelConfig,
+      'source_text': sourceText,
       'created_at': createdAt.toIso8601String(),
       if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
     };
@@ -85,6 +181,8 @@ class Drama {
       'style': style,
       'genre': genre,
       'aspect_ratio': aspectRatio,
+      'model_config': modelConfig,
+      'source_text': sourceText,
     };
   }
 
@@ -96,6 +194,8 @@ class Drama {
     String? style,
     String? genre,
     String? aspectRatio,
+    String? modelConfig,
+    String? sourceText,
     DateTime? createdAt,
     DateTime? updatedAt,
     int? episodeCount,
@@ -109,12 +209,23 @@ class Drama {
       style: style ?? this.style,
       genre: genre ?? this.genre,
       aspectRatio: aspectRatio ?? this.aspectRatio,
+      modelConfig: modelConfig ?? this.modelConfig,
+      sourceText: sourceText ?? this.sourceText,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       episodeCount: episodeCount ?? this.episodeCount,
       totalShots: totalShots ?? this.totalShots,
       completedShots: completedShots ?? this.completedShots,
     );
+  }
+
+  /// 获取解析后的模型配置
+  DramaModelConfig get parsedModelConfig {
+    try {
+      return DramaModelConfig.fromJson(jsonDecode(modelConfig));
+    } catch (_) {
+      return DramaModelConfig();
+    }
   }
 
   /// 获取画风显示名称

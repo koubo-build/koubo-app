@@ -332,6 +332,287 @@ class DramaService {
 
     return buffer.toString();
   }
+
+  // ==================== 从剧本文本提取角色 ====================
+
+  static const String _extractCharsSystemPrompt = '''你是一位专业的剧本分析师。请从用户提供的剧本/小说文本中，提取所有出现的角色。
+
+对每个角色，请提供：
+1. name：角色名
+2. description：外貌描述（如：年轻男性，黑色短发，白色衬衫，身材高大）
+3. personality：性格特征（如：勇敢、冲动、重义气）
+
+输出格式必须是标准JSON：
+{
+  "characters": [
+    {
+      "name": "角色名",
+      "description": "外貌描述",
+      "personality": "性格特征"
+    }
+  ]
+}
+
+注意：
+1. 只提取有实际戏份的角色，路人/群演不需要
+2. 描述要具体生动，方便AI出图时保持角色一致性
+3. 如果文本中没有明确的外貌描述，请根据上下文合理推断
+4. JSON格式必须完全正确''';
+
+  /// 从剧本文本中自动提取角色
+  Future<List<DramaCharacter>> extractCharacters({
+    required String scriptText,
+    required int dramaId,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    onProgress?.call('AI分析角色...', 10);
+
+    // 截取文本（防止超长）
+    final truncatedText = scriptText.length > 15000
+        ? '${scriptText.substring(0, 15000)}\n...(文本已截断)'
+        : scriptText;
+
+    final userPrompt = '请从以下剧本/小说中提取所有角色：\n\n$truncatedText';
+
+    final aiResponse = await _callAiWithModelConfig(
+      dramaId: dramaId,
+      messages: [
+        {'role': 'system', 'content': _extractCharsSystemPrompt},
+        {'role': 'user', 'content': userPrompt},
+      ],
+      temperature: 0.3,
+    );
+
+    onProgress?.call('解析角色数据...', 80);
+
+    // 解析JSON
+    final jsonStr = _extractJson(aiResponse);
+    if (jsonStr == null) {
+      throw Exception('无法解析角色数据');
+    }
+
+    final data = jsonDecode(jsonStr) as Map<String, dynamic>;
+    final charactersJson = data['characters'] as List<dynamic>? ?? [];
+
+    final characters = <DramaCharacter>[];
+    for (final c in charactersJson) {
+      characters.add(DramaCharacter.fromJson(c as Map<String, dynamic>, dramaId));
+    }
+
+    onProgress?.call('角色提取完成！', 100);
+    return characters;
+  }
+
+  // ==================== 从剧本生成分镜 ====================
+
+  static const String _storyboardSystemPrompt = '''你是一位专业的短剧分镜脚本创作师。请根据用户提供的完整剧本/小说文本和角色列表，生成结构化的分镜脚本。
+
+输出格式必须是标准JSON：
+{
+  "episodes": [
+    {
+      "title": "第一集 相遇",
+      "episode_number": 1,
+      "summary": "本集概要",
+      "shots": [
+        {
+          "shot_number": 1,
+          "visual_description": "画面描述（用于AI出图，要具体、生动、有画面感）",
+          "dialogue": "台词或旁白",
+          "character_desc": "该镜头涉及的角色描述",
+          "camera_direction": "运镜指示，如：特写、中景、远景、推近、拉远、跟拍",
+          "duration": 5,
+          "character_ids": []
+        }
+      ]
+    }
+  ]
+}
+
+请确保：
+1. 每个镜头的 visual_description 要有画面感，描述要具体生动
+2. 台词要符合角色性格和剧情发展
+3. 角色描述要保持与提供列表的一致性
+4. 合理分配镜头，确保故事节奏流畅
+5. JSON格式必须完全正确，不要有语法错误''';
+
+  /// 从剧本自动生成分镜
+  Future<DramaScriptResult> generateStoryboardFromScript({
+    required String scriptText,
+    required List<DramaCharacter> characters,
+    required String style,
+    required String genre,
+    int shotsPerEpisode = 10,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    // 构建角色信息
+    final charInfoList = characters.map((c) {
+      return '- ${c.name}：${c.description}${c.personality != null && c.personality!.isNotEmpty ? '（${c.personality}）' : ''}';
+    }).join('\n');
+
+    final truncatedText = scriptText.length > 15000
+        ? '${scriptText.substring(0, 15000)}\n...(文本已截断)'
+        : scriptText;
+
+    final userPrompt = '''请根据以下剧本和角色列表，生成结构化的分镜脚本。
+
+画风要求：${_getStyleDesc(style)}
+类型：${_getGenreDesc(genre)}
+每集镜头数：约${shotsPerEpisode}个
+
+角色列表：
+$charInfoList
+
+剧本文本：
+$truncatedText
+
+请生成分镜脚本，角色列表已在上方提供，无需重复提取。''';
+
+    onProgress?.call('AI生成分镜...', 10);
+
+    final aiResponse = await _callAiWithModelConfig(
+      dramaId: characters.isNotEmpty ? characters.first.dramaId : 0,
+      messages: [
+        {'role': 'system', 'content': _storyboardSystemPrompt},
+        {'role': 'user', 'content': userPrompt},
+      ],
+      temperature: 0.8,
+    );
+
+    onProgress?.call('解析分镜数据...', 80);
+
+    // 解析JSON
+    final jsonStr = _extractJson(aiResponse);
+    if (jsonStr == null) {
+      throw Exception('无法解析分镜数据');
+    }
+
+    final data = jsonDecode(jsonStr) as Map<String, dynamic>;
+    final dramaId = characters.isNotEmpty ? characters.first.dramaId : 0;
+
+    // 解析剧集
+    final episodes = <DramaEpisode>[];
+    final episodesJson = data['episodes'] as List<dynamic>? ?? [];
+    for (final e in episodesJson) {
+      episodes.add(DramaEpisode.fromJson(e as Map<String, dynamic>, dramaId));
+    }
+
+    onProgress?.call('分镜生成完成！', 100);
+
+    return DramaScriptResult(
+      characters: characters,  // 使用传入的角色列表
+      episodes: episodes,
+    );
+  }
+
+  // ==================== 一键从完整剧本创建短剧 ====================
+
+  /// 一键从完整剧本创建短剧（核心入口）
+  Future<Drama> createDramaFromFullScript({
+    required String title,
+    required String scriptText,
+    required String style,
+    required String genre,
+    String aspectRatio = '16:9',
+    String modelConfig = '{}',
+    int shotsPerEpisode = 10,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    // 1. 创建Drama记录（保存sourceText和modelConfig）
+    final drama = Drama(
+      title: title,
+      description: scriptText.length > 200 ? '${scriptText.substring(0, 200)}...' : scriptText,
+      style: style,
+      genre: genre,
+      aspectRatio: aspectRatio,
+      modelConfig: modelConfig,
+      sourceText: scriptText,
+    );
+
+    final dramaId = await StorageUtil.insertDrama(drama);
+    onProgress?.call('项目创建成功，AI分析角色中...', 10);
+
+    // 2. AI自动提取角色
+    final characters = await extractCharacters(
+      scriptText: scriptText,
+      dramaId: dramaId,
+      onProgress: (stage, progress) {
+        onProgress?.call('提取角色：$stage', 10 + (progress * 0.2).round());
+      },
+    );
+
+    onProgress?.call('保存角色...', 32);
+
+    // 3. 保存角色到DB
+    for (final character in characters) {
+      await StorageUtil.insertCharacter(character.copyWith(dramaId: dramaId));
+    }
+
+    // 4. AI自动生成分镜
+    final scriptResult = await generateStoryboardFromScript(
+      scriptText: scriptText,
+      characters: characters,
+      style: style,
+      genre: genre,
+      shotsPerEpisode: shotsPerEpisode,
+      onProgress: (stage, progress) {
+        onProgress?.call('生成分镜：$stage', 35 + (progress * 0.55).round());
+      },
+    );
+
+    onProgress?.call('保存剧集和镜头...', 92);
+
+    // 5. 保存剧集和镜头到DB
+    await StorageUtil.insertEpisodesWithShots(scriptResult.episodes);
+
+    onProgress?.call('完成！', 100);
+
+    // 6. 返回更新后的Drama
+    return (await StorageUtil.getDrama(dramaId))!;
+  }
+
+  // ==================== 模型配置调用辅助 ====================
+
+  /// 根据Drama的模型配置调用AI
+  /// 如果text_model为auto，走chatSmart默认逻辑
+  /// 如果text_model为特定模型，指定provider
+  /// 如果text_model为custom且提供了api_key/base_url，直接用自定义配置调用
+  Future<String> _callAiWithModelConfig({
+    required int dramaId,
+    required List<Map<String, String>> messages,
+    double temperature = 0.7,
+  }) async {
+    // 获取Drama的模型配置
+    final drama = await StorageUtil.getDrama(dramaId);
+    final config = drama?.parsedModelConfig ?? DramaModelConfig();
+
+    if (config.textModel == 'custom') {
+      // 自定义配置：直接使用用户提供的API
+      if (config.textApiKey.isEmpty || config.textBaseUrl.isEmpty) {
+        throw Exception('自定义文本模型需要配置API Key和Base URL');
+      }
+      return _apiClient.chatCompletion(
+        baseUrl: config.textBaseUrl,
+        apiKey: config.textApiKey,
+        model: 'default',
+        messages: messages.map((m) => {'role': m['role']!, 'content': m['content']!}).toList(),
+        temperature: temperature,
+      );
+    } else if (config.textModel != 'auto' && config.textModel.isNotEmpty) {
+      // 指定模型：使用chatSmart的modelOverride
+      return _apiClient.chatSmart(
+        messages: messages,
+        temperature: temperature,
+        modelOverride: config.textModel,
+      );
+    } else {
+      // auto：走默认智能路由
+      return _apiClient.chatSmart(
+        messages: messages,
+        temperature: temperature,
+      );
+    }
+  }
 }
 
 /// DramaService的Riverpod Provider

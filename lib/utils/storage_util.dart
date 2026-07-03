@@ -26,7 +26,7 @@ class StorageUtil {
   static const String _dbName = 'koubo_app.db';
 
   // 数据库版本
-  static const int _dbVersion = 2;
+  static const int _dbVersion = 3;
 
   /// 初始化SharedPreferences
   static Future<void> init() async {
@@ -186,6 +186,8 @@ class StorageUtil {
         style TEXT DEFAULT 'anime',
         genre TEXT DEFAULT '',
         aspect_ratio TEXT DEFAULT '16:9',
+        model_config TEXT DEFAULT '{}',
+        source_text TEXT DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT
       )
@@ -307,6 +309,11 @@ class StorageUtil {
           FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         )
       ''');
+    }
+    if (oldVersion < 3) {
+      // v2 → v3: dramas表增加模型配置和原始文本字段
+      await db.execute("ALTER TABLE dramas ADD COLUMN model_config TEXT DEFAULT '{}'");
+      await db.execute("ALTER TABLE dramas ADD COLUMN source_text TEXT DEFAULT ''");
     }
   }
 

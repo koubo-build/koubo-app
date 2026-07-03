@@ -21,7 +21,9 @@ class ImageGenService {
   /// [negativePrompt] 否定提示词
   /// [width] 宽度
   /// [height] 高度
-  /// [model] 使用的模型：wanx 或 local_sd
+  /// [model] 使用的模型：wanx / local_sd / custom
+  /// [customApiKey] 自定义API Key（custom模式时使用）
+  /// [customBaseUrl] 自定义Base URL（custom模式时使用）
   /// 返回本地文件路径
   Future<String> generateImage({
     required String prompt,
@@ -29,9 +31,22 @@ class ImageGenService {
     int width = 1024,
     int height = 576,
     String model = 'wanx',
+    String? customApiKey,
+    String? customBaseUrl,
     void Function(String stage, int progress)? onProgress,
   }) async {
-    if (model == 'wanx') {
+    if (model == 'custom' && customApiKey != null && customApiKey.isNotEmpty) {
+      // 使用自定义配置（兼容OpenAI格式的文生图API）
+      return _generateWithCustom(
+        prompt: prompt,
+        negativePrompt: negativePrompt,
+        width: width,
+        height: height,
+        apiKey: customApiKey,
+        baseUrl: customBaseUrl ?? '',
+        onProgress: onProgress,
+      );
+    } else if (model == 'wanx') {
       return _generateWithWanx(
         prompt: prompt,
         negativePrompt: negativePrompt,
@@ -342,6 +357,79 @@ class ImageGenService {
         throw Exception('本地SD地址不可用，请检查SD WebUI是否启动');
       }
       throw Exception('本地SD生成失败：${e.message}');
+    }
+  }
+
+  // ==================== 自定义文生图（OpenAI兼容格式） ====================
+
+  /// 使用自定义API生成图片（兼容OpenAI images/generations格式）
+  Future<String> _generateWithCustom({
+    required String prompt,
+    required String negativePrompt,
+    required int width,
+    required int height,
+    required String apiKey,
+    required String baseUrl,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    if (baseUrl.isEmpty) {
+      throw Exception('自定义图像模型需要配置Base URL');
+    }
+
+    onProgress?.call('提交自定义文生图任务...', 10);
+
+    // 确保baseUrl不以/结尾
+    final normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+
+    try {
+      final response = await _dio.post(
+        '$normalizedBaseUrl/images/generations',
+        data: jsonEncode({
+          'model': 'dall-e-3',
+          'prompt': prompt,
+          'size': '${width}x$height',
+          'n': 1,
+        }),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+          receiveTimeout: const Duration(minutes: 10),
+        ),
+      );
+
+      final data = response.data as Map<String, dynamic>;
+      final imageData = data['data'] as List<dynamic>?;
+
+      if (imageData == null || imageData.isEmpty) {
+        throw Exception('自定义文生图未返回结果');
+      }
+
+      final imageUrl = imageData[0]['url'] as String?;
+      if (imageUrl == null || imageUrl.isEmpty) {
+        // 尝试b64_json格式
+        final b64 = imageData[0]['b64_json'] as String?;
+        if (b64 != null && b64.isNotEmpty) {
+          onProgress?.call('保存图片...', 80);
+          final localPath = await _saveBase64Image(b64, 'custom');
+          onProgress?.call('完成！', 100);
+          return localPath;
+        }
+        throw Exception('自定义文生图返回数据异常');
+      }
+
+      onProgress?.call('下载图片...', 80);
+      final localPath = await _downloadImage(imageUrl, 'custom');
+      onProgress?.call('完成！', 100);
+      return localPath;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final msg = e.response?.data?.toString() ?? e.message ?? '';
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('自定义图像API鉴权失败：请检查API Key。$msg');
+      }
+      throw Exception('自定义图像生成失败($statusCode)：$msg');
     }
   }
 
