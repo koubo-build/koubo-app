@@ -632,6 +632,8 @@ $truncatedText
   static String _getPresetBaseUrl(String model) {
     switch (model) {
       case 'agnes-2.0-flash':
+      case 'agnes-image':
+      case 'agnes-video':
         return 'https://api.agnes-ai.com/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
@@ -643,10 +645,12 @@ $truncatedText
     }
   }
 
-  /// 获取预设模型的默认API Key（仅Agnes AI有内置Key）
+  /// 获取预设模型的默认API Key（Agnes AI全模型预填，其他需用户自行输入）
   static String _getPresetApiKey(String model) {
     switch (model) {
       case 'agnes-2.0-flash':
+      case 'agnes-image':
+      case 'agnes-video':
         return 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
       default:
         return '';

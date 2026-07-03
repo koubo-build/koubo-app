@@ -86,12 +86,14 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
 
   static const _imageModels = [
     {'value': 'wanx', 'label': '万相 (Wanx)'},
+    {'value': 'agnes-image', 'label': 'Agnes AI Image (免费)'},
     {'value': 'local_sd', 'label': '本地 SD'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
 
   static const _videoModels = [
     {'value': 'happyhorse', 'label': 'HappyHorse'},
+    {'value': 'agnes-video', 'label': 'Agnes AI Video (免费)'},
     {'value': 'wanx-s2v', 'label': '万相 S2V'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
@@ -768,7 +770,19 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
             initiallyExpanded: true,
             selectedModel: _imageModel,
             models: _imageModels,
-            onModelChanged: (v) => setState(() => _imageModel = v),
+            onModelChanged: (v) {
+              setState(() {
+                _imageModel = v;
+                final presetUrl = _getPresetBaseUrl(v);
+                if (presetUrl.isNotEmpty && _imageBaseUrl.isEmpty) {
+                  _imageBaseUrl = presetUrl;
+                }
+                final presetKey = _getPresetApiKey(v);
+                if (presetKey.isNotEmpty && _imageApiKey.isEmpty) {
+                  _imageApiKey = presetKey;
+                }
+              });
+            },
             apiKey: _imageApiKey,
             onApiKeyChanged: (v) => setState(() => _imageApiKey = v),
             baseUrl: _imageBaseUrl,
@@ -782,7 +796,19 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
             initiallyExpanded: false,
             selectedModel: _videoModel,
             models: _videoModels,
-            onModelChanged: (v) => setState(() => _videoModel = v),
+            onModelChanged: (v) {
+              setState(() {
+                _videoModel = v;
+                final presetUrl = _getPresetBaseUrl(v);
+                if (presetUrl.isNotEmpty && _videoBaseUrl.isEmpty) {
+                  _videoBaseUrl = presetUrl;
+                }
+                final presetKey = _getPresetApiKey(v);
+                if (presetKey.isNotEmpty && _videoApiKey.isEmpty) {
+                  _videoApiKey = presetKey;
+                }
+              });
+            },
             apiKey: _videoApiKey,
             onApiKeyChanged: (v) => setState(() => _videoApiKey = v),
             baseUrl: _videoBaseUrl,
@@ -797,6 +823,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   static String _getPresetBaseUrl(String model) {
     switch (model) {
       case 'agnes-2.0-flash':
+      case 'agnes-image':
+      case 'agnes-video':
         return 'https://api.agnes-ai.com/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
@@ -808,10 +836,12 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     }
   }
 
-  /// 获取预设模型的默认API Key（仅Agnes AI预填，其他需用户自行输入）
+  /// 获取预设模型的默认API Key（Agnes AI全模型预填，其他需用户自行输入）
   static String _getPresetApiKey(String model) {
     switch (model) {
       case 'agnes-2.0-flash':
+      case 'agnes-image':
+      case 'agnes-video':
         return 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
       default:
         return '';

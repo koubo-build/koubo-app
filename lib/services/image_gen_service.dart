@@ -44,6 +44,19 @@ class ImageGenService {
         height: height,
         apiKey: customApiKey,
         baseUrl: customBaseUrl ?? '',
+        modelName: 'dall-e-3',
+        onProgress: onProgress,
+      );
+    } else if (model == 'agnes-image') {
+      // 使用Agnes AI图像生成（OpenAI兼容格式）
+      return _generateWithCustom(
+        prompt: prompt,
+        negativePrompt: negativePrompt,
+        width: width,
+        height: height,
+        apiKey: customApiKey ?? '',
+        baseUrl: customBaseUrl ?? 'https://api.agnes-ai.com/v1',
+        modelName: 'agnes-image-2.1-flash',
         onProgress: onProgress,
       );
     } else if (model == 'wanx') {
@@ -370,13 +383,14 @@ class ImageGenService {
     required int height,
     required String apiKey,
     required String baseUrl,
+    String modelName = 'dall-e-3',
     void Function(String stage, int progress)? onProgress,
   }) async {
     if (baseUrl.isEmpty) {
       throw Exception('自定义图像模型需要配置Base URL');
     }
 
-    onProgress?.call('提交自定义文生图任务...', 10);
+    onProgress?.call('提交文生图任务...', 10);
 
     // 确保baseUrl不以/结尾
     final normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
@@ -385,7 +399,7 @@ class ImageGenService {
       final response = await _dio.post(
         '$normalizedBaseUrl/images/generations',
         data: jsonEncode({
-          'model': 'dall-e-3',
+          'model': modelName,
           'prompt': prompt,
           'size': '${width}x$height',
           'n': 1,
