@@ -178,10 +178,17 @@ class _DramaListPageState extends ConsumerState<DramaListPage> {
     );
   }
 
+  /// 判断是否为自定义模型配置
+  bool _hasCustomModelConfig(Drama drama) {
+    return drama.modelConfig.isNotEmpty && drama.modelConfig != '{}';
+  }
+
   Widget _buildDramaCard(Drama drama) {
     final progress = drama.totalShots > 0
         ? drama.completedShots / drama.totalShots
         : 0.0;
+
+    final hasCustomConfig = _hasCustomModelConfig(drama);
 
     return Dismissible(
       key: Key('drama_${drama.id}'),
@@ -243,6 +250,40 @@ class _DramaListPageState extends ConsumerState<DramaListPage> {
                         ),
                       ),
                     ),
+                    // 自定义模型标签
+                    if (hasCustomConfig) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF7C4DFF).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: const Color(0xFF7C4DFF).withOpacity(0.3),
+                            width: 0.5,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(
+                              Icons.tune,
+                              size: 10,
+                              color: Color(0xFF7C4DFF),
+                            ),
+                            SizedBox(width: 3),
+                            Text(
+                              '自定义模型',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Color(0xFF7C4DFF),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const Spacer(),
                     Text(
                       '${drama.episodeCount}集',

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/theme.dart';
@@ -26,14 +27,28 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   bool _isCreating = false;
   bool _isNewMode = true;
 
+  // 新建模式 - 步骤导航
+  int _currentStep = 0;
+
   // 表单控制器（新建模式）
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
+  final _scriptTextController = TextEditingController();
   String _selectedStyle = 'anime';
   String _selectedGenre = 'romance';
-  int _selectedEpisodes = 1;
   String _selectedAspectRatio = '16:9';
+
+  // 模型配置控制器
+  String _textModel = 'auto';
+  String _textApiKey = '';
+  String _textBaseUrl = '';
+  String _imageModel = 'wanx';
+  String _imageApiKey = '';
+  String _imageBaseUrl = '';
+  String _videoModel = 'happyhorse';
+  String _videoApiKey = '';
+  String _videoBaseUrl = '';
 
   static const _styles = [
     {'value': 'anime', 'label': '动漫'},
@@ -57,6 +72,27 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
 
   static const _aspectRatios = ['16:9', '9:16', '1:1'];
 
+  // 模型可选值
+  static const _textModels = [
+    {'value': 'auto', 'label': '智能路由 (auto)'},
+    {'value': 'qwen-plus', 'label': '通义千问 Plus'},
+    {'value': 'glm-4.7-flash', 'label': '智谱 GLM-4.7 Flash'},
+    {'value': 'agnes-2.0-flash', 'label': 'Agnes 2.0 Flash'},
+    {'value': 'custom', 'label': '自定义 (Custom)'},
+  ];
+
+  static const _imageModels = [
+    {'value': 'wanx', 'label': '万相 (Wanx)'},
+    {'value': 'local_sd', 'label': '本地 SD'},
+    {'value': 'custom', 'label': '自定义 (Custom)'},
+  ];
+
+  static const _videoModels = [
+    {'value': 'happyhorse', 'label': 'HappyHorse'},
+    {'value': 'wanx-s2v', 'label': '万相 S2V'},
+    {'value': 'custom', 'label': '自定义 (Custom)'},
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -69,6 +105,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     _tabController.dispose();
     _titleController.dispose();
     _descController.dispose();
+    _scriptTextController.dispose();
     super.dispose();
   }
 
@@ -110,30 +147,46 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     }
   }
 
-  Future<void> _generateScript() async {
+  /// 一键创建短剧（从完整剧本）
+  Future<void> _createDramaFromFullScript() async {
     if (!_formKey.currentState!.validate()) return;
 
     final title = _titleController.text.trim();
-    final desc = _descController.text.trim();
+    final scriptText = _scriptTextController.text.trim();
 
-    if (desc.isEmpty) {
+    if (scriptText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入故事梗概')),
+        const SnackBar(content: Text('请输入剧本/小说内容')),
       );
+      setState(() => _currentStep = 0);
       return;
     }
 
     setState(() => _isCreating = true);
 
+    // 构建模型配置JSON
+    final modelConfig = DramaModelConfig(
+      textModel: _textModel,
+      textApiKey: _textApiKey,
+      textBaseUrl: _textBaseUrl,
+      imageModel: _imageModel,
+      imageApiKey: _imageApiKey,
+      imageBaseUrl: _imageBaseUrl,
+      videoModel: _videoModel,
+      videoApiKey: _videoApiKey,
+      videoBaseUrl: _videoBaseUrl,
+    );
+    final modelConfigJson = jsonEncode(modelConfig.toJson());
+
     try {
       final dramaService = ref.read(dramaServiceProvider);
-      final drama = await dramaService.createDramaWithScript(
+      final drama = await dramaService.createDramaFromFullScript(
         title: title,
-        premise: desc,
+        scriptText: scriptText,
         style: _selectedStyle,
         genre: _selectedGenre,
         aspectRatio: _selectedAspectRatio,
-        episodeCount: _selectedEpisodes,
+        modelConfig: modelConfigJson,
         onProgress: (stage, progress) {
           if (mounted) {
             _showProgressDialog(stage, progress);
@@ -149,9 +202,9 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
           _isNewMode = false;
           _isCreating = false;
         });
-        _loadData();
+        await _loadData();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('剧本生成成功！')),
+          const SnackBar(content: Text('短剧创建成功！')),
         );
         // 切换到分镜Tab
         _tabController.animateTo(2);
@@ -161,7 +214,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       if (mounted) {
         setState(() => _isCreating = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('生成失败：$e')),
+          SnackBar(content: Text('创建失败：$e')),
         );
       }
     }
@@ -172,7 +225,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('生成剧本'),
+        title: const Text('AI创作中'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -348,7 +401,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     return Scaffold(
       appBar: AppBar(
         title: Text(_isNewMode ? '新建短剧' : (_drama?.title ?? '短剧编辑')),
-        bottom: TabBar(
+        bottom: _isNewMode ? null : TabBar(
           controller: _tabController,
           tabs: const [
             Tab(text: '剧本'),
@@ -359,188 +412,586 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildScriptTab(),
-                _buildCharacterTab(),
-                _buildStoryboardTab(),
-              ],
-            ),
+          : _isNewMode
+              ? _buildCreateWizard()
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildScriptView(),
+                    _buildCharacterTab(),
+                    _buildStoryboardTab(),
+                  ],
+                ),
     );
   }
 
-  Widget _buildScriptTab() {
-    if (_isNewMode) {
-      return _buildCreateForm();
-    } else {
-      return _buildScriptView();
-    }
-  }
+  // ==================== 新建流程 - 步骤引导 ====================
 
-  Widget _buildCreateForm() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextFormField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: '短剧标题',
-                hintText: '给短剧起个名字',
-              ),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return '请输入短剧标题';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _descController,
-              decoration: const InputDecoration(
-                labelText: '故事梗概',
-                hintText: '描述你的故事：比如"一个外卖小哥意外救了富家女，两人相识相恋..."',
-                alignLabelWithHint: true,
-              ),
-              maxLines: 5,
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              '画风选择',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _styles.map((style) {
-                final isSelected = _selectedStyle == style['value'];
-                return ChoiceChip(
-                  label: Text(style['label']!),
-                  selected: isSelected,
-                  onSelected: (_) {
-                    setState(() => _selectedStyle = style['value']!);
-                  },
-                  selectedColor: AppTheme.primaryColor,
-                  labelStyle: TextStyle(
-                    color: isSelected ? Colors.white : AppTheme.textSecondary,
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              '类型选择',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _genres.map((genre) {
-                final isSelected = _selectedGenre == genre['value'];
-                return ChoiceChip(
-                  label: Text(genre['label']!),
-                  selected: isSelected,
-                  onSelected: (_) {
-                    setState(() => _selectedGenre = genre['value']!);
-                  },
-                  selectedColor: const Color(0xFFFF6B9D),
-                  labelStyle: TextStyle(
-                    color: isSelected ? Colors.white : AppTheme.textSecondary,
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              '集数',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Row(
+  Widget _buildCreateWizard() {
+    return Column(
+      children: [
+        // 步骤指示条
+        _buildStepIndicator(),
+        // 步骤内容
+        Expanded(
+          child: Form(
+            key: _formKey,
+            child: IndexedStack(
+              index: _currentStep,
               children: [
-                IconButton(
-                  onPressed: _selectedEpisodes > 1
-                      ? () => setState(() => _selectedEpisodes--)
-                      : null,
-                  icon: const Icon(Icons.remove_circle_outline),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppTheme.darkSurface,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '$_selectedEpisodes 集',
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                ),
-                IconButton(
-                  onPressed: _selectedEpisodes < 10
-                      ? () => setState(() => _selectedEpisodes++)
-                      : null,
-                  icon: const Icon(Icons.add_circle_outline),
-                ),
+                _buildStep1_BasicInfo(),
+                _buildStep2_ModelConfig(),
+                _buildStep3_ConfirmAndCreate(),
               ],
             ),
-            const SizedBox(height: 20),
-            const Text(
-              '画面比例',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+        ),
+        // 底部导航按钮
+        _buildStepNavigation(),
+      ],
+    );
+  }
+
+  Widget _buildStepIndicator() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+      child: Row(
+        children: [
+          _buildStepDot(0, '基本信息'),
+          _buildStepLine(0),
+          _buildStepDot(1, '模型配置'),
+          _buildStepLine(1),
+          _buildStepDot(2, '确认创作'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepDot(int step, String label) {
+    final isActive = _currentStep == step;
+    final isCompleted = _currentStep > step;
+    final color = isActive
+        ? const Color(0xFFFF6B9D)
+        : isCompleted
+            ? AppTheme.primaryColor
+            : AppTheme.textHint;
+
+    return Expanded(
+      child: Column(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isCompleted ? AppTheme.primaryColor : Colors.transparent,
+              border: Border.all(color: color, width: 2),
             ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: _aspectRatios.map((ratio) {
-                final isSelected = _selectedAspectRatio == ratio;
-                return ChoiceChip(
-                  label: Text(ratio),
-                  selected: isSelected,
-                  onSelected: (_) {
-                    setState(() => _selectedAspectRatio = ratio);
-                  },
-                  selectedColor: AppTheme.primaryColor,
-                  labelStyle: TextStyle(
-                    color: isSelected ? Colors.white : AppTheme.textSecondary,
-                  ),
-                );
-              }).toList(),
+            child: Center(
+              child: isCompleted
+                  ? const Icon(Icons.check, size: 16, color: Colors.white)
+                  : Text(
+                      '${step + 1}',
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
             ),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isCreating ? null : _generateScript,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF6B9D),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: isActive ? const Color(0xFFFF6B9D) : AppTheme.textHint,
+              fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepLine(int step) {
+    final isCompleted = _currentStep > step;
+    return Expanded(
+      child: Container(
+        height: 2,
+        margin: const EdgeInsets.only(bottom: 20),
+        color: isCompleted ? AppTheme.primaryColor : AppTheme.textHint.withOpacity(0.3),
+      ),
+    );
+  }
+
+  Widget _buildStepNavigation() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Color(0xFF2A2A4A))),
+      ),
+      child: SafeArea(
+        child: Row(
+          children: [
+            if (_currentStep > 0)
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isCreating ? null : () => setState(() => _currentStep--),
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('上一步'),
                 ),
-                icon: _isCreating
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.auto_awesome),
-                label: Text(_isCreating ? '生成中...' : 'AI生成剧本'),
               ),
+            if (_currentStep > 0) const SizedBox(width: 12),
+            Expanded(
+              flex: _currentStep > 0 ? 1 : 1,
+              child: _currentStep < 2
+                  ? ElevatedButton.icon(
+                      onPressed: () {
+                        if (_currentStep == 0) {
+                          // 验证Step1
+                          if (_titleController.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('请输入短剧标题')),
+                            );
+                            return;
+                          }
+                          if (_scriptTextController.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('请输入剧本/小说内容')),
+                            );
+                            return;
+                          }
+                        }
+                        setState(() => _currentStep++);
+                      },
+                      icon: const Icon(Icons.arrow_forward),
+                      label: const Text('下一步'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF6B9D),
+                      ),
+                    )
+                  : ElevatedButton.icon(
+                      onPressed: _isCreating ? null : _createDramaFromFullScript,
+                      icon: _isCreating
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.auto_awesome),
+                      label: Text(_isCreating ? '创作中...' : '开始创作'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF6B9D),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
             ),
-            const SizedBox(height: 16),
           ],
         ),
       ),
     );
   }
+
+  // Step 1: 基本信息 + 剧本输入
+  Widget _buildStep1_BasicInfo() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            controller: _titleController,
+            decoration: const InputDecoration(
+              labelText: '短剧标题',
+              hintText: '给短剧起个名字',
+            ),
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return '请输入短剧标题';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _scriptTextController,
+            decoration: const InputDecoration(
+              labelText: '剧本/小说内容',
+              hintText: '粘贴你的完整剧本、小说章节或故事文本...',
+              alignLabelWithHint: true,
+            ),
+            maxLines: 15,
+            minLines: 8,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'AI将根据文本内容自动提取角色、生成分镜，并根据篇幅决定集数',
+            style: TextStyle(fontSize: 12, color: AppTheme.textHint.withOpacity(0.7)),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            '画风选择',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _styles.map((style) {
+              final isSelected = _selectedStyle == style['value'];
+              return ChoiceChip(
+                label: Text(style['label']!),
+                selected: isSelected,
+                onSelected: (_) {
+                  setState(() => _selectedStyle = style['value']!);
+                },
+                selectedColor: AppTheme.primaryColor,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : AppTheme.textSecondary,
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            '类型选择',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _genres.map((genre) {
+              final isSelected = _selectedGenre == genre['value'];
+              return ChoiceChip(
+                label: Text(genre['label']!),
+                selected: isSelected,
+                onSelected: (_) {
+                  setState(() => _selectedGenre = genre['value']!);
+                },
+                selectedColor: const Color(0xFFFF6B9D),
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : AppTheme.textSecondary,
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            '画面比例',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: _aspectRatios.map((ratio) {
+              final isSelected = _selectedAspectRatio == ratio;
+              return ChoiceChip(
+                label: Text(ratio),
+                selected: isSelected,
+                onSelected: (_) {
+                  setState(() => _selectedAspectRatio = ratio);
+                },
+                selectedColor: AppTheme.primaryColor,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : AppTheme.textSecondary,
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  // Step 2: 模型配置
+  Widget _buildStep2_ModelConfig() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '配置AI模型（可选）',
+            style: TextStyle(
+              fontSize: 14,
+              color: AppTheme.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '使用默认配置也能正常工作，如需自定义请展开对应分组',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppTheme.textHint.withOpacity(0.7),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // 文本模型
+          _buildModelGroup(
+            title: '文本模型',
+            icon: Icons.text_fields,
+            initiallyExpanded: false,
+            selectedModel: _textModel,
+            models: _textModels,
+            onModelChanged: (v) => setState(() => _textModel = v),
+            apiKey: _textApiKey,
+            onApiKeyChanged: (v) => setState(() => _textApiKey = v),
+            baseUrl: _textBaseUrl,
+            onBaseUrlChanged: (v) => setState(() => _textBaseUrl = v),
+          ),
+          const SizedBox(height: 8),
+          // 图像模型
+          _buildModelGroup(
+            title: '图像模型',
+            icon: Icons.image,
+            initiallyExpanded: true,
+            selectedModel: _imageModel,
+            models: _imageModels,
+            onModelChanged: (v) => setState(() => _imageModel = v),
+            apiKey: _imageApiKey,
+            onApiKeyChanged: (v) => setState(() => _imageApiKey = v),
+            baseUrl: _imageBaseUrl,
+            onBaseUrlChanged: (v) => setState(() => _imageBaseUrl = v),
+          ),
+          const SizedBox(height: 8),
+          // 视频模型
+          _buildModelGroup(
+            title: '视频模型',
+            icon: Icons.videocam,
+            initiallyExpanded: false,
+            selectedModel: _videoModel,
+            models: _videoModels,
+            onModelChanged: (v) => setState(() => _videoModel = v),
+            apiKey: _videoApiKey,
+            onApiKeyChanged: (v) => setState(() => _videoApiKey = v),
+            baseUrl: _videoBaseUrl,
+            onBaseUrlChanged: (v) => setState(() => _videoBaseUrl = v),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModelGroup({
+    required String title,
+    required IconData icon,
+    required bool initiallyExpanded,
+    required String selectedModel,
+    required List<Map<String, String>> models,
+    required ValueChanged<String> onModelChanged,
+    required String apiKey,
+    required ValueChanged<String> onApiKeyChanged,
+    required String baseUrl,
+    required ValueChanged<String> onBaseUrlChanged,
+  }) {
+    final isCustom = selectedModel == 'custom';
+
+    return ExpansionTile(
+      initiallyExpanded: initiallyExpanded,
+      leading: Icon(icon, color: const Color(0xFFFF6B9D), size: 20),
+      title: Text(
+        title,
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        models.firstWhere((m) => m['value'] == selectedModel,
+            orElse: () => {'label': selectedModel})['label']!,
+        style: const TextStyle(fontSize: 12, color: AppTheme.textHint),
+      ),
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 模型选择下拉
+              DropdownButtonFormField<String>(
+                value: selectedModel,
+                decoration: const InputDecoration(
+                  labelText: '选择模型',
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                items: models.map((m) {
+                  return DropdownMenuItem(
+                    value: m['value'],
+                    child: Text(m['label']!, style: const TextStyle(fontSize: 14)),
+                  );
+                }).toList(),
+                onChanged: onModelChanged,
+              ),
+              // 自定义时才显示API Key和Base URL
+              if (isCustom) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'API Key',
+                    hintText: '输入API Key',
+                  ),
+                  onChanged: onApiKeyChanged,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  decoration: const InputDecoration(
+                    labelText: 'Base URL',
+                    hintText: '输入API Base URL',
+                  ),
+                  onChanged: onBaseUrlChanged,
+                ),
+              ],
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Step 3: 确认并生成
+  Widget _buildStep3_ConfirmAndCreate() {
+    final scriptLength = _scriptTextController.text.trim().length;
+    final charCountText = scriptLength > 0 ? '$scriptLength 字' : '未输入';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '创作配置摘要',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 20),
+          // 基本信息
+          _buildSummaryCard('基本信息', [
+            _summaryRow('标题', _titleController.text.trim()),
+            _summaryRow('画风', _getStyleLabel(_selectedStyle)),
+            _summaryRow('类型', _getGenreLabel(_selectedGenre)),
+            _summaryRow('画面比例', _selectedAspectRatio),
+            _summaryRow('剧本长度', charCountText),
+          ]),
+          const SizedBox(height: 12),
+          // 模型配置
+          _buildSummaryCard('模型配置', [
+            _summaryRow('文本模型', _getModelLabel(_textModel, _textModels)),
+            _summaryRow('图像模型', _getModelLabel(_imageModel, _imageModels)),
+            _summaryRow('视频模型', _getModelLabel(_videoModel, _videoModels)),
+            if (_textModel == 'custom') _summaryRow('文本API', _textBaseUrl.isNotEmpty ? '已配置' : '未配置'),
+            if (_imageModel == 'custom') _summaryRow('图像API', _imageBaseUrl.isNotEmpty ? '已配置' : '未配置'),
+            if (_videoModel == 'custom') _summaryRow('视频API', _videoBaseUrl.isNotEmpty ? '已配置' : '未配置'),
+          ]),
+          const SizedBox(height: 12),
+          // 流程说明
+          _buildSummaryCard('创作流程', [
+            _summaryRow('1.', 'AI自动分析剧本提取角色'),
+            _summaryRow('2.', 'AI根据角色生成分镜脚本'),
+            _summaryRow('3.', '自动保存所有剧集和镜头'),
+          ]),
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isCreating ? null : _createDramaFromFullScript,
+              icon: _isCreating
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.auto_awesome, size: 24),
+              label: Text(
+                _isCreating ? 'AI创作中...' : '开始创作',
+                style: const TextStyle(fontSize: 18),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B9D),
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              '创作过程需要几分钟，请耐心等待',
+              style: TextStyle(fontSize: 12, color: AppTheme.textHint),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard(String title, List<Widget> rows) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFFF6B9D),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...rows,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _summaryRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 13, color: AppTheme.textHint),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 13, color: AppTheme.textPrimary),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getStyleLabel(String value) {
+    return _styles.firstWhere((s) => s['value'] == value, orElse: () => {'label': value})['label']!;
+  }
+
+  String _getGenreLabel(String value) {
+    return _genres.firstWhere((g) => g['value'] == value, orElse: () => {'label': value})['label']!;
+  }
+
+  String _getModelLabel(String value, List<Map<String, String>> models) {
+    return models.firstWhere((m) => m['value'] == value, orElse: () => {'label': value})['label']!;
+  }
+
+  // ==================== 编辑模式 - 已有项目 ====================
 
   Widget _buildScriptView() {
     return SingleChildScrollView(
@@ -605,6 +1056,37 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                       style: const TextStyle(
                         fontSize: 14,
                         color: AppTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                  // 原始剧本/小说文本
+                  if (_drama?.sourceText.isNotEmpty == true) ...[
+                    const SizedBox(height: 16),
+                    const Text(
+                      '原始剧本',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textHint,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.darkSurface,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _drama!.sourceText,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.textSecondary,
+                          height: 1.5,
+                        ),
+                        maxLines: 20,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],

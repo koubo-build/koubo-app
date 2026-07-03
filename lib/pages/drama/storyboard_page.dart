@@ -7,6 +7,7 @@ import '../../config/api_config.dart';
 import '../../config/theme.dart';
 import '../../models/drama.dart';
 import '../../services/drama_service.dart';
+import '../../services/drama_task_service.dart';
 import '../../services/image_gen_service.dart';
 import '../../services/tts_service.dart';
 import '../../services/api_client.dart';
@@ -35,6 +36,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   bool _isLoading = true;
   bool _isGenerating = false;
   String _generateProgress = '';
+  bool _hasInterruptedTasks = false;
   final Dio _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 30),
     receiveTimeout: const Duration(minutes: 15),
@@ -63,6 +65,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       // 加载Drama获取aspectRatio
       _drama = await StorageUtil.getDrama(widget.dramaId);
 
+      // 检测是否有中断的任务（pending或failed状态的镜头）
+      _hasInterruptedTasks = _shots.any(
+        (s) => s.status == 'pending' || s.status == 'failed',
+      );
+
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -77,7 +84,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   }
 
   Future<void> _generateImages() async {
-    final pendingShots = _shots.where((s) => s.status == 'pending').toList();
+    final pendingShots = _shots.where((s) => s.status == 'pending' || s.status == 'failed').toList();
     if (pendingShots.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('没有待生成的镜头')),
@@ -85,67 +92,38 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       return;
     }
 
+    if (_drama == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('短剧信息未加载')),
+      );
+      return;
+    }
+
     setState(() {
       _isGenerating = true;
-      _generateProgress = '正在生成图片...';
+      _generateProgress = '正在准备批量生成...';
     });
 
     try {
-      final imageService = ImageGenService();
-      final aspectRatio = _drama?.aspectRatio ?? '16:9';
-      final dimensions = ImageGenService.parseAspectRatio(aspectRatio);
+      final taskService = ref.read(dramaTaskServiceProvider);
 
-      for (int i = 0; i < pendingShots.length; i++) {
-        final shot = pendingShots[i];
-        setState(() {
-          _generateProgress = '正在生成第${i + 1}/${pendingShots.length}张图片...';
-        });
+      await taskService.batchGenerateImages(
+        dramaId: widget.dramaId,
+        episodeId: widget.episodeId,
+        shots: pendingShots,
+        characters: _characters,
+        drama: _drama!,
+        onProgress: (completed, total, currentShot) {
+          if (mounted) {
+            setState(() {
+              _generateProgress = '[$completed/$total] $currentShot';
+            });
+          }
+        },
+      );
 
-        try {
-          // 增强prompt
-          final enhancedPrompt = DramaService.enhanceShotPrompt(
-            shot: shot,
-            characters: _characters,
-            style: _drama?.style ?? 'anime',
-          );
-
-          // 生成图片
-          final imagePath = await imageService.generateImage(
-            prompt: enhancedPrompt,
-            width: dimensions['width']!,
-            height: dimensions['height']!,
-            onProgress: (stage, progress) {
-              // 忽略子进度
-            },
-          );
-
-          // 更新镜头
-          final updatedShot = shot.copyWith(
-            imagePath: imagePath,
-            status: 'image_ready',
-            promptEnhanced: enhancedPrompt,
-          );
-          await StorageUtil.updateShot(updatedShot);
-
-          // 更新本地列表
-          setState(() {
-            final index = _shots.indexWhere((s) => s.id == shot.id);
-            if (index != -1) {
-              _shots[index] = updatedShot;
-            }
-          });
-        } catch (e) {
-          // 单个失败，标记为失败
-          final failedShot = shot.copyWith(status: 'failed');
-          await StorageUtil.updateShot(failedShot);
-          setState(() {
-            final index = _shots.indexWhere((s) => s.id == shot.id);
-            if (index != -1) {
-              _shots[index] = failedShot;
-            }
-          });
-        }
-      }
+      // 重新加载数据
+      await _loadData();
 
       if (mounted) {
         setState(() => _isGenerating = false);
@@ -154,10 +132,55 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
         );
       }
     } catch (e) {
+      // 失败时也重新加载，看已完成的进度
+      await _loadData();
+
       if (mounted) {
         setState(() => _isGenerating = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('生成失败：$e')),
+          SnackBar(content: Text('生成异常：$e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _resumeInterruptTasks() async {
+    setState(() {
+      _isGenerating = true;
+      _generateProgress = '正在恢复中断任务...';
+    });
+
+    try {
+      final taskService = ref.read(dramaTaskServiceProvider);
+
+      await taskService.resumeInterruptTasks(
+        dramaId: widget.dramaId,
+        episodeId: widget.episodeId,
+        onProgress: (completed, total, stage) {
+          if (mounted) {
+            setState(() {
+              _generateProgress = '[$completed/$total] $stage';
+            });
+          }
+        },
+      );
+
+      // 重新加载数据
+      await _loadData();
+
+      if (mounted) {
+        setState(() => _isGenerating = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('任务恢复完成')),
+        );
+      }
+    } catch (e) {
+      await _loadData();
+
+      if (mounted) {
+        setState(() => _isGenerating = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('恢复失败：$e')),
         );
       }
     }
@@ -184,7 +207,6 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
 
     try {
       final ttsService = TtsService(ref.read(apiClientProvider));
-      final audioDir = await StorageUtil.getDramaAudioDirectory();
 
       for (int i = 0; i < needAudioShots.length; i++) {
         final shot = needAudioShots[i];
@@ -199,7 +221,6 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
             provider: 'cosyvoice',
           );
 
-          // 更新镜头
           String newStatus = 'audio_ready';
           if (shot.imagePath != null && shot.imagePath!.isNotEmpty) {
             newStatus = 'audio_ready';
@@ -263,8 +284,6 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     });
 
     try {
-      final videoDir = await StorageUtil.getDramaVideoDirectory();
-
       for (int i = 0; i < readyShots.length; i++) {
         final shot = readyShots[i];
         setState(() {
@@ -275,21 +294,18 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           String videoPath;
 
           if (shot.audioPath != null && shot.audioPath!.isNotEmpty) {
-            // 使用数字人（图片+音频）
             videoPath = await _generateVideoWithAudio(
               imagePath: shot.imagePath!,
               audioPath: shot.audioPath!,
               prompt: shot.visualDescription,
             );
           } else {
-            // 使用HappyHorse图生视频
             videoPath = await _generateHappyHorseVideo(
               imagePath: shot.imagePath!,
               prompt: shot.visualDescription,
             );
           }
 
-          // 更新镜头
           final updatedShot = shot.copyWith(
             videoPath: videoPath,
             status: 'video_ready',
@@ -349,7 +365,6 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
 
     final fileName = localFilePath.split('/').last;
 
-    // 获取OSS上传凭证
     final apiKey = await _getApiKey();
     final policyResponse = await _dio.get(
       '${ApiConfig.bailianUploadUrl}?action=getPolicy&model=$modelName',
@@ -556,13 +571,9 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   }) async {
     final apiKey = await _getApiKey();
 
-    // 1. 上传图片到百炼OSS
     final imageUrl = await _uploadFileToBailian(imagePath, ApiConfig.wanxS2vModel);
-
-    // 2. 上传音频到百炼OSS
     final audioUrl = await _uploadFileToBailian(audioPath, ApiConfig.wanxS2vModel);
 
-    // 3. 提交万相视频生成任务
     final requestBody = {
       'model': ApiConfig.wanxS2vModel,
       'input': {
@@ -595,10 +606,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
         throw Exception('提交任务失败：未返回task_id');
       }
 
-      // 4. 轮询等待完成
       final videoUrl = await _waitForTaskCompletion(taskId, timeoutSeconds: 900);
-
-      // 5. 下载视频
       final localPath = await _downloadVideo(videoUrl);
 
       return localPath;
@@ -635,10 +643,16 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           style: _drama?.style ?? 'anime',
         );
 
+        // 使用项目的模型配置
+        final config = _drama?.parsedModelConfig ?? DramaModelConfig();
+
         final imagePath = await imageService.generateImage(
           prompt: enhancedPrompt,
           width: dimensions['width']!,
           height: dimensions['height']!,
+          model: config.imageModel,
+          customApiKey: config.imageApiKey.isNotEmpty ? config.imageApiKey : null,
+          customBaseUrl: config.imageBaseUrl.isNotEmpty ? config.imageBaseUrl : null,
         );
 
         final updatedShot = shot.copyWith(
@@ -918,11 +932,47 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
+                // 中断任务提示条
+                if (_hasInterruptedTasks && !_isGenerating)
+                  _buildInterruptedBanner(),
                 Expanded(child: _buildShotGrid()),
                 if (_isGenerating) _buildProgressBar(),
                 _buildBottomBar(),
               ],
             ),
+    );
+  }
+
+  Widget _buildInterruptedBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: const Color(0xFFFF6B9D).withOpacity(0.15),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, size: 18, color: Color(0xFFFF6B9D)),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              '检测到未完成的任务，点击恢复',
+              style: TextStyle(fontSize: 13, color: Color(0xFFFF6B9D)),
+            ),
+          ),
+          TextButton(
+            onPressed: _resumeInterruptTasks,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            child: const Text(
+              '恢复',
+              style: TextStyle(
+                color: Color(0xFFFF6B9D),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1116,7 +1166,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   }
 
   Widget _buildBottomBar() {
-    final pendingCount = _shots.where((s) => s.status == 'pending').length;
+    final pendingCount = _shots.where((s) => s.status == 'pending' || s.status == 'failed').length;
     final imageReadyCount =
         _shots.where((s) => s.imagePath != null && s.status != 'video_ready').length;
     final allReadyCount = _shots.where((s) => s.status != 'video_ready').length;
@@ -1168,6 +1218,20 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
                 ),
               ),
             ),
+            if (_hasInterruptedTasks) ...[
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 48,
+                child: ElevatedButton(
+                  onPressed: _isGenerating ? null : _resumeInterruptTasks,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF6B9D).withOpacity(0.7),
+                    padding: EdgeInsets.zero,
+                  ),
+                  child: const Icon(Icons.replay, size: 20),
+                ),
+              ),
+            ],
           ],
         ),
       ),
