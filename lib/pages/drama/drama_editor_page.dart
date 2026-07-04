@@ -1462,21 +1462,85 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     );
   }
 
+  Future<void> _regenerateStoryboard() async {
+    if (_drama == null || _drama!.sourceText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('剧本文本为空，无法生成分镜')),
+      );
+      return;
+    }
+    if (_characters.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('没有角色，无法生成分镜')),
+      );
+      return;
+    }
+
+    setState(() => _isCreating = true);
+    try {
+      final dramaService = ref.read(dramaServiceProvider);
+      final result = await dramaService.generateStoryboardFromScript(
+        scriptText: _drama!.sourceText,
+        characters: _characters,
+        style: _drama!.style,
+        genre: _drama!.genre,
+        onProgress: (stage, progress) {
+          if (mounted) _showProgressDialog(stage, progress);
+        },
+      );
+
+      // 保存剧集和镜头
+      await StorageUtil.insertEpisodesWithShots(result.episodes);
+
+      _dismissProgressDialog();
+      if (mounted) {
+        await _loadData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('分镜生成成功！共${result.episodes.length}集')),
+        );
+      }
+    } catch (e) {
+      _dismissProgressDialog();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('分镜生成失败：$e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isCreating = false);
+    }
+  }
+
   Widget _buildStoryboardTab() {
     if (_drama == null || _episodes.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.movie_creation_outlined, size: 64, color: AppTheme.textHint),
-            SizedBox(height: 16),
-            Text(
+            const Icon(Icons.movie_creation_outlined, size: 64, color: AppTheme.textHint),
+            const SizedBox(height: 16),
+            const Text(
               '暂无分镜',
               style: TextStyle(color: AppTheme.textHint),
             ),
-            SizedBox(height: 8),
-            Text(
-              '请先生成剧本',
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _isCreating ? null : _regenerateStoryboard,
+              icon: _isCreating
+                  ? const SizedBox(
+                      width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.auto_awesome),
+              label: Text(_isCreating ? 'AI生成分镜中...' : 'AI生成分镜'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B9D),
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'AI将根据剧本和角色自动生成分镜',
               style: TextStyle(fontSize: 12, color: AppTheme.textHint),
             ),
           ],
