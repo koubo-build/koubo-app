@@ -663,6 +663,11 @@ class _ErrorInterceptor extends Interceptor {
                 ? '无权限访问：$detailMsg'
                 : '无权限访问(403)';
             break;
+          case 404:
+            errorMessage = detailMsg.isNotEmpty
+                ? '接口不存在：$detailMsg'
+                : '接口不存在(404)，请检查模型和Base URL配置';
+            break;
           case 429:
             errorMessage = '请求过于频繁，请稍后再试';
             break;

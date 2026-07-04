@@ -634,7 +634,7 @@ $truncatedText
       case 'agnes-2.0-flash':
       case 'agnes-image':
       case 'agnes-video':
-        return 'https://api.agnes-ai.com/v1';
+        return 'https://apihub.agnes-ai.com/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
         return 'https://api.deepseek.com';

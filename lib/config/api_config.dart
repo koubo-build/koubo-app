@@ -98,7 +98,7 @@ class ApiConfig {
   static const String ai32VideoGenEndpoint = '/contents/generations/tasks';
 
   // ==================== Agnes AI（全模态免费平台） ====================
-  static const String agnesBaseUrl = 'https://api.agnes-ai.com/v1';
+  static const String agnesBaseUrl = 'https://apihub.agnes-ai.com/v1';
   static const String agnesModelFlash = 'agnes-2.0-flash';
 
   // ==================== API Key存储键名 ====================

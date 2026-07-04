@@ -867,7 +867,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       case 'agnes-2.0-flash':
       case 'agnes-image':
       case 'agnes-video':
-        return 'https://api.agnes-ai.com/v1';
+        return 'https://apihub.agnes-ai.com/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
         return 'https://api.deepseek.com';
@@ -1341,6 +1341,52 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     );
   }
 
+  Future<void> _reExtractCharacters() async {
+    if (_drama == null || _drama!.sourceText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('剧本文本为空，无法提取角色')),
+      );
+      return;
+    }
+
+    setState(() => _isCreating = true);
+    try {
+      final dramaService = ref.read(dramaServiceProvider);
+      final characters = await dramaService.extractCharacters(
+        scriptText: _drama!.sourceText,
+        dramaId: _drama!.id!,
+        onProgress: (stage, progress) {
+          if (mounted) _showProgressDialog(stage, progress);
+        },
+      );
+
+      // 先删除旧角色，再保存新角色
+      for (final c in _characters) {
+        await StorageUtil.deleteCharacter(c.id!);
+      }
+      for (final character in characters) {
+        await StorageUtil.insertCharacter(character.copyWith(dramaId: _drama!.id!));
+      }
+
+      _dismissProgressDialog();
+      if (mounted) {
+        await _loadData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('角色提取成功！共${characters.length}个角色')),
+        );
+      }
+    } catch (e) {
+      _dismissProgressDialog();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('角色提取失败：$e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isCreating = false);
+    }
+  }
+
   Widget _buildCharacterTab() {
     if (_drama == null) {
       return const Center(
@@ -1352,30 +1398,66 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       children: [
         Padding(
           padding: const EdgeInsets.all(16),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () => _showCharacterDialog(),
-              icon: const Icon(Icons.add),
-              label: const Text('新增角色'),
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _showCharacterDialog(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('新增角色'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isCreating ? null : _reExtractCharacters,
+                  icon: _isCreating
+                      ? const SizedBox(
+                          width: 18, height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.auto_awesome),
+                  label: Text(_isCreating ? '提取中...' : 'AI提取角色'),
+                ),
+              ),
+            ],
           ),
         ),
         Expanded(
           child: _characters.isEmpty
-              ? const Center(
+              ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.person_outline,
                         size: 64,
                         color: AppTheme.textHint,
                       ),
-                      SizedBox(height: 16),
-                      Text(
+                      const SizedBox(height: 16),
+                      const Text(
                         '暂无角色',
                         style: TextStyle(color: AppTheme.textHint),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        onPressed: _isCreating ? null : _reExtractCharacters,
+                        icon: _isCreating
+                            ? const SizedBox(
+                                width: 18, height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.auto_awesome),
+                        label: Text(_isCreating ? 'AI提取角色中...' : 'AI从剧本提取角色'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF6B9D),
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'AI将分析剧本文本自动识别角色',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textHint),
                       ),
                     ],
                   ),
