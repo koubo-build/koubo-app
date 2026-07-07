@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
@@ -40,6 +41,13 @@ class _VoicePageState extends ConsumerState<VoicePage>
   final AudioRecorder _recorder = AudioRecorder();
   Timer? _recordTimer;
   bool _isRecording = false;
+
+  // 实时字幕（fun-asr-realtime WebSocket）
+  AsrRealtimeService? _asrService;
+  bool _asrRealtimeEnabled = false;
+  String _asrRealtimeText = '';
+  String _asrStatus = '';
+  StreamSubscription<Uint8List>? _recordStreamSub;
 
   // 音频播放器
   AudioPlayer? _audioPlayer;
@@ -1287,17 +1295,93 @@ class _VoicePageState extends ConsumerState<VoicePage>
         return;
       }
 
-      final audioDir = await StorageUtil.getAudioDirectory();
-      final filePath = '$audioDir/clone_record_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      // 清空上一轮字幕
+      if (mounted) {
+        setState(() {
+          _asrRealtimeText = '';
+          _asrStatus = '';
+        });
+      }
 
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          sampleRate: 44100,
-          numChannels: 1,
-        ),
-        path: filePath,
-      );
+      // 如果开启实时字幕，先启动 WebSocket 会话，再启动流式录音
+      bool useRealtimeAsr = _asrRealtimeEnabled;
+      AsrRealtimeService? asrService;
+      StreamSubscription<Uint8List>? streamSub;
+      if (useRealtimeAsr) {
+        asrService = AsrRealtimeService(
+          onResult: (text, isFinal) {
+            if (mounted) {
+              setState(() {
+                if (isFinal) {
+                  // 一句结束，换行追加
+                  _asrRealtimeText = _asrRealtimeText.isEmpty
+                      ? text
+                      : '$_asrRealtimeText\n$text';
+                } else {
+                  // 中间结果，追加到当前行
+                  final lines = _asrRealtimeText.split('\n');
+                  lines[lines.length - 1] = text;
+                  _asrRealtimeText = lines.join('\n');
+                }
+              });
+            }
+          },
+          onStatus: (s) {
+            if (mounted) setState(() => _asrStatus = s);
+          },
+          onError: (e) {
+            if (mounted) {
+              setState(() => _asrStatus = '错误：$e');
+              _showSnackBar('实时字幕启动失败：$e', isError: true);
+            }
+          },
+        );
+
+        // 注意：这里使用 PCM 格式 16kHz mono 录音
+        final ok = await asrService.start(
+          format: 'pcm',
+          sampleRate: 16000,
+          languageHints: const ['zh', 'en'],
+        );
+        if (!ok) {
+          _asrService = null;
+          useRealtimeAsr = false;
+        } else {
+          _asrService = asrService;
+        }
+      }
+
+      // 启动录音（实时字幕用流式，否则落盘）
+      if (useRealtimeAsr && asrService != null) {
+        // 流式录音：使用 startStream（返回 Stream<Uint8List>）
+        final stream = _recorder.startStream(
+          const RecordConfig(
+            encoder: AudioEncoder.pcm16bits,
+            sampleRate: 16000,
+            numChannels: 1,
+            bitRate: 256000,
+          ),
+        );
+        streamSub = stream.listen(
+          (data) => asrService.sendAudioFrame(data),
+          onError: (e) {
+            if (mounted) setState(() => _asrStatus = '音频流错误：$e');
+          },
+        );
+        _recordStreamSub = streamSub;
+      } else {
+        // 普通录音：落盘
+        final audioDir = await StorageUtil.getAudioDirectory();
+        final filePath = '$audioDir/clone_record_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _recorder.start(
+          const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            sampleRate: 44100,
+            numChannels: 1,
+          ),
+          path: filePath,
+        );
+      }
 
       setState(() => _isRecording = true);
       _pulseAnimController.repeat(reverse: true);
@@ -1320,6 +1404,11 @@ class _VoicePageState extends ConsumerState<VoicePage>
       });
     } catch (e) {
       _showSnackBar('录音启动失败：$e', isError: true);
+      // 清理 Asr 会话
+      await _asrService?.stop();
+      _asrService = null;
+      await _recordStreamSub?.cancel();
+      _recordStreamSub = null;
     }
   }
 
@@ -1327,10 +1416,20 @@ class _VoicePageState extends ConsumerState<VoicePage>
     if (!_isRecording) return;
 
     try {
+      // 先停止流式订阅，避免 recorder 关闭后还在 send
+      await _recordStreamSub?.cancel();
+      _recordStreamSub = null;
+
       final path = await _recorder.stop();
       _recordTimer?.cancel();
       _pulseAnimController.stop();
       setState(() => _isRecording = false);
+
+      // 关闭实时字幕会话
+      if (_asrService != null) {
+        await _asrService!.stop();
+        _asrService = null;
+      }
 
       if (path != null) {
         ref.read(voiceProvider.notifier).setRecordFilePath(path);
@@ -1341,6 +1440,9 @@ class _VoicePageState extends ConsumerState<VoicePage>
     } catch (e) {
       _showSnackBar('录音停止失败：$e', isError: true);
       setState(() => _isRecording = false);
+      // 兜底清理
+      await _asrService?.stop();
+      _asrService = null;
     }
   }
 

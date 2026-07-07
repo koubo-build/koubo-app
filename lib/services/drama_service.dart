@@ -577,6 +577,7 @@ $truncatedText
   /// 如果text_model为auto，走chatSmart默认逻辑
   /// 如果text_model为特定模型，指定provider
   /// 如果text_model为custom且提供了api_key/base_url，直接用自定义配置调用
+  /// 自动回退：如果指定模型调用失败（特别是Agnes 502/503等网络问题），自动切到chatSmart
   Future<String> _callAiWithModelConfig({
     required int dramaId,
     required List<Map<String, String>> messages,
@@ -584,6 +585,11 @@ $truncatedText
   }) async {
     final drama = await StorageUtil.getDrama(dramaId);
     final config = drama?.parsedModelConfig ?? DramaModelConfig();
+
+    // 转换messages为chatCompletion期望的格式
+    final List<Map<String, String>> formattedMessages = messages
+        .map((m) => {'role': m['role']!, 'content': m['content']!})
+        .toList();
 
     if (config.textModel == 'custom') {
       // 自定义配置
@@ -594,7 +600,7 @@ $truncatedText
         baseUrl: config.textBaseUrl,
         apiKey: config.textApiKey,
         model: 'default',
-        messages: messages.map((m) => {'role': m['role']!, 'content': m['content']!}).toList(),
+        messages: formattedMessages,
         temperature: temperature,
       );
     } else if (config.textModel != 'auto' && config.textModel.isNotEmpty) {
@@ -602,15 +608,30 @@ $truncatedText
       final presetUrl = _getPresetBaseUrl(config.textModel);
       final presetKey = _getPresetApiKey(config.textModel);
       final effectiveApiKey = config.textApiKey.isNotEmpty ? config.textApiKey : presetKey;
+
       if (presetUrl.isNotEmpty && effectiveApiKey.isNotEmpty) {
-        // 有预设URL且有API Key（用户填的或预设的）：直接调用
-        return _apiClient.chatCompletion(
-          baseUrl: config.textBaseUrl.isNotEmpty ? config.textBaseUrl : presetUrl,
-          apiKey: effectiveApiKey,
-          model: config.textModel,
-          messages: messages.map((m) => {'role': m['role']!, 'content': m['content']!}).toList(),
-          temperature: temperature,
-        );
+        // 有预设URL且有API Key：直接调用 + 失败自动回退
+        try {
+          return await _apiClient.chatCompletion(
+            baseUrl: config.textBaseUrl.isNotEmpty ? config.textBaseUrl : presetUrl,
+            apiKey: effectiveApiKey,
+            model: config.textModel,
+            messages: formattedMessages,
+            temperature: temperature,
+          );
+        } catch (e) {
+          // 自动回退到chatSmart，避免单个模型抽风卡死整个流程
+          // 仅当chatSmart能找到其他可用Provider时才回退
+          try {
+            return await _apiClient.chatSmart(
+              messages: messages,
+              temperature: temperature,
+            );
+          } catch (_) {
+            // 回退也失败，抛出原始错误让用户知道是哪个模型失败
+            throw Exception('${config.textModel}调用失败且无可用回退模型：$e');
+          }
+        }
       } else {
         // 没有API Key：尝试走chatSmart
         return _apiClient.chatSmart(

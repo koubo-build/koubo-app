@@ -19,6 +19,14 @@ class ApiConfig {
   static const String aliCosyvoiceEndpoint = '/services/audio/tts/SpeechSynthesizer';
   static const String aliVoiceRegisterEndpoint = '/services/audio/tts/customization';
   static const String aliAsrEndpoint = '/services/audio/asr/transcription';
+  /// Fun-ASR-Realtime 实时识别 WebSocket 端点（北京地域）
+  static const String aliAsrRealtimeWsUrl = 'wss://dashscope.aliyuncs.com/api-ws/v1/inference';
+  /// Fun-ASR-Realtime 当前稳定版模型名
+  static const String aliAsrRealtimeModel = 'fun-asr-realtime';
+  /// Fun-ASR 同步兼容模式模型名（chat/completions input_audio 方式）
+  static const String aliAsrCompatModel = 'fun-asr-realtime';
+  /// 兼容模式 qwen3-asr-flash（保留旧实现作为回退）
+  static const String aliAsrQwen3FlashModel = 'qwen3-asr-flash';
   
   // ==================== 阿里百炼 声音复刻（qwen-voice-enrollment + qwen3.5-omni） ====================
   static const String aliQwenVoiceEnrollmentModel = 'qwen-voice-enrollment';

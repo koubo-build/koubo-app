@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../config/api_config.dart';
@@ -902,64 +903,110 @@ class DouyinService {
       final videoBytes = await File(filePath).readAsBytes();
       final base64Audio = base64Encode(videoBytes);
 
-      // 3. 调用百炼 qwen3-asr-flash（OpenAI兼容接口，同步调用）
-      final asrResponse = await _apiClient.post(
-        '${ApiConfig.aliBailianCompatUrl}/chat/completions',
-        data: {
-          'model': 'qwen3-asr-flash',
-          'messages': [
-            {
-              'role': 'user',
-              'content': [
-                {
-                  'type': 'input_audio',
-                  'input_audio': {
-                    'data': 'data:video/mp4;base64,$base64Audio',
+      // 3. 调用百炼 fun-asr-realtime（OpenAI兼容接口，同步调用，识别更准、支持方言）
+      // 失败时回退到 qwen3-asr-flash
+      String? asrContent;
+      try {
+        final asrResponse = await _apiClient.post(
+          '${ApiConfig.aliBailianCompatUrl}/chat/completions',
+          data: {
+            'model': ApiConfig.aliAsrCompatModel,
+            'messages': [
+              {
+                'role': 'user',
+                'content': [
+                  {
+                    'type': 'input_audio',
+                    'input_audio': {
+                      'data': 'data:video/mp4;base64,$base64Audio',
+                    },
                   },
+                ],
+              },
+            ],
+            'stream': false,
+            'extra_body': {
+              'asr_options': {
+                'enable_itn': false,
+              },
+            },
+          },
+          options: Options(
+            headers: {
+              'Authorization': 'Bearer $apiKey',
+              'Content-Type': 'application/json',
+            },
+            receiveTimeout: const Duration(seconds: 120),
+            sendTimeout: const Duration(seconds: 120),
+          ),
+        );
+        asrContent = _parseAsrResult(asrResponse.data);
+      } catch (e) {
+        if (kDebugMode) print('fun-asr-realtime 兼容模式失败，回退到 qwen3-asr-flash：$e');
+      }
+
+      // 回退：使用 qwen3-asr-flash
+      if (asrContent == null || asrContent.isEmpty) {
+        try {
+          final asrResponse = await _apiClient.post(
+            '${ApiConfig.aliBailianCompatUrl}/chat/completions',
+            data: {
+              'model': ApiConfig.aliAsrQwen3FlashModel,
+              'messages': [
+                {
+                  'role': 'user',
+                  'content': [
+                    {
+                      'type': 'input_audio',
+                      'input_audio': {
+                        'data': 'data:video/mp4;base64,$base64Audio',
+                      },
+                    },
+                  ],
                 },
               ],
+              'stream': false,
+              'extra_body': {
+                'asr_options': {
+                  'enable_itn': false,
+                },
+              },
             },
-          ],
-          'stream': false,
-          'extra_body': {
-            'asr_options': {
-              'enable_itn': false,
-            },
-          },
-        },
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $apiKey',
-            'Content-Type': 'application/json',
-          },
-          receiveTimeout: const Duration(seconds: 120),
-          sendTimeout: const Duration(seconds: 120),
-        ),
-      );
-
-      // 4. 解析ASR结果
-      final data = asrResponse.data as Map<String, dynamic>;
-      final choices = data['choices'] as List<dynamic>?;
-      if (choices != null && choices.isNotEmpty) {
-        final message = choices[0]['message'] as Map<String, dynamic>?;
-        if (message != null) {
-          final content = message['content'] as String?;
-          if (content != null && content.trim().isNotEmpty) {
-            // 清理临时文件
-            try { await File(filePath).delete(); } catch (_) {}
-            return content.trim();
-          }
+            options: Options(
+              headers: {
+                'Authorization': 'Bearer $apiKey',
+                'Content-Type': 'application/json',
+              },
+              receiveTimeout: const Duration(seconds: 120),
+              sendTimeout: const Duration(seconds: 120),
+            ),
+          );
+          asrContent = _parseAsrResult(asrResponse.data);
+        } catch (e) {
+          if (kDebugMode) print('qwen3-asr-flash 也失败：$e');
         }
       }
 
       // 清理临时文件
       try { await File(filePath).delete(); } catch (_) {}
-      return '';
+      return asrContent?.trim() ?? '';
     } on ExtractException {
       rethrow;
     } catch (e) {
       return '';
     }
+  }
+
+  /// 解析 ASR 响应结果（OpenAI 兼容格式）
+  String? _parseAsrResult(dynamic data) {
+    if (data is! Map<String, dynamic>) return null;
+    final choices = data['choices'] as List<dynamic>?;
+    if (choices == null || choices.isEmpty) return null;
+    final message = choices[0]['message'] as Map<String, dynamic>?;
+    if (message == null) return null;
+    final content = message['content'] as String?;
+    if (content == null || content.trim().isEmpty) return null;
+    return content;
   }
 
   /// 从TikHub解析结果中提取视频播放URL（用于ASR）
