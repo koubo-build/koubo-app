@@ -39,6 +39,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   bool _hasInterruptedTasks = false;
   int _currentProcessingIndex = -1;
   String _currentStage = '';
+  final Set<int> _processingShotIds = {};  // 正在并行处理的镜头ID（最多3张）
+  final Map<int, int> _shotLocalIndex = {};  // shotId → 在 _shots 列表中的index
   static const int _maxRetries = 2;
   // key: "${shotId}_${stage}" → retry count
   final Map<String, int> _shotRetryCounts = {};
@@ -109,6 +111,13 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       _currentStage = 'image';
       _currentProcessingIndex = 0;
       _generateProgress = '正在准备批量生成...';
+      _processingShotIds.clear();
+      _shotLocalIndex.clear();
+      for (int i = 0; i < _shots.length; i++) {
+        if (_shots[i].id != null) {
+          _shotLocalIndex[_shots[i].id!] = i;
+        }
+      }
     });
 
     try {
@@ -120,17 +129,31 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
         shots: pendingShots,
         characters: _characters,
         drama: _drama!,
-        onProgress: (completed, total, currentShot) {
+        onProgress: (completed, total, currentShot, {int? shotId, String? status}) {
           if (mounted) {
             setState(() {
               _generateProgress = '[$completed/$total] $currentShot';
               _currentProcessingIndex = completed < total ? completed : -1;
+
+              // 维护正在处理的镜头集合（最多3张同时，UI 可视化显示）
+              if (shotId != null) {
+                if (status == 'processing') {
+                  _processingShotIds.add(shotId);
+                } else if (status == 'image_ready' || status == 'failed') {
+                  _processingShotIds.remove(shotId);
+                }
+              }
             });
+
+            // 单张完成/失败时，实时从 DB 拉最新 shot 数据更新到列表
+            if (shotId != null && (status == 'image_ready' || status == 'failed')) {
+              _refreshSingleShot(shotId);
+            }
           }
         },
       );
 
-      // 重新加载数据
+      // 重新加载数据（兜底，确保最终状态正确）
       await _loadData();
 
       if (mounted) {
@@ -157,6 +180,21 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           SnackBar(content: Text('生成异常：$e')),
         );
       }
+    }
+  }
+
+  /// 从 DB 拉取单个 shot 的最新数据并更新 _shots 列表（用于并行生成的实时刷新）
+  Future<void> _refreshSingleShot(int shotId) async {
+    try {
+      final freshShot = await StorageUtil.getShot(shotId);
+      if (freshShot == null || !mounted) return;
+      final idx = _shotLocalIndex[shotId];
+      if (idx == null || idx >= _shots.length) return;
+      setState(() {
+        _shots[idx] = freshShot;
+      });
+    } catch (_) {
+      // 静默失败，最终 _loadData 会兜底
     }
   }
 
@@ -1444,7 +1482,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   }
 
   Widget _buildShotCard(DramaShot shot, int index) {
-    final isProcessing = index == _currentProcessingIndex && _isGenerating;
+    // 并行处理：shot.id 在 _processingShotIds 中就高亮（最多3张同时显示"正在生成"）
+    final isProcessing = shot.id != null && _processingShotIds.contains(shot.id);
     final hasImage =
         shot.imagePath != null && File(shot.imagePath!).existsSync();
     final isFailed = shot.status == 'failed';
@@ -1492,6 +1531,35 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
                     )
                   else
                     _buildPlaceholder(),
+                  // ===== 可视化：正在生成时显示转圈动画 =====
+                  if (isProcessing)
+                    Container(
+                      color: Colors.black.withOpacity(0.55),
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 36,
+                              height: 36,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 3,
+                                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF6B9D)),
+                              ),
+                            ),
+                            SizedBox(height: 6),
+                            Text(
+                              '生成中...',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   // 状态标签
                   Positioned(
                     top: 8,
@@ -1758,16 +1826,75 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   }
 
   Widget _buildProgressBar() {
+    // 从进度文本中解析 [completed/total] 数字
+    final match = RegExp(r'\[(\d+)/(\d+)\]').firstMatch(_generateProgress);
+    final completed = match != null ? int.tryParse(match.group(1) ?? '0') ?? 0 : 0;
+    final total = match != null ? int.tryParse(match.group(2) ?? '1') ?? 1 : 1;
+    final percent = total > 0 ? (completed / total).clamp(0.0, 1.0) : 0.0;
+    final activeCount = _processingShotIds.length;
+
     return Container(
       padding: const EdgeInsets.all(12),
       color: AppTheme.darkSurface,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const LinearProgressIndicator(),
+          // 进度条 + 百分比
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: percent,
+                    minHeight: 8,
+                    backgroundColor: AppTheme.textHint.withOpacity(0.2),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF6B9D)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                '${(percent * 100).toStringAsFixed(0)}%',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFFFF6B9D),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
+          // 并行度指示
+          if (activeCount > 0)
+            Row(
+              children: [
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFFA86B)),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$activeCount 张同时生成中',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFFFFA86B),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          if (activeCount > 0) const SizedBox(height: 4),
+          // 状态文本
           Text(
             _generateProgress,
             style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),

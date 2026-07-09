@@ -38,6 +38,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   String _selectedStyle = 'anime';
   String _selectedGenre = 'romance';
   String _selectedAspectRatio = '16:9';
+  String _selectedTemplate = '';  // 预设模板（TikTok爆款：非人类角色+猎奇风格）
 
   // 模型配置控制器
   String _textModel = 'auto';
@@ -77,6 +78,17 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   ];
 
   static const _aspectRatios = ['16:9', '9:16', '1:1'];
+
+  // 预设模板（TikTok爆款风格：非人类角色 + 猎奇）
+  static const _templates = [
+    {'value': '', 'label': '无（自由创作）', 'icon': '🎬', 'hint': '不做特殊风格限定'},
+    {'value': 'fruit', 'label': '水果拟人', 'icon': '🍅', 'hint': '番茄公主、香蕉国王、草莓战士等'},
+    {'value': 'seahorse', 'label': '海洋生物', 'icon': '🌊', 'hint': '海马爸爸、章鱼老板、水母仙女等'},
+    {'value': 'animal', 'label': '动物拟人', 'icon': '🐱', 'hint': '猫老板、狗警察、狐狸侦探等'},
+    {'value': 'monster', 'label': '怪物克苏鲁', 'icon': '👹', 'hint': '异形、外星生物、变异生物'},
+    {'value': 'absurd', 'label': '荒诞讽刺', 'icon': '🤪', 'hint': '超现实、黑色幽默、反转不断'},
+    {'value': 'horror', 'label': '猎奇恐怖', 'icon': '💀', 'hint': '诡异、压抑、不安的视觉冲击'},
+  ];
 
   // 模型可选值
   static const _textModels = [
@@ -204,6 +216,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
         genre: _selectedGenre,
         aspectRatio: _selectedAspectRatio,
         modelConfig: modelConfigJson,
+        template: _selectedTemplate,
         onProgress: (stage, progress) {
           if (mounted) {
             _showProgressDialog(stage, progress);
@@ -648,6 +661,139 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
           Text(
             'AI将根据文本内容自动提取角色、生成分镜，并根据篇幅决定集数',
             style: TextStyle(fontSize: 12, color: AppTheme.textHint.withOpacity(0.7)),
+          ),
+          const SizedBox(height: 20),
+          // ===== TikTok 爆款模板：非人类角色 + 猎奇风格 =====
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFFFF6B9D).withOpacity(0.12),
+                  const Color(0xFFFFA86B).withOpacity(0.12),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFFF6B9D).withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text('🔥', style: TextStyle(fontSize: 18)),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'TikTok 爆款预设',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFFF6B9D),
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        'HOT',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '非人类主角+猎奇风格，单周播放3.6亿次的爆款公式',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.textSecondary.withOpacity(0.9),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _templates.map((t) {
+                    final isSelected = _selectedTemplate == t['value'];
+                    return InkWell(
+                      onTap: () {
+                        setState(() => _selectedTemplate = t['value']!);
+                      },
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? const Color(0xFFFF6B9D)
+                              : AppTheme.darkSurface,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: isSelected
+                                ? const Color(0xFFFF6B9D)
+                                : AppTheme.textHint.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(t['icon']!, style: const TextStyle(fontSize: 16)),
+                            const SizedBox(width: 6),
+                            Text(
+                              t['label']!,
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : AppTheme.textSecondary,
+                                fontSize: 13,
+                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                if (_selectedTemplate.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.25),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.lightbulb_outline,
+                            size: 14, color: Color(0xFFFFA86B)),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            _templates.firstWhere(
+                                (t) => t['value'] == _selectedTemplate)['hint']!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary.withOpacity(0.95),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
           const SizedBox(height: 20),
           const Text(
@@ -1159,6 +1305,23 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                         label: Text(_drama?.aspectRatio ?? ''),
                         backgroundColor: AppTheme.darkSurface,
                       ),
+                      if (_drama?.template.isNotEmpty == true)
+                        Chip(
+                          avatar: Text(
+                            _templates.firstWhere(
+                              (t) => t['value'] == _drama?.template,
+                              orElse: () => {'icon': '🎬'},
+                            )['icon']!,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          label: Text(
+                            _templates.firstWhere(
+                              (t) => t['value'] == _drama?.template,
+                              orElse: () => {'label': _drama?.template ?? ''},
+                            )['label']!,
+                          ),
+                          backgroundColor: const Color(0xFFFF6B9D).withOpacity(0.2),
+                        ),
                     ],
                   ),
                   if (_drama?.description.isNotEmpty == true) ...[

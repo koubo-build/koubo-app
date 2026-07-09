@@ -12,6 +12,7 @@ import '../../config/routes.dart';
 import '../../models/voice_model.dart';
 import '../../providers/voice_provider.dart';
 import '../../services/tts_service.dart';
+import '../../services/asr_realtime_service.dart';
 import '../../utils/storage_util.dart';
 import '../../widgets/common/app_button.dart';
 import '../../widgets/common/app_card.dart';
@@ -1353,8 +1354,8 @@ class _VoicePageState extends ConsumerState<VoicePage>
 
       // 启动录音（实时字幕用流式，否则落盘）
       if (useRealtimeAsr && asrService != null) {
-        // 流式录音：使用 startStream（返回 Stream<Uint8List>）
-        final stream = _recorder.startStream(
+        // 流式录音：使用 startStream（返回 Future<Stream<Uint8List>>）
+        final stream = await _recorder.startStream(
           const RecordConfig(
             encoder: AudioEncoder.pcm16bits,
             sampleRate: 16000,

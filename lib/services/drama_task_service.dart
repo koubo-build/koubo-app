@@ -29,7 +29,8 @@ class DramaTaskService {
     required List<DramaCharacter> characters,
     required Drama drama,
     int maxRetries = 0,
-    void Function(int completed, int total, String currentShot)? onProgress,
+    int concurrency = 3,
+    void Function(int completed, int total, String currentShot, {int? shotId, String? status})? onProgress,
   }) async {
     if (_isRunning) {
       throw Exception('已有任务正在执行，请等待完成后再试');
@@ -39,72 +40,101 @@ class DramaTaskService {
     final config = drama.parsedModelConfig;
     final total = shots.length;
     int completed = 0;
+    final activeShotIds = <int>{};  // 正在生成的镜头ID集合（用于UI高亮）
+
+    Future<void> processShot(DramaShot shot) async {
+      final shotId = shot.id;
+      if (shotId != null) {
+        activeShotIds.add(shotId);
+        onProgress?.call(completed, total, '生成图片: 镜头 #${shot.shotNumber}', shotId: shotId, status: 'processing');
+      }
+
+      bool shotSuccess = false;
+      for (int attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            onProgress?.call(completed, total, '重试 #${shot.shotNumber} (${attempt}/$maxRetries)', shotId: shotId, status: 'processing');
+            await Future.delayed(const Duration(seconds: 2));
+          }
+
+          // 构建增强的prompt（注入角色描述和画风）
+          final enhancedPrompt = ImageGenService.enhancePrompt(
+            shot.visualDescription,
+            drama.style,
+            _buildCharacterDescForShot(shot, characters),
+          );
+
+          // 解析画面比例
+          final size = ImageGenService.parseAspectRatio(drama.aspectRatio);
+
+          // 生成图片
+          final imagePath = await _imageGenService.generateImage(
+            prompt: enhancedPrompt,
+            width: size['width']!,
+            height: size['height']!,
+            model: config.imageModel,
+            customApiKey: config.imageApiKey.isNotEmpty ? config.imageApiKey : null,
+            customBaseUrl: config.imageBaseUrl.isNotEmpty ? config.imageBaseUrl : null,
+            onProgress: (stage, progress) {},
+          );
+
+          // 更新镜头状态和图片路径
+          final updatedShot = shot.copyWith(
+            imagePath: imagePath,
+            promptEnhanced: enhancedPrompt,
+            status: 'image_ready',
+          );
+          await StorageUtil.updateShot(updatedShot);
+          shotSuccess = true;
+          onProgress?.call(completed, total, '镜头 #${shot.shotNumber} 图片完成', shotId: shotId, status: 'image_ready');
+          break;
+        } catch (e) {
+          if (attempt < maxRetries) continue;
+          // 所有重试都失败
+          final errStr = e.toString();
+          final finalFailedShot = shot.copyWith(status: 'failed');
+          await StorageUtil.updateShot(finalFailedShot);
+          onProgress?.call(completed, total, '镜头 #${shot.shotNumber} 失败: ${errStr.length > 50 ? errStr.substring(0, 50) : errStr}', shotId: shotId, status: 'failed');
+        }
+      }
+
+      if (shotId != null) {
+        activeShotIds.remove(shotId);
+      }
+      completed++;
+    }
 
     try {
-      for (int i = 0; i < total; i++) {
-        final shot = shots[i];
-
-        // 跳过已完成的镜头（中断恢复场景）
+      // 先处理已完成的镜头（中断恢复场景）
+      final pendingShots = <DramaShot>[];
+      for (final shot in shots) {
         if (shot.status != 'pending') {
           completed++;
           onProgress?.call(completed, total, '跳过已完成: #${shot.shotNumber}');
-          continue;
-        }
-
-        onProgress?.call(completed, total, '生成图片: 镜头 #${shot.shotNumber}');
-
-        bool shotSuccess = false;
-        for (int attempt = 0; attempt <= maxRetries; attempt++) {
-          try {
-            if (attempt > 0) {
-              onProgress?.call(completed, total, '重试 #${shot.shotNumber} (${attempt}/${maxRetries})');
-              await Future.delayed(const Duration(seconds: 2));
-            }
-
-            // 构建增强的prompt（注入角色描述和画风）
-            final enhancedPrompt = ImageGenService.enhancePrompt(
-              shot.visualDescription,
-              drama.style,
-              _buildCharacterDescForShot(shot, characters),
-            );
-
-            // 解析画面比例
-            final size = ImageGenService.parseAspectRatio(drama.aspectRatio);
-
-            // 生成图片
-            final imagePath = await _imageGenService.generateImage(
-              prompt: enhancedPrompt,
-              width: size['width']!,
-              height: size['height']!,
-              model: config.imageModel,
-              customApiKey: config.imageApiKey.isNotEmpty ? config.imageApiKey : null,
-              customBaseUrl: config.imageBaseUrl.isNotEmpty ? config.imageBaseUrl : null,
-              onProgress: (stage, progress) {},
-            );
-
-            // 更新镜头状态和图片路径
-            final updatedShot = shot.copyWith(
-              imagePath: imagePath,
-              promptEnhanced: enhancedPrompt,
-              status: 'image_ready',
-            );
-            await StorageUtil.updateShot(updatedShot);
-            shotSuccess = true;
-            break;
-          } catch (e) {
-            if (attempt < maxRetries) continue;
-            // 所有重试都失败
-            final errStr = e.toString();
-            final finalFailedShot = shot.copyWith(status: 'failed');
-            await StorageUtil.updateShot(finalFailedShot);
-            onProgress?.call(completed, total, '镜头 #${shot.shotNumber} 失败: ${errStr.length > 50 ? errStr.substring(0, 50) : errStr}');
-          }
-        }
-        completed++;
-        if (shotSuccess) {
-          onProgress?.call(completed, total, '镜头 #${shot.shotNumber} 图片完成');
+        } else {
+          pendingShots.add(shot);
         }
       }
+
+      if (pendingShots.isEmpty) {
+        onProgress?.call(total, total, '所有镜头已是最新状态');
+        return;
+      }
+
+      // 并行处理（最多 concurrency 张同时生成，缩短整体时间）
+      final futures = <Future<void>>[];
+      for (final shot in pendingShots) {
+        if (futures.length >= concurrency) {
+          // 等待其中一个完成再启动下一个（限流）
+          await Future.any(futures.map((f) => f.catchError((_) {})));
+          futures.removeWhere((f) => f.isCompleted);
+        }
+        futures.add(processShot(shot));
+      }
+      // 等待剩余的全部完成
+      await Future.wait(futures.map((f) => f.catchError((_) {})));
+
+      onProgress?.call(completed, total, '全部完成！共 $completed/$total');
     } finally {
       _isRunning = false;
     }
@@ -213,7 +243,7 @@ class DramaTaskService {
       shots: pendingShots,
       characters: characters,
       drama: drama,
-      onProgress: (completed, total, currentShot) {
+      onProgress: (completed, total, currentShot, {int? shotId, String? status}) {
         onProgress?.call(completedCount + completed, allShots.length, currentShot);
       },
     );

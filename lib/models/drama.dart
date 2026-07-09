@@ -96,6 +96,7 @@ class Drama {
   final String aspectRatio;     // 画面比例：16:9 / 9:16 / 1:1
   final String modelConfig;     // JSON字符串，存储项目级模型配置
   final String sourceText;      // 用户输入的原始剧本/小说文本
+  final String template;        // 预设模板：fruit/seahorse/animal/monster/absurd/custom
   final DateTime createdAt;
   final DateTime? updatedAt;
 
@@ -113,6 +114,7 @@ class Drama {
     this.aspectRatio = '16:9',
     this.modelConfig = '{}',
     this.sourceText = '',
+    this.template = '',
     DateTime? createdAt,
     this.updatedAt,
     this.episodeCount = 0,
@@ -131,6 +133,7 @@ class Drama {
       aspectRatio: map['aspect_ratio'] as String? ?? '16:9',
       modelConfig: map['model_config'] as String? ?? '{}',
       sourceText: map['source_text'] as String? ?? '',
+      template: map['template'] as String? ?? '',
       createdAt: map['created_at'] != null
           ? DateTime.parse(map['created_at'] as String)
           : DateTime.now(),
@@ -153,6 +156,7 @@ class Drama {
       aspectRatio: json['aspect_ratio'] as String? ?? '16:9',
       modelConfig: json['model_config'] as String? ?? '{}',
       sourceText: json['source_text'] as String? ?? '',
+      template: json['template'] as String? ?? '',
     );
   }
 
@@ -167,6 +171,7 @@ class Drama {
       'aspect_ratio': aspectRatio,
       'model_config': modelConfig,
       'source_text': sourceText,
+      'template': template,
       'created_at': createdAt.toIso8601String(),
       if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
     };
@@ -183,6 +188,7 @@ class Drama {
       'aspect_ratio': aspectRatio,
       'model_config': modelConfig,
       'source_text': sourceText,
+      'template': template,
     };
   }
 
@@ -196,6 +202,7 @@ class Drama {
     String? aspectRatio,
     String? modelConfig,
     String? sourceText,
+    String? template,
     DateTime? createdAt,
     DateTime? updatedAt,
     int? episodeCount,
@@ -211,6 +218,7 @@ class Drama {
       aspectRatio: aspectRatio ?? this.aspectRatio,
       modelConfig: modelConfig ?? this.modelConfig,
       sourceText: sourceText ?? this.sourceText,
+      template: template ?? this.template,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       episodeCount: episodeCount ?? this.episodeCount,

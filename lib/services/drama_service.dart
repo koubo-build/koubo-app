@@ -71,6 +71,7 @@ class DramaService {
     required String genre,
     int episodeCount = 1,
     int shotsPerEpisode = 10,
+    String template = '',
     void Function(String stage, int progress)? onProgress,
   }) async {
     // 1. 构建用户Prompt
@@ -80,6 +81,7 @@ class DramaService {
       genre: genre,
       episodeCount: episodeCount,
       shotsPerEpisode: shotsPerEpisode,
+      template: template,
     );
 
     onProgress?.call('AI构思剧本...', 10);
@@ -112,6 +114,7 @@ class DramaService {
     String aspectRatio = '16:9',
     int episodeCount = 1,
     int shotsPerEpisode = 10,
+    String template = '',
     void Function(String stage, int progress)? onProgress,
   }) async {
     // 1. 创建Drama记录
@@ -121,6 +124,7 @@ class DramaService {
       style: style,
       genre: genre,
       aspectRatio: aspectRatio,
+      template: template,
     );
 
     final dramaId = await StorageUtil.insertDrama(drama);
@@ -135,6 +139,7 @@ class DramaService {
       genre: genre,
       episodeCount: episodeCount,
       shotsPerEpisode: shotsPerEpisode,
+      template: template,
       onProgress: (stage, progress) {
         // 映射进度：20-80%给剧本生成
         onProgress?.call(stage, 20 + (progress * 0.6).round());
@@ -168,6 +173,7 @@ class DramaService {
     required String genre,
     required int episodeCount,
     required int shotsPerEpisode,
+    String template = '',
   }) {
     final buffer = StringBuffer();
     buffer.writeln('请为以下故事创作短剧剧本：');
@@ -178,10 +184,39 @@ class DramaService {
     buffer.writeln('类型：${_getGenreDesc(genre)}');
     buffer.writeln('集数：$episodeCount 集');
     buffer.writeln('每集镜头数：$shotsPerEpisode-$shotsPerEpisode 个');
+
+    // 注入模板上下文（非人类角色 / 猎奇风格预设）
+    final templateDesc = _getTemplateDesc(template);
+    if (templateDesc.isNotEmpty) {
+      buffer.writeln();
+      buffer.writeln('【特殊风格设定 - 必读】');
+      buffer.writeln(templateDesc);
+    }
+
     buffer.writeln();
     buffer.writeln('请生成完整的剧本，包括角色设定和分镜脚本。');
 
     return buffer.toString();
+  }
+
+  /// 获取模板风格描述（非人类角色/猎奇预设）
+  String _getTemplateDesc(String template) {
+    switch (template) {
+      case 'fruit':
+        return '主角是【拟人化的水果/蔬菜】：例如番茄公主、香蕉国王、草莓战士、葡萄忍者、辣椒妈妈等。保留水果原本的颜色、形状和质感，但赋予完整的人类形态、表情、服装和性格。画面应色彩鲜艳、果香四溢，符合水果本身特征。剧情围绕水果王国的爱恨情仇、复仇、冒险展开。';
+      case 'seahorse':
+        return '主角是【拟人化的海洋生物】：海马爸爸、海马妈妈、章鱼老板、水母仙女、螃蟹将军等。保留海洋生物的形态特征（海马的弯曲身体、章鱼的触手、水母的透明感），但有完整的人类表情、对话和社会关系。故事可以围绕怀孕、育儿、家庭、复仇等情感议题展开，画面梦幻、温暖或诡异。';
+      case 'animal':
+        return '主角是【拟人化的陆地动物】：猫老板、狗警察、狐狸侦探、兔子公主、狼反派等。动物保留各自物种特征（猫的耳朵、狗的尾巴、狐狸的尖嘴），穿着人类衣服，住人类房子，但行为举止完全拟人化。故事轻松幽默、夸张荒诞，配上戏剧化的冲突和反转。';
+      case 'monster':
+        return '【怪物/克苏鲁风格】：主角是克苏鲁式怪物、异形、外星生物、变异生物等。强调恐怖、诡异、超自然的氛围。画面暗调、阴影、触手、复眼、异形构造。剧情围绕觉醒、吞噬、复仇、异世界入侵展开，制造强烈的不安感和视觉冲击。';
+      case 'absurd':
+        return '【荒诞讽刺风格】：主角可以是任何东西（家具、电器、食物、抽象概念），剧情完全打破常规逻辑，黑色幽默、荒诞不经、讽刺现实。画面夸张、扭曲、超现实。可以采用定格动画或拼贴风格，每个镜头都充满意外和笑点。';
+      case 'horror':
+        return '【猎奇恐怖风格】：人物造型诡异、色彩压抑、画面充斥不安元素（血迹、阴影、扭曲人形、恐怖娃娃）。剧情围绕诅咒、复仇、疯狂、超自然事件。画面要营造强烈的恐怖氛围，每个镜头都让观众脊背发凉。';
+      default:
+        return '';
+    }
   }
 
   /// 获取画风描述
@@ -363,6 +398,7 @@ class DramaService {
   Future<List<DramaCharacter>> extractCharacters({
     required String scriptText,
     required int dramaId,
+    String template = '',
     void Function(String stage, int progress)? onProgress,
   }) async {
     onProgress?.call('AI分析角色...', 10);
@@ -372,7 +408,10 @@ class DramaService {
         ? '${scriptText.substring(0, 15000)}\n...(文本已截断)'
         : scriptText;
 
-    final userPrompt = '请从以下剧本/小说中提取所有角色：\n\n$truncatedText';
+    final templateDesc = _getTemplateDesc(template);
+    final userPrompt = templateDesc.isEmpty
+        ? '请从以下剧本/小说中提取所有角色：\n\n$truncatedText'
+        : '请从以下剧本/小说中提取所有角色：\n\n$truncatedText\n\n【风格设定】\n$templateDesc';
 
     final aiResponse = await _callAiWithModelConfig(
       dramaId: dramaId,
@@ -443,6 +482,7 @@ class DramaService {
     required String style,
     required String genre,
     int shotsPerEpisode = 10,
+    String template = '',
     void Function(String stage, int progress)? onProgress,
   }) async {
     // 构建角色信息
@@ -454,12 +494,13 @@ class DramaService {
         ? '${scriptText.substring(0, 15000)}\n...(文本已截断)'
         : scriptText;
 
+    final templateDesc = _getTemplateDesc(template);
     final userPrompt = '''请根据以下剧本和角色列表，生成结构化的分镜脚本。
 
 画风要求：${_getStyleDesc(style)}
 类型：${_getGenreDesc(genre)}
 每集镜头数：约${shotsPerEpisode}个
-
+${templateDesc.isNotEmpty ? '\n【特殊风格设定 - 必读】\n$templateDesc\n' : ''}
 角色列表：
 $charInfoList
 
@@ -516,6 +557,7 @@ $truncatedText
     String aspectRatio = '16:9',
     String modelConfig = '{}',
     int shotsPerEpisode = 10,
+    String template = '',
     void Function(String stage, int progress)? onProgress,
   }) async {
     // 1. 创建Drama记录（保存sourceText和modelConfig）
@@ -527,15 +569,17 @@ $truncatedText
       aspectRatio: aspectRatio,
       modelConfig: modelConfig,
       sourceText: scriptText,
+      template: template,
     );
 
     final dramaId = await StorageUtil.insertDrama(drama);
     onProgress?.call('项目创建成功，AI分析角色中...', 10);
 
-    // 2. AI自动提取角色
+    // 2. AI自动提取角色（带模板上下文）
     final characters = await extractCharacters(
       scriptText: scriptText,
       dramaId: dramaId,
+      template: template,
       onProgress: (stage, progress) {
         onProgress?.call('提取角色：$stage', 10 + (progress * 0.2).round());
       },
@@ -548,13 +592,14 @@ $truncatedText
       await StorageUtil.insertCharacter(character.copyWith(dramaId: dramaId));
     }
 
-    // 4. AI自动生成分镜
+    // 4. AI自动生成分镜（带模板上下文）
     final scriptResult = await generateStoryboardFromScript(
       scriptText: scriptText,
       characters: characters,
       style: style,
       genre: genre,
       shotsPerEpisode: shotsPerEpisode,
+      template: template,
       onProgress: (stage, progress) {
         onProgress?.call('生成分镜：$stage', 35 + (progress * 0.55).round());
       },

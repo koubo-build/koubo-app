@@ -188,6 +188,7 @@ class StorageUtil {
         aspect_ratio TEXT DEFAULT '16:9',
         model_config TEXT DEFAULT '{}',
         source_text TEXT DEFAULT '',
+        template TEXT DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT
       )
