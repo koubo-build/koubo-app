@@ -96,6 +96,9 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     {'value': 'qwen-plus', 'label': '通义千问 Plus'},
     {'value': 'glm-4.7-flash', 'label': '智谱 GLM-4.7 Flash'},
     {'value': 'agnes-2.0-flash', 'label': 'Agnes 2.0 Flash (免费)'},
+    {'value': 'ai32-qwen-plus', 'label': '32AI · 千问 Plus'},
+    {'value': 'ai32-deepseek', 'label': '32AI · DeepSeek'},
+    {'value': 'ai32-doubao-pro', 'label': '32AI · 豆包 Pro'},
     {'value': 'deepseek-v4-flash', 'label': 'DeepSeek V4 Flash'},
     {'value': 'deepseek-v4-pro', 'label': 'DeepSeek V4 Pro'},
     {'value': 'doubao-pro', 'label': '豆包 Pro (火山引擎)'},
@@ -113,6 +116,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     {'value': 'happyhorse', 'label': 'HappyHorse'},
     {'value': 'agnes-video', 'label': 'Agnes AI Video (免费)'},
     {'value': 'wanx-s2v', 'label': '万相 S2V'},
+    {'value': 'ai32-seedance', 'label': '32AI · 豆包 Seedance'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
 
@@ -1014,6 +1018,12 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       case 'agnes-image':
       case 'agnes-video':
         return 'https://apihub.agnes-ai.com/v1';
+      case 'ai32-qwen-plus':
+      case 'ai32-deepseek':
+        return 'https://32ai.uk/v1';
+      case 'ai32-doubao-pro':
+      case 'ai32-seedance':
+        return 'https://32ai.uk/volc/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
         return 'https://api.deepseek.com';
@@ -1031,6 +1041,11 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       case 'agnes-image':
       case 'agnes-video':
         return 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
+      case 'ai32-qwen-plus':
+      case 'ai32-deepseek':
+      case 'ai32-doubao-pro':
+      case 'ai32-seedance':
+        return 'sk-sMC4yb8EUgS2G6OTlFYVwlqJJ5Pg08NpmbuoTg0Qiceh5uq6';
       default:
         return '';
     }

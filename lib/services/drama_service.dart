@@ -656,11 +656,13 @@ $truncatedText
 
       if (presetUrl.isNotEmpty && effectiveApiKey.isNotEmpty) {
         // 有预设URL且有API Key：直接调用 + 失败自动回退
+        // 解析实际模型名称（32AI前缀需要剥离）
+        final actualModel = _resolveActualModelName(config.textModel);
         try {
           return await _apiClient.chatCompletion(
             baseUrl: config.textBaseUrl.isNotEmpty ? config.textBaseUrl : presetUrl,
             apiKey: effectiveApiKey,
-            model: config.textModel,
+            model: actualModel,
             messages: formattedMessages,
             temperature: temperature,
           );
@@ -694,6 +696,16 @@ $truncatedText
     }
   }
 
+  /// 解析实际模型名称（剥离内部路由前缀）
+  static String _resolveActualModelName(String model) {
+    if (model.startsWith('ai32-')) {
+      final stripped = model.replaceFirst('ai32-', '');
+      // ai32-deepseek → deepseek-chat
+      return stripped == 'deepseek' ? 'deepseek-chat' : stripped;
+    }
+    return model;
+  }
+
   /// 获取预设模型的默认Base URL
   static String _getPresetBaseUrl(String model) {
     switch (model) {
@@ -701,6 +713,12 @@ $truncatedText
       case 'agnes-image':
       case 'agnes-video':
         return 'https://apihub.agnes-ai.com/v1';
+      case 'ai32-qwen-plus':
+      case 'ai32-deepseek':
+        return 'https://32ai.uk/v1';
+      case 'ai32-doubao-pro':
+      case 'ai32-seedance':
+        return 'https://32ai.uk/volc/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
         return 'https://api.deepseek.com';
@@ -711,13 +729,18 @@ $truncatedText
     }
   }
 
-  /// 获取预设模型的默认API Key（Agnes AI全模型预填，其他需用户自行输入）
+  /// 获取预设模型的默认API Key（Agnes AI + 32AI 全模型预填，其他需用户自行输入）
   static String _getPresetApiKey(String model) {
     switch (model) {
       case 'agnes-2.0-flash':
       case 'agnes-image':
       case 'agnes-video':
         return 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
+      case 'ai32-qwen-plus':
+      case 'ai32-deepseek':
+      case 'ai32-doubao-pro':
+      case 'ai32-seedance':
+        return 'sk-sMC4yb8EUgS2G6OTlFYVwlqJJ5Pg08NpmbuoTg0Qiceh5uq6';
       default:
         return '';
     }

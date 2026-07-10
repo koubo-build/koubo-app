@@ -101,7 +101,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _siliconFlowKeyController.text = await StorageUtil.getSecure(ApiConfig.siliconFlowApiKeyKey) ?? '';
     _aliBailianKeyController.text = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey) ?? '';
     _tikhubKeyController.text = await StorageUtil.getSecure(ApiConfig.tikhubApiKeyKey) ?? '';
-    _ai32KeyController.text = await StorageUtil.getSecure(ApiConfig.ai32ApiKeyKey) ?? '';
+    _ai32KeyController.text = await StorageUtil.getSecure(ApiConfig.ai32ApiKeyKey) ?? 'sk-sMC4yb8EUgS2G6OTlFYVwlqJJ5Pg08NpmbuoTg0Qiceh5uq6';
     _agnesKeyController.text = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey) ?? '';
 
 

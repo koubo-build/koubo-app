@@ -580,6 +580,9 @@ class _AuthInterceptor extends Interceptor {
     } else if (url.contains('agnes-ai.com')) {
       // Agnes AI
       storageKey = ApiConfig.agnesApiKeyKey;
+    } else if (url.contains('32ai.uk')) {
+      // 32AI中转站
+      storageKey = ApiConfig.ai32ApiKeyKey;
     }
 
     if (storageKey != null) {
