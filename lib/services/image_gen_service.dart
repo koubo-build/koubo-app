@@ -62,6 +62,21 @@ class ImageGenService {
         modelName: 'agnes-image-2.1-flash',
         onProgress: onProgress,
       );
+    } else if (model == 'ai32-image') {
+      // 使用32AI中转站图像生成（OpenAI兼容格式）
+      final ai32Key = (customApiKey?.isNotEmpty ?? false)
+          ? customApiKey!
+          : 'sk-sMC4yb8EUgS2G6OTlFYVwlqJJ5Pg08NpmbuoTg0Qiceh5uq6';
+      return _generateWithCustom(
+        prompt: prompt,
+        negativePrompt: negativePrompt,
+        width: width,
+        height: height,
+        apiKey: ai32Key,
+        baseUrl: customBaseUrl?.isNotEmpty == true ? customBaseUrl! : 'https://32ai.uk/v1',
+        modelName: 'dall-e-3',
+        onProgress: onProgress,
+      );
     } else if (model == 'wanx') {
       return _generateWithWanx(
         prompt: prompt,

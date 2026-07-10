@@ -719,6 +719,8 @@ $truncatedText
       case 'ai32-doubao-pro':
       case 'ai32-seedance':
         return 'https://32ai.uk/volc/v1';
+      case 'ai32-image':
+        return 'https://32ai.uk/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
         return 'https://api.deepseek.com';
@@ -740,6 +742,7 @@ $truncatedText
       case 'ai32-deepseek':
       case 'ai32-doubao-pro':
       case 'ai32-seedance':
+      case 'ai32-image':
         return 'sk-sMC4yb8EUgS2G6OTlFYVwlqJJ5Pg08NpmbuoTg0Qiceh5uq6';
       default:
         return '';
