@@ -132,6 +132,22 @@ class ImageGenService {
     return buffer.toString();
   }
 
+  /// 将尺寸归一化为 dall-e-3 兼容的三种合法尺寸之一
+  /// dall-e-3 只支持: 1024x1024, 1024x1792, 1792x1024
+  static Map<String, int> normalizeSizeForDallE3(int width, int height) {
+    final ratio = width / height;
+    if (ratio > 1.1) {
+      // 横图 → 1792x1024
+      return {'width': 1792, 'height': 1024};
+    } else if (ratio < 0.9) {
+      // 竖图 → 1024x1792
+      return {'width': 1024, 'height': 1792};
+    } else {
+      // 接近方形 → 1024x1024
+      return {'width': 1024, 'height': 1024};
+    }
+  }
+
   /// 解析aspectRatio为宽高
   static Map<String, int> parseAspectRatio(String ratio, {int defaultWidth = 1024}) {
     switch (ratio) {
@@ -414,12 +430,17 @@ class ImageGenService {
     final normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
 
     try {
+      // dall-e-3 只支持 1024x1024 / 1024x1792 / 1792x1024，先归一化尺寸
+      final normalized = normalizeSizeForDallE3(width, height);
+      final finalWidth = normalized['width']!;
+      final finalHeight = normalized['height']!;
+
       final response = await _dio.post(
         '$normalizedBaseUrl/images/generations',
         data: jsonEncode({
           'model': modelName,
           'prompt': prompt,
-          'size': '${width}x$height',
+          'size': '${finalWidth}x${finalHeight}',
           'n': 1,
         }),
         options: Options(
