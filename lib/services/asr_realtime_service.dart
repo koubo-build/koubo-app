@@ -213,7 +213,7 @@ class AsrRealtimeService {
   String _generateTaskId() {
     // 简单 UUID 生成（去掉横线，取前 32 位）
     final now = DateTime.now().millisecondsSinceEpoch.toString();
-    final rand = (now.hashCode ^ now).toString().replaceAll('-', '');
+    final rand = (now.hashCode ^ int.parse(now)).toString().replaceAll('-', '');
     return (now + rand).padRight(32, '0').substring(0, 32);
   }
 

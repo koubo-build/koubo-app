@@ -723,10 +723,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
             characters: _characters,
             drama: _drama!,
             maxRetries: _maxRetries,
-            onProgress: (completed, total, currentShot) {
+            onProgress: (completed, total, currentShot, {int? shotId, String? status}) {
               if (mounted) {
                 setState(() {
                   _generateProgress = '[图片 $completed/$total] $currentShot';
+                  if (shotId != null) _shotLocalIndex[shotId] = status ?? '';
                 });
               }
             },

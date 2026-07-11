@@ -1364,7 +1364,7 @@ class _VoicePageState extends ConsumerState<VoicePage>
           ),
         );
         streamSub = stream.listen(
-          (data) => asrService.sendAudioFrame(data),
+          (data) => asrService?.sendAudioFrame(data),
           onError: (e) {
             if (mounted) setState(() => _asrStatus = '音频流错误：$e');
           },

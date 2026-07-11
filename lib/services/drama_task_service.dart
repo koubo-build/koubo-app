@@ -122,17 +122,34 @@ class DramaTaskService {
       }
 
       // 并行处理（最多 concurrency 张同时生成，缩短整体时间）
-      final futures = <Future<void>>[];
+      // 计数器控制并发
+      int activeCount = 0;
+      final completers = <Completer<void>>[];
       for (final shot in pendingShots) {
-        if (futures.length >= concurrency) {
-          // 等待其中一个完成再启动下一个（限流）
-          await Future.any(futures.map((f) => f.catchError((_) {})));
-          futures.removeWhere((f) => f.isCompleted);
+        while (activeCount >= concurrency) {
+          // 等待任意一个任务完成
+          if (completers.isNotEmpty) {
+            await Future.any(completers.map((c) => c.future));
+            // 清理已完成的 completers
+            completers.removeWhere((c) {
+              // 用 Completer 的 isCompleted 属性
+              return c.isCompleted;
+            });
+            activeCount = completers.length;
+          } else {
+            break;
+          }
         }
-        futures.add(processShot(shot));
+        final completer = Completer<void>();
+        completers.add(completer);
+        activeCount++;
+        // ignore: unawaited_futures
+        processShot(shot).then((_) => completer.complete()).catchError((e) {
+          if (!completer.isCompleted) completer.complete();
+        });
       }
-      // 等待剩余的全部完成
-      await Future.wait(futures.map((f) => f.catchError((_) {})));
+      // 等待全部完成
+      await Future.wait(completers.map((c) => c.future).toList());
 
       onProgress?.call(completed, total, '全部完成！共 $completed/$total');
     } finally {
