@@ -727,7 +727,13 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
               if (mounted) {
                 setState(() {
                   _generateProgress = '[图片 $completed/$total] $currentShot';
-                  if (shotId != null) _shotLocalIndex[shotId] = status ?? '';
+                  if (shotId != null) {
+                    if (status == 'processing') {
+                      _processingShotIds.add(shotId);
+                    } else if (status == 'image_ready' || status == 'failed') {
+                      _processingShotIds.remove(shotId);
+                    }
+                  }
                 });
               }
             },
