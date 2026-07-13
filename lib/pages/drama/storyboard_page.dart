@@ -240,6 +240,33 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     }
   }
 
+
+  /// 获取短剧使用的音色（优先使用语音模块选择的克隆音色）
+  Future<Map<String, String>> _getDramaVoice() async {
+    final savedVoiceId = StorageUtil.getDhTtsVoiceId();
+    if (savedVoiceId != null && savedVoiceId.isNotEmpty) {
+      // 尝试从克隆音色中查找（存储格式: voiceId|voiceName|gender|createdAt;...）
+      final clonedVoicesStr = StorageUtil.getString('cloned_voices') ?? '';
+      if (clonedVoicesStr.isNotEmpty) {
+        try {
+          final entries = clonedVoicesStr.split(';');
+          for (final entry in entries) {
+            if (entry.isEmpty) continue;
+            final parts = entry.split('|');
+            if (parts.isNotEmpty && parts[0] == savedVoiceId) {
+              // 克隆音色使用 cosyvoice 引擎
+              return {'voiceId': savedVoiceId, 'provider': 'cosyvoice'};
+            }
+          }
+        } catch (_) {}
+      }
+      // 是系统音色，直接用
+      return {'voiceId': savedVoiceId, 'provider': 'cosyvoice'};
+    }
+    // 没有设置，使用默认
+    return {'voiceId': 'longanhuan', 'provider': 'cosyvoice'};
+  }
+
   Future<void> _generateAudios() async {
     final needAudioShots = _shots
         .where((s) =>
@@ -272,10 +299,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
         });
 
         try {
+          final voiceInfo = await _getDramaVoice();
           final audioPath = await ttsService.synthesize(
             text: shot.dialogue,
-            voiceId: 'longanhuan',
-            provider: 'cosyvoice',
+            voiceId: voiceInfo['voiceId'] ?? 'longanhuan',
+            provider: voiceInfo['provider'] ?? 'cosyvoice',
           );
 
           String newStatus = 'audio_ready';
@@ -780,10 +808,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
                 await Future.delayed(const Duration(seconds: 2));
               }
 
+              final voiceInfo3 = await _getDramaVoice();
               final audioPath = await ttsService.synthesize(
                 text: shot.dialogue,
-                voiceId: 'longanhuan',
-                provider: 'cosyvoice',
+                voiceId: voiceInfo3['voiceId'] ?? 'longanhuan',
+                provider: voiceInfo3['provider'] ?? 'cosyvoice',
               );
               final updatedShot = shot.copyWith(
                 audioPath: audioPath,
@@ -1015,10 +1044,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
               });
               await Future.delayed(const Duration(seconds: 2));
             }
+            final voiceInfo4 = await _getDramaVoice();
             final audioPath = await ttsService.synthesize(
               text: shot.dialogue,
-              voiceId: 'longanhuan',
-              provider: 'cosyvoice',
+              voiceId: voiceInfo4['voiceId'] ?? 'longanhuan',
+              provider: voiceInfo4['provider'] ?? 'cosyvoice',
             );
             var updated = shot.copyWith(audioPath: audioPath, status: shot.imagePath != null ? 'audio_ready' : 'pending');
             await StorageUtil.updateShot(updated);
@@ -1149,10 +1179,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       } else if (action == 'audio') {
         final ttsService = TtsService(ref.read(apiClientProvider));
 
+        final voiceInfo5 = await _getDramaVoice();
         final audioPath = await ttsService.synthesize(
           text: shot.dialogue,
-          voiceId: 'longanhuan',
-          provider: 'cosyvoice',
+          voiceId: voiceInfo5['voiceId'] ?? 'longanhuan',
+          provider: voiceInfo5['provider'] ?? 'cosyvoice',
         );
 
         final updatedShot = shot.copyWith(

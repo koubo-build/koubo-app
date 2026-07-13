@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/api_config.dart';
@@ -404,8 +405,8 @@ class DramaService {
     onProgress?.call('AI分析角色...', 10);
 
     // 截取文本（防止超长）
-    final truncatedText = scriptText.length > 15000
-        ? '${scriptText.substring(0, 15000)}\n...(文本已截断)'
+    final truncatedText = scriptText.length > 30000
+        ? '${scriptText.substring(0, 30000)}\n...(文本已截断，共${scriptText.length}字)'
         : scriptText;
 
     final templateDesc = _getTemplateDesc(template);
@@ -446,6 +447,13 @@ class DramaService {
 
   static const String _storyboardSystemPrompt = '''你是一位专业的短剧分镜脚本创作师。请根据用户提供的完整剧本/小说文本和角色列表，生成结构化的分镜脚本。
 
+【重要 - 多集拆分规则】
+- 如果剧本内容较长（超过2000字），你必须将其拆分为多集，每集约指定数量的镜头
+- 每集要有独立标题和概要，剧情要有起承转合
+- 如果剧本较短（少于2000字），可以只生成一集
+- 每集镜头数按照用户指定的数量（默认10个左右）
+- 总集数根据剧情自然拆分，不要硬凑
+
 输出格式必须是标准JSON：
 {
   "episodes": [
@@ -473,7 +481,9 @@ class DramaService {
 2. 台词要符合角色性格和剧情发展
 3. 角色描述要保持与提供列表的一致性
 4. 合理分配镜头，确保故事节奏流畅
-5. JSON格式必须完全正确，不要有语法错误''';
+5. 长剧本必须拆分为多集，每集镜头数约等于指定数量
+6. 每集结尾要有悬念或转折，吸引观众看下一集
+7. JSON格式必须完全正确，不要有语法错误''';
 
   /// 从剧本自动生成分镜
   Future<DramaScriptResult> generateStoryboardFromScript({
@@ -490,16 +500,23 @@ class DramaService {
       return '- ${c.name}：${c.description}${c.personality != null && c.personality!.isNotEmpty ? '（${c.personality}）' : ''}';
     }).join('\n');
 
-    final truncatedText = scriptText.length > 15000
-        ? '${scriptText.substring(0, 15000)}\n...(文本已截断)'
+    final truncatedText = scriptText.length > 30000
+        ? '${scriptText.substring(0, 30000)}\n...(文本已截断，共${scriptText.length}字)'
         : scriptText;
 
     final templateDesc = _getTemplateDesc(template);
+    // 根据文本长度估算集数（约2000字一集）
+    final estimatedEpisodes = (scriptText.length / 2000).ceil().clamp(1, 50);
+    final episodeInstruction = estimatedEpisodes > 1
+        ? '【重要】本文本约${scriptText.length}字，请拆分为约${estimatedEpisodes}集，每集约${shotsPerEpisode}个镜头'
+        : '本文本较短，生成一集即可';
+
     final userPrompt = '''请根据以下剧本和角色列表，生成结构化的分镜脚本。
 
 画风要求：${_getStyleDesc(style)}
 类型：${_getGenreDesc(genre)}
 每集镜头数：约${shotsPerEpisode}个
+$episodeInstruction
 ${templateDesc.isNotEmpty ? '\n【特殊风格设定 - 必读】\n$templateDesc\n' : ''}
 角色列表：
 $charInfoList
@@ -507,7 +524,8 @@ $charInfoList
 剧本文本：
 $truncatedText
 
-请生成分镜脚本，角色列表已在上方提供，无需重复提取。''';
+请生成分镜脚本，角色列表已在上方提供，无需重复提取。
+${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，每集有独立标题和概要，剧情有起承转合。' : ''}''';
 
     onProgress?.call('AI生成分镜...', 10);
 
