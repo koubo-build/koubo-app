@@ -256,6 +256,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   }
 
   void _showProgressDialog(String stage, int progress) {
+    // 先关闭旧弹窗再显示新的，避免弹窗叠加
+    Navigator.of(context, rootNavigator: true).pop();
     showDialog(
       context: context,
       barrierDismissible: false,
