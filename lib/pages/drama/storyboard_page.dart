@@ -1882,7 +1882,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.darkBg,
+        color: AppTheme.darkCard,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -1902,7 +1902,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
               fillColor: AppTheme.darkSurface,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: AppTheme.border.withOpacity(0.3)),
+                borderSide: BorderSide(color: AppTheme.textHint.withOpacity(0.3)),
               ),
             ),
             items: models.map((m) {
