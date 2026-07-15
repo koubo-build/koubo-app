@@ -37,6 +37,36 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   bool _isGenerating = false;
   String _generateProgress = '';
   bool _hasInterruptedTasks = false;
+  static const _textModels = [
+    {'value': 'auto', 'label': '智能路由 (auto)'},
+    {'value': 'qwen-plus', 'label': '通义千问 Plus'},
+    {'value': 'glm-4.7-flash', 'label': '智谱 GLM-4.7 Flash'},
+    {'value': 'agnes-2.0-flash', 'label': 'Agnes 2.0 Flash (免费)'},
+    {'value': 'ai32-qwen-plus', 'label': '32AI · 千问 Plus'},
+    {'value': 'ai32-deepseek', 'label': '32AI · DeepSeek'},
+    {'value': 'ai32-doubao-pro', 'label': '32AI · 豆包 Pro'},
+    {'value': 'deepseek-v4-flash', 'label': 'DeepSeek V4 Flash'},
+    {'value': 'deepseek-v4-pro', 'label': 'DeepSeek V4 Pro'},
+    {'value': 'doubao-pro', 'label': '豆包 Pro (火山引擎)'},
+    {'value': 'custom', 'label': '自定义 (Custom)'},
+  ];
+
+  static const _imageModels = [
+    {'value': 'wanx', 'label': '万相 (Wanx)'},
+    {'value': 'agnes-image', 'label': 'Agnes AI Image (免费)'},
+    {'value': 'ai32-image', 'label': '32AI · Image'},
+    {'value': 'local_sd', 'label': '本地 SD'},
+    {'value': 'custom', 'label': '自定义 (Custom)'},
+  ];
+
+  static const _videoModels = [
+    {'value': 'happyhorse', 'label': 'HappyHorse'},
+    {'value': 'agnes-video', 'label': 'Agnes AI Video (免费)'},
+    {'value': 'wanx-s2v', 'label': '万相 S2V'},
+    {'value': 'ai32-seedance', 'label': '32AI · 豆包 Seedance'},
+    {'value': 'custom', 'label': '自定义 (Custom)'},
+  ];
+
   int _currentProcessingIndex = -1;
   String _currentStage = '';
   final Set<int> _processingShotIds = {};  // 正在并行处理的镜头ID（最多3张）
@@ -1752,12 +1782,193 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     }
   }
 
+  // ==================== 模型设置 ====================
+
+  void _showModelSettings() {
+    final config = _drama?.parsedModelConfig ?? DramaModelConfig();
+    String selectedText = config.textModel;
+    String selectedImage = config.imageModel;
+    String selectedVideo = config.videoModel;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.darkSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '🔧 模型设置',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      '切换模型可解决持续生成失败的问题',
+                      style: TextStyle(fontSize: 12, color: AppTheme.textHint),
+                    ),
+                    const SizedBox(height: 16),
+                    // 文本模型
+                    _buildModelDropdown(
+                      title: '📝 文本模型',
+                      subtitle: '分镜文案生成、改写',
+                      selected: selectedText,
+                      models: _textModels,
+                      onChanged: (v) => setSheetState(() => selectedText = v),
+                    ),
+                    const SizedBox(height: 12),
+                    // 图片模型
+                    _buildModelDropdown(
+                      title: '🖼️ 图片模型',
+                      subtitle: '镜头画面生成',
+                      selected: selectedImage,
+                      models: _imageModels,
+                      onChanged: (v) => setSheetState(() => selectedImage = v),
+                    ),
+                    const SizedBox(height: 12),
+                    // 视频模型
+                    _buildModelDropdown(
+                      title: '🎬 视频模型',
+                      subtitle: '镜头视频生成',
+                      selected: selectedVideo,
+                      models: _videoModels,
+                      onChanged: (v) => setSheetState(() => selectedVideo = v),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _saveModelConfig(selectedText, selectedImage, selectedVideo);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryColor,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: const Text('保存设置', style: TextStyle(fontSize: 16)),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildModelDropdown({
+    required String title,
+    required String subtitle,
+    required String selected,
+    required List<Map<String, String>> models,
+    required ValueChanged<String> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.darkBg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          Text(subtitle, style: const TextStyle(fontSize: 11, color: AppTheme.textHint)),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: selected,
+            isExpanded: true,
+            dropdownColor: AppTheme.darkSurface,
+            style: const TextStyle(fontSize: 14),
+            decoration: InputDecoration(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              filled: true,
+              fillColor: AppTheme.darkSurface,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: AppTheme.border.withOpacity(0.3)),
+              ),
+            ),
+            items: models.map((m) {
+              return DropdownMenuItem(
+                value: m['value'],
+                child: Text(m['label']!, style: const TextStyle(fontSize: 13)),
+              );
+            }).toList(),
+            onChanged: (v) {
+              if (v != null) onChanged(v);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveModelConfig(String textModel, String imageModel, String videoModel) async {
+    if (_drama == null) return;
+    try {
+      final drama = _drama!;
+      final config = drama.parsedModelConfig;
+      final newConfig = config.copyWith(
+        textModel: textModel,
+        imageModel: imageModel,
+        videoModel: videoModel,
+      );
+      final updatedDrama = drama.copyWith(modelConfig: jsonEncode(newConfig.toJson()));
+      await StorageUtil.updateDrama(updatedDrama);
+      setState(() {
+        _drama = updatedDrama;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('模型已切换：文本=${_getModelLabel(textModel)}, 图片=${_getModelLabel(imageModel)}, 视频=${_getModelLabel(videoModel)}'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存失败：$e')),
+        );
+      }
+    }
+  }
+
+  String _getModelLabel(String value) {
+    final allModels = [..._textModels, ..._imageModels, ..._videoModels];
+    final found = allModels.firstWhere((m) => m['value'] == value, orElse: () => {'value': value, 'label': value});
+    return found['label'] ?? value;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(_episode?.title ?? '分镜工作台'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: '模型设置',
+            onPressed: _isGenerating ? null : _showModelSettings,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
