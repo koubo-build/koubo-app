@@ -387,20 +387,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
         });
 
         try {
-          String videoPath;
-
-          if (shot.audioPath != null && shot.audioPath!.isNotEmpty) {
-            videoPath = await _generateVideoWithAudio(
-              imagePath: shot.imagePath!,
-              audioPath: shot.audioPath!,
-              prompt: shot.visualDescription,
-            );
-          } else {
-            videoPath = await _generateHappyHorseVideo(
-              imagePath: shot.imagePath!,
-              prompt: shot.visualDescription,
-            );
-          }
+          final videoPath = await _generateVideoForShot(
+            imagePath: shot.imagePath!,
+            audioPath: shot.audioPath,
+            prompt: shot.visualDescription,
+          );
 
           final updatedShot = shot.copyWith(
             videoPath: videoPath,
@@ -728,6 +719,367 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     }
   }
 
+  /// 统一视频生成入口：根据项目模型配置自动路由
+  Future<String> _generateVideoForShot({
+    required String imagePath,
+    String? audioPath,
+    String? prompt,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final config = _drama?.parsedModelConfig ?? DramaModelConfig();
+    final videoModel = config.videoModel;
+
+    switch (videoModel) {
+      case 'wanx-s2v':
+        // 万相 S2V：有音频时走口型同步，无音频回退到 HappyHorse
+        if (audioPath != null && audioPath.isNotEmpty) {
+          return _generateVideoWithAudio(
+            imagePath: imagePath,
+            audioPath: audioPath,
+            prompt: prompt,
+          );
+        } else {
+          return _generateHappyHorseVideo(
+            imagePath: imagePath,
+            prompt: prompt,
+            onProgress: onProgress,
+          );
+        }
+      case 'happyhorse':
+        return _generateHappyHorseVideo(
+          imagePath: imagePath,
+          prompt: prompt,
+          onProgress: onProgress,
+        );
+      case 'ai32-seedance':
+        return _generateSeedanceVideo(
+          imagePath: imagePath,
+          prompt: prompt,
+          onProgress: onProgress,
+        );
+      case 'agnes-video':
+        // Agnes AI Video：走图生视频，无音频支持
+        return _generateAgnesVideo(
+          imagePath: imagePath,
+          prompt: prompt,
+          onProgress: onProgress,
+        );
+      case 'custom':
+        if (config.videoApiKey.isEmpty || config.videoBaseUrl.isEmpty) {
+          throw Exception('自定义视频模型需要配置API Key和Base URL');
+        }
+        return _generateCustomVideo(
+          imagePath: imagePath,
+          prompt: prompt,
+          apiKey: config.videoApiKey,
+          baseUrl: config.videoBaseUrl,
+          onProgress: onProgress,
+        );
+      default:
+        // 默认回退到 HappyHorse
+        return _generateHappyHorseVideo(
+          imagePath: imagePath,
+          prompt: prompt,
+          onProgress: onProgress,
+        );
+    }
+  }
+
+  /// 32AI Seedance 图生视频
+  Future<String> _generateSeedanceVideo({
+    required String imagePath,
+    String? prompt,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final apiKey = await StorageUtil.getSecure(ApiConfig.ai32ApiKeyKey);
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('请先在设置中配置32AI中转站API Key');
+    }
+
+    onProgress?.call('上传图片中...', 5);
+    final imageUrl = await _uploadFileToBailian(imagePath, ApiConfig.wanxS2vModel);
+
+    onProgress?.call('提交Seedance任务...', 25);
+    final submitUrl = '${ApiConfig.ai32VolcBaseUrl}${ApiConfig.ai32VideoGenEndpoint}';
+
+    final requestBody = {
+      'model': 'seedance-2.0',
+      'content': [
+        {
+          'type': 'image_url',
+          'image_url': {'url': imageUrl},
+        },
+        if (prompt != null && prompt.isNotEmpty)
+          {
+            'type': 'text',
+            'text': prompt,
+          },
+      ],
+    };
+
+    try {
+      final response = await _dio.post(
+        submitUrl,
+        data: jsonEncode(requestBody),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+          receiveTimeout: const Duration(minutes: 5),
+        ),
+      );
+
+      final data = response.data as Map<String, dynamic>;
+      final taskId = data['id']?.toString() ?? data['task_id']?.toString();
+      if (taskId == null || taskId.isEmpty) {
+        throw Exception('Seedance提交任务未返回task_id');
+      }
+
+      onProgress?.call('Seedance生成中（通常3-5分钟）...', 50);
+      final videoUrl = await _pollSeedanceTask(taskId, apiKey, onProgress: onProgress);
+
+      onProgress?.call('下载视频中...', 90);
+      final localPath = await _downloadVideo(videoUrl);
+      onProgress?.call('完成！', 100);
+      return localPath;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final responseBody = e.response?.data;
+      String detail = '';
+      if (responseBody is Map) {
+        detail = responseBody['error']?['message']?.toString() ??
+                 responseBody['message']?.toString() ?? '';
+      }
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('32AI API Key无效或无权限：$detail');
+      }
+      throw Exception('Seedance提交失败($statusCode)：$detail');
+    }
+  }
+
+  /// 轮询32AI Seedance任务状态
+  Future<String> _pollSeedanceTask(
+    String taskId,
+    String apiKey, {
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final queryUrl = '${ApiConfig.ai32VolcBaseUrl}${ApiConfig.ai32VideoGenEndpoint}/$taskId';
+    final startTime = DateTime.now();
+
+    while (true) {
+      try {
+        final response = await _dio.get(
+          queryUrl,
+          options: Options(
+            headers: {'Authorization': 'Bearer $apiKey'},
+            receiveTimeout: const Duration(seconds: 30),
+          ),
+        );
+
+        final data = response.data as Map<String, dynamic>;
+        final status = data['status']?.toString() ?? data['state']?.toString() ?? '';
+
+        if (status == 'succeeded' || status == 'success' || status == 'complete') {
+          final output = data['output'] ?? data['result'] ?? data;
+          String? videoUrl;
+          if (output is Map) {
+            videoUrl = output['video_url']?.toString() ?? output['url']?.toString();
+          }
+          if (output is List && output.isNotEmpty) {
+            videoUrl = output[0]['url']?.toString() ?? output[0]['video_url']?.toString();
+          }
+          if (videoUrl == null || videoUrl.isEmpty) {
+            throw Exception('Seedance任务完成但未返回视频URL');
+          }
+          return videoUrl;
+        } else if (status == 'failed' || status == 'error') {
+          final errorMsg = data['error']?['message']?.toString() ??
+                           data['message']?.toString() ?? '生成失败';
+          throw Exception('Seedance生成失败：$errorMsg');
+        }
+        onProgress?.call('Seedance生成中（通常3-5分钟）...', 50);
+      } on DioException catch (_) {
+        // 查询失败，继续重试
+      }
+
+      final elapsed = DateTime.now().difference(startTime).inSeconds;
+      if (elapsed >= 600) {
+        throw Exception('Seedance视频生成超时（10分钟）');
+      }
+      await Future.delayed(const Duration(seconds: 10));
+    }
+  }
+
+  /// Agnes AI 图生视频
+  Future<String> _generateAgnesVideo({
+    required String imagePath,
+    String? prompt,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final apiKey = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey);
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('请先配置Agnes AI API Key');
+    }
+
+    onProgress?.call('上传图片中...', 5);
+    // 读取图片并转为base64
+    final imageFile = File(imagePath);
+    final imageBytes = await imageFile.readAsBytes();
+    final base64Image = base64Encode(imageBytes);
+    final ext = imagePath.split('.').last.toLowerCase();
+    final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
+
+    onProgress?.call('提交Agnes Video任务...', 25);
+    final requestBody = {
+      'model': 'agnes-video',
+      'messages': [
+        {
+          'role': 'user',
+          'content': [
+            {
+              'type': 'image_url',
+              'image_url': {'url': 'data:$mimeType;base64,$base64Image'},
+            },
+            if (prompt != null && prompt.isNotEmpty)
+              {'type': 'text', 'text': prompt},
+          ],
+        }
+      ],
+    };
+
+    try {
+      final response = await _dio.post(
+        '${ApiConfig.agnesBaseUrl}/chat/completions',
+        data: jsonEncode(requestBody),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+          receiveTimeout: const Duration(minutes: 10),
+        ),
+      );
+
+      final data = response.data as Map<String, dynamic>;
+      final choices = data['choices'] as List<dynamic>?;
+      if (choices == null || choices.isEmpty) {
+        throw Exception('Agnes Video未返回结果');
+      }
+      final message = choices[0]['message'] as Map<String, dynamic>?;
+      final content = message?['content'];
+      String? videoUrl;
+      if (content is List) {
+        for (final item in content) {
+          if (item is Map && item['type'] == 'video_url') {
+            videoUrl = item['video_url']?['url']?.toString();
+            break;
+          }
+        }
+      }
+      if (videoUrl == null || videoUrl.isEmpty) {
+        throw Exception('Agnes Video未返回视频URL');
+      }
+
+      onProgress?.call('下载视频中...', 90);
+      final localPath = await _downloadVideo(videoUrl);
+      return localPath;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final responseBody = e.response?.data;
+      String detail = '';
+      if (responseBody is Map) {
+        detail = responseBody['error']?['message']?.toString() ??
+                 responseBody['message']?.toString() ?? '';
+      }
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('Agnes AI鉴权失败：$detail');
+      }
+      throw Exception('Agnes Video生成失败($statusCode)：$detail');
+    }
+  }
+
+  /// 自定义视频模型（OpenAI兼容接口）
+  Future<String> _generateCustomVideo({
+    required String imagePath,
+    String? prompt,
+    required String apiKey,
+    required String baseUrl,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    onProgress?.call('上传图片中...', 5);
+    final imageFile = File(imagePath);
+    final imageBytes = await imageFile.readAsBytes();
+    final base64Image = base64Encode(imageBytes);
+    final ext = imagePath.split('.').last.toLowerCase();
+    final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
+
+    onProgress?.call('提交自定义视频任务...', 25);
+    final requestBody = {
+      'model': 'default',
+      'messages': [
+        {
+          'role': 'user',
+          'content': [
+            {
+              'type': 'image_url',
+              'image_url': {'url': 'data:$mimeType;base64,$base64Image'},
+            },
+            if (prompt != null && prompt.isNotEmpty)
+              {'type': 'text', 'text': prompt},
+          ],
+        }
+      ],
+    };
+
+    try {
+      final response = await _dio.post(
+        '$baseUrl/chat/completions',
+        data: jsonEncode(requestBody),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+          receiveTimeout: const Duration(minutes: 10),
+        ),
+      );
+
+      final data = response.data as Map<String, dynamic>;
+      final choices = data['choices'] as List<dynamic>?;
+      if (choices == null || choices.isEmpty) {
+        throw Exception('自定义视频模型未返回结果');
+      }
+      final message = choices[0]['message'] as Map<String, dynamic>?;
+      final content = message?['content'];
+      String? videoUrl;
+      if (content is List) {
+        for (final item in content) {
+          if (item is Map && (item['type'] == 'video_url' || item['type'] == 'video')) {
+            videoUrl = item['video_url']?['url']?.toString() ?? item['url']?.toString();
+            break;
+          }
+        }
+      }
+      if (videoUrl == null || videoUrl.isEmpty) {
+        throw Exception('自定义视频模型未返回视频URL');
+      }
+
+      onProgress?.call('下载视频中...', 90);
+      final localPath = await _downloadVideo(videoUrl);
+      return localPath;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final responseBody = e.response?.data;
+      String detail = '';
+      if (responseBody is Map) {
+        detail = responseBody['error']?['message']?.toString() ??
+                 responseBody['message']?.toString() ?? '';
+      }
+      throw Exception('自定义视频生成失败($statusCode)：$detail');
+    }
+  }
+
   Future<void> _generateAll() async {
     // 全流程生成：内联各阶段逻辑，统一控制状态
     final allPendingShots = _shots.where((s) => s.status == 'pending' || s.status == 'failed').toList();
@@ -877,19 +1229,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
                 await Future.delayed(const Duration(seconds: 2));
               }
 
-              String videoPath;
-              if (shot.audioPath != null && shot.audioPath!.isNotEmpty) {
-                videoPath = await _generateVideoWithAudio(
-                  imagePath: shot.imagePath!,
-                  audioPath: shot.audioPath!,
-                  prompt: shot.visualDescription,
-                );
-              } else {
-                videoPath = await _generateHappyHorseVideo(
-                  imagePath: shot.imagePath!,
-                  prompt: shot.visualDescription,
-                );
-              }
+              final videoPath = await _generateVideoForShot(
+                imagePath: shot.imagePath!,
+                audioPath: shot.audioPath,
+                prompt: shot.visualDescription,
+              );
               final updatedShot = shot.copyWith(videoPath: videoPath, status: 'video_ready');
               await StorageUtil.updateShot(updatedShot);
               if (mounted) {
@@ -1090,19 +1434,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
               });
               await Future.delayed(const Duration(seconds: 2));
             }
-            String videoPath;
-            if (shot.audioPath != null && shot.audioPath!.isNotEmpty) {
-              videoPath = await _generateVideoWithAudio(
-                imagePath: shot.imagePath!,
-                audioPath: shot.audioPath!,
-                prompt: shot.visualDescription,
-              );
-            } else {
-              videoPath = await _generateHappyHorseVideo(
-                imagePath: shot.imagePath!,
-                prompt: shot.visualDescription,
-              );
-            }
+            final videoPath = await _generateVideoForShot(
+              imagePath: shot.imagePath!,
+              audioPath: shot.audioPath,
+              prompt: shot.visualDescription,
+            );
             var updated = shot.copyWith(videoPath: videoPath, status: 'video_ready');
             await StorageUtil.updateShot(updated);
             if (mounted) setState(() {
@@ -1206,20 +1542,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           return;
         }
 
-        String videoPath;
-
-        if (shot.audioPath != null) {
-          videoPath = await _generateVideoWithAudio(
-            imagePath: shot.imagePath!,
-            audioPath: shot.audioPath!,
-            prompt: shot.visualDescription,
-          );
-        } else {
-          videoPath = await _generateHappyHorseVideo(
-            imagePath: shot.imagePath!,
-            prompt: shot.visualDescription,
-          );
-        }
+        final videoPath = await _generateVideoForShot(
+          imagePath: shot.imagePath!,
+          audioPath: shot.audioPath,
+          prompt: shot.visualDescription,
+        );
 
         final updatedShot = shot.copyWith(
           videoPath: videoPath,

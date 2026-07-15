@@ -298,7 +298,7 @@ class DramaService {
     }
   }
 
-  /// 从文本中提取JSON字符串
+  /// 从文本中提取JSON字符串（支持截断JSON修复）
   String? _extractJson(String text) {
     // 清理可能的markdown代码块
     var cleanedText = text.trim();
@@ -322,7 +322,7 @@ class DramaService {
       // 尝试匹配{ ... }格式
     }
 
-    // 尝试在文本中查找JSON
+    // 尝试在文本中查找完整JSON
     final braceRegex = RegExp(r'\{[\s\S]*\}');
     final match = braceRegex.firstMatch(text);
     if (match != null) {
@@ -331,11 +331,82 @@ class DramaService {
         jsonDecode(candidate!);
         return candidate;
       } catch (_) {
-        // 继续尝试
+        // 继续尝试修复截断JSON
       }
     }
 
+    // 尝试修复截断的JSON（多集分镜生成时响应可能被截断）
+    final fixedJson = _tryFixTruncatedJson(text);
+    if (fixedJson != null) return fixedJson;
+
     return null;
+  }
+
+  /// 尝试修复被截断的JSON
+  /// 常见情况：AI生成多集分镜时输出过长，JSON在中间被截断
+  String? _tryFixTruncatedJson(String text) {
+    try {
+      var cleaned = text.trim();
+      // 移除markdown代码块标记
+      if (cleaned.startsWith('```json')) cleaned = cleaned.substring(7);
+      else if (cleaned.startsWith('```')) cleaned = cleaned.substring(3);
+      if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.length - 3);
+      cleaned = cleaned.trim();
+
+      // 找到最外层的 { 开始
+      final startIdx = cleaned.indexOf('{');
+      if (startIdx < 0) return null;
+      cleaned = cleaned.substring(startIdx);
+
+      // 策略：找到最后一个完整的 episode 对象，截断并闭合JSON
+      // 先找 "episodes" 数组
+      final episodesIdx = cleaned.indexOf('"episodes"');
+      if (episodesIdx < 0) return null;
+
+      // 找到所有完整的 episode 对象（通过匹配 {...} 的平衡括号）
+      final shotsStart = cleaned.indexOf('[', episodesIdx);
+      if (shotsStart < 0) return null;
+
+      // 提取已完成的 episodes 数组内容
+      final episodesContent = cleaned.substring(shotsStart + 1);
+      
+      // 找所有完整的 episode 对象
+      final completedEpisodes = <String>[];
+      int pos = 0;
+      while (pos < episodesContent.length) {
+        // 找下一个 { 开始
+        final objStart = episodesContent.indexOf('{', pos);
+        if (objStart < 0) break;
+
+        // 匹配括号找到完整对象
+        int depth = 0;
+        int objEnd = -1;
+        for (int i = objStart; i < episodesContent.length; i++) {
+          if (episodesContent[i] == '{') depth++;
+          else if (episodesContent[i] == '}') {
+            depth--;
+            if (depth == 0) {
+              objEnd = i + 1;
+              break;
+            }
+          }
+        }
+        if (objEnd < 0) break; // 不完整的对象，停止
+
+        completedEpisodes.add(episodesContent.substring(objStart, objEnd));
+        pos = objEnd;
+      }
+
+      if (completedEpisodes.isEmpty) return null;
+
+      // 构建修复后的JSON
+      final fixedJson = '{"episodes": [${completedEpisodes.join(',')}]}';
+      // 验证是否可以解析
+      jsonDecode(fixedJson);
+      return fixedJson;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ==================== 剧本增强 ====================
@@ -447,12 +518,13 @@ class DramaService {
 
   static const String _storyboardSystemPrompt = '''你是一位专业的短剧分镜脚本创作师。请根据用户提供的完整剧本/小说文本和角色列表，生成结构化的分镜脚本。
 
-【重要 - 多集拆分规则】
-- 如果剧本内容较长（超过2000字），你必须将其拆分为多集，每集约指定数量的镜头
-- 每集要有独立标题和概要，剧情要有起承转合
-- 如果剧本较短（少于2000字），可以只生成一集
-- 每集镜头数按照用户指定的数量（默认10个左右）
-- 总集数根据剧情自然拆分，不要硬凑
+【多集拆分规则 - 最高优先级】
+- 当用户要求生成多集时，你必须严格按指定集数生成，每集都要有完整内容
+- 将故事均匀分配到每一集中，确保每集镜头数达标
+- 每集要有独立的标题（如"第一集 xxx"）、概要和完整镜头列表
+- 每集结尾要有悬念或转折，吸引观众看下一集
+- 每集的 shot_number 从1开始重新编号
+- 绝对禁止只输出一集！如果要求5集就必须输出5集
 
 输出格式必须是标准JSON：
 {
@@ -477,13 +549,12 @@ class DramaService {
 }
 
 请确保：
-1. 每个镜头的 visual_description 要有画面感，描述要具体生动
-2. 台词要符合角色性格和剧情发展
-3. 角色描述要保持与提供列表的一致性
+1. visual_description 要有画面感，描述具体生动
+2. 台词符合角色性格和剧情发展
+3. 角色描述保持与提供列表一致
 4. 合理分配镜头，确保故事节奏流畅
-5. 长剧本必须拆分为多集，每集镜头数约等于指定数量
-6. 每集结尾要有悬念或转折，吸引观众看下一集
-7. JSON格式必须完全正确，不要有语法错误''';
+5. 每集镜头数必须达到指定数量，不得减少
+6. JSON格式必须完全正确，不要有语法错误''';
 
   /// 从剧本自动生成分镜
   Future<DramaScriptResult> generateStoryboardFromScript({
@@ -529,6 +600,8 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
 
     onProgress?.call('AI生成分镜...', 10);
 
+    // 多集分镜需要更大的输出空间（每集约1500-2000 token，10集需要15000+）
+    final neededTokens = (estimatedEpisodes * shotsPerEpisode * 150).clamp(8192, 32000);
     final aiResponse = await _callAiWithModelConfig(
       dramaId: characters.isNotEmpty ? characters.first.dramaId : 0,
       messages: [
@@ -536,6 +609,7 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
         {'role': 'user', 'content': userPrompt},
       ],
       temperature: 0.8,
+      maxTokens: neededTokens,
     );
 
     onProgress?.call('解析分镜数据...', 80);
@@ -645,6 +719,7 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
     required int dramaId,
     required List<Map<String, String>> messages,
     double temperature = 0.7,
+    int maxTokens = 4096,
   }) async {
     final drama = await StorageUtil.getDrama(dramaId);
     final config = drama?.parsedModelConfig ?? DramaModelConfig();
@@ -665,6 +740,7 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
         model: 'default',
         messages: formattedMessages,
         temperature: temperature,
+        maxTokens: maxTokens,
       );
     } else if (config.textModel != 'auto' && config.textModel.isNotEmpty) {
       // 检查是否有预设的Base URL和用户填的API Key
@@ -683,6 +759,7 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
             model: actualModel,
             messages: formattedMessages,
             temperature: temperature,
+            maxTokens: maxTokens,
           );
         } catch (e) {
           // 自动回退到chatSmart，避免单个模型抽风卡死整个流程
@@ -691,6 +768,7 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
             return await _apiClient.chatSmart(
               messages: messages,
               temperature: temperature,
+              maxTokens: maxTokens,
             );
           } catch (_) {
             // 回退也失败，抛出原始错误让用户知道是哪个模型失败
@@ -703,6 +781,7 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
           messages: messages,
           temperature: temperature,
           modelOverride: config.textModel,
+          maxTokens: maxTokens,
         );
       }
     } else {
@@ -710,6 +789,7 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
       return _apiClient.chatSmart(
         messages: messages,
         temperature: temperature,
+        maxTokens: maxTokens,
       );
     }
   }

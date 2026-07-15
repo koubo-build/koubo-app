@@ -324,10 +324,11 @@ class ApiClient {
     bool preferReasoning = false,
     String? modelOverride,
     bool enableSearch = false,
+    int maxTokens = 4096,
   }) async {
     // 如果指定了模型，直接用对应Provider
     if (modelOverride != null && modelOverride != '自动选择') {
-      return _chatWithModel(modelOverride, messages, temperature, enableSearch: enableSearch);
+      return _chatWithModel(modelOverride, messages, temperature, enableSearch: enableSearch, maxTokens: maxTokens);
     }
 
     final errors = <String>[];
@@ -357,6 +358,7 @@ class ApiClient {
           model: provider.model,
           messages: messages,
           temperature: temperature,
+          maxTokens: maxTokens,
           enableSearch: enableSearch,
         );
       } on DioException catch (e) {
@@ -452,7 +454,7 @@ class ApiClient {
 
   /// 根据模型标识路由到对应Provider
   /// 支持：qwen-plus, glm-4.7-flash, Qwen2.5-7B, ai32-qwen-plus, ai32-deepseek
-  Future<String> _chatWithModel(String model, List<Map<String, String>> messages, double temperature, {bool enableSearch = false}) async {
+  Future<String> _chatWithModel(String model, List<Map<String, String>> messages, double temperature, {bool enableSearch = false, int maxTokens = 4096}) async {
     // 32AI中转路由
     if (model.startsWith('ai32-')) {
       final apiKey = await StorageUtil.getSecure(ApiConfig.ai32ApiKeyKey);
@@ -468,6 +470,7 @@ class ApiClient {
         model: chatModel,
         messages: messages,
         temperature: temperature,
+        maxTokens: maxTokens,
         enableSearch: enableSearch,
       );
     }
@@ -484,6 +487,7 @@ class ApiClient {
         model: 'qwen-plus',
         messages: messages,
         temperature: temperature,
+        maxTokens: maxTokens,
         enableSearch: enableSearch,
       );
     }
@@ -499,6 +503,7 @@ class ApiClient {
         model: ApiConfig.zhipuModelFlash,
         messages: messages,
         temperature: temperature,
+        maxTokens: maxTokens,
       );
     }
 
@@ -513,6 +518,7 @@ class ApiClient {
         model: ApiConfig.siliconFlowModelQwen,
         messages: messages,
         temperature: temperature,
+        maxTokens: maxTokens,
       );
     }
 
@@ -527,6 +533,7 @@ class ApiClient {
         model: ApiConfig.agnesModelFlash,
         messages: messages,
         temperature: temperature,
+        maxTokens: maxTokens,
       );
     }
 
