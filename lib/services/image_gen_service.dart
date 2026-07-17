@@ -74,7 +74,7 @@ class ImageGenService {
         height: height,
         apiKey: ai32Key,
         baseUrl: customBaseUrl?.isNotEmpty == true ? customBaseUrl! : 'https://32ai.uk/v1',
-        modelName: 'dall-e-3',
+        modelName: 'gemini-2.5-flash-image-preview',
         onProgress: onProgress,
       );
     } else if (model == 'wanx') {

@@ -826,18 +826,24 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       throw Exception('请先在设置中配置32AI中转站API Key');
     }
 
-    onProgress?.call('上传图片中...', 5);
-    final imageUrl = await _uploadFileToBailian(imagePath, ApiConfig.wanxS2vModel);
+    // 将图片转为base64（32AI可直接访问，无需上传到百炼OSS）
+    onProgress?.call('准备图片中...', 5);
+    final imageFile = File(imagePath);
+    final imageBytes = await imageFile.readAsBytes();
+    final base64Image = base64Encode(imageBytes);
+    final ext = imagePath.split('.').last.toLowerCase();
+    final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
+    final imageDataUrl = 'data:$mimeType;base64,$base64Image';
 
     onProgress?.call('提交Seedance任务...', 25);
     final submitUrl = '${ApiConfig.ai32VolcBaseUrl}${ApiConfig.ai32VideoGenEndpoint}';
 
     final requestBody = {
-      'model': 'seedance-2.0',
+      'model': 'doubao-seedance-1-5-pro-251215',
       'content': [
         {
           'type': 'image_url',
-          'image_url': {'url': imageUrl},
+          'image_url': {'url': imageDataUrl},
         },
         if (prompt != null && prompt.isNotEmpty)
           {
@@ -863,7 +869,10 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       final data = response.data as Map<String, dynamic>;
       final taskId = data['id']?.toString() ?? data['task_id']?.toString();
       if (taskId == null || taskId.isEmpty) {
-        throw Exception('Seedance提交任务未返回task_id');
+        // 检查是否有错误信息
+        final errorMsg = data['error']?['message']?.toString() ??
+                         data['message']?.toString() ?? '';
+        throw Exception('Seedance提交任务失败：$errorMsg');
       }
 
       onProgress?.call('Seedance生成中（通常3-5分钟）...', 50);
@@ -910,17 +919,39 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
         final data = response.data as Map<String, dynamic>;
         final status = data['status']?.toString() ?? data['state']?.toString() ?? '';
 
-        if (status == 'succeeded' || status == 'success' || status == 'complete') {
-          final output = data['output'] ?? data['result'] ?? data;
+        if (status == 'succeeded' || status == 'succeed' || status == 'success' || status == 'complete') {
           String? videoUrl;
-          if (output is Map) {
-            videoUrl = output['video_url']?.toString() ?? output['url']?.toString();
+          // Volcengine API: content.video_url
+          final content = data['content'];
+          if (content is Map) {
+            videoUrl = content['video_url']?.toString();
           }
-          if (output is List && output.isNotEmpty) {
-            videoUrl = output[0]['url']?.toString() ?? output[0]['video_url']?.toString();
+          // 302AI/32AI format: output.video_url or output.url
+          if (videoUrl == null || videoUrl.isEmpty) {
+            final output = data['output'] ?? data['result'];
+            if (output is Map) {
+              videoUrl = output['video_url']?.toString() ?? output['url']?.toString();
+            }
+          }
+          // 直接嵌套在顶层
+          if (videoUrl == null || videoUrl.isEmpty) {
+            videoUrl = data['video_url']?.toString() ?? data['url']?.toString();
+          }
+          // List格式
+          if ((videoUrl == null || videoUrl.isEmpty) && data['content'] is List) {
+            final contentList = data['content'] as List;
+            for (final item in contentList) {
+              if (item is Map) {
+                final vUrl = item['video_url']?.toString() ?? item['url']?.toString();
+                if (vUrl != null && vUrl.isNotEmpty) {
+                  videoUrl = vUrl;
+                  break;
+                }
+              }
+            }
           }
           if (videoUrl == null || videoUrl.isEmpty) {
-            throw Exception('Seedance任务完成但未返回视频URL');
+            throw Exception('Seedance任务完成但未返回视频URL，可在32AI控制台查看：https://32ai.uk/console/task');
           }
           return videoUrl;
         } else if (status == 'failed' || status == 'error') {
