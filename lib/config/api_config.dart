@@ -66,7 +66,7 @@ class ApiConfig {
     {'value': 'Qwen2.5-7B', 'label': 'Qwen2.5-7B', 'desc': '硅基流动，免费'},
     {'value': 'ai32-qwen-plus', 'label': '32AI/qwen-plus', 'desc': '32AI中转，约官方价56%'},
     {'value': 'ai32-deepseek', 'label': '32AI/DeepSeek', 'desc': '32AI中转，性价比高'},
-    {'value': 'ai32-doubao-pro', 'label': '32AI/豆包Pro', 'desc': '32AI中转，豆包大模型'},
+    {'value': 'ai32-doubao-pro', 'label': '32AI/豆包1.5-Pro', 'desc': '32AI中转，Doubao-1.5-pro-32k'},
     {'value': 'agnes-2.0-flash', 'label': 'Agnes-2.0-Flash', 'desc': 'Agnes AI，免费'},
   ];
   /// 数字人视频可选模型

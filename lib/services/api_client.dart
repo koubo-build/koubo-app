@@ -462,8 +462,18 @@ class ApiClient {
         throw Exception('请先在设置中配置32AI中转站API Key');
       }
       final actualModel = model.replaceFirst('ai32-', '');
-      // ai32-deepseek → deepseek-chat
-      final chatModel = actualModel == 'deepseek' ? 'deepseek-chat' : actualModel;
+      // 32AI模型名映射
+      String chatModel;
+      switch (actualModel) {
+        case 'deepseek':
+          chatModel = 'deepseek-chat';
+          break;
+        case 'doubao-pro':
+          chatModel = 'Doubao-1.5-pro-32k';
+          break;
+        default:
+          chatModel = actualModel;
+      }
       return chatCompletion(
         baseUrl: ApiConfig.ai32BaseUrl,
         apiKey: apiKey,
