@@ -63,18 +63,16 @@ class ImageGenService {
         onProgress: onProgress,
       );
     } else if (model == 'ai32-image') {
-      // 使用32AI中转站图像生成（OpenAI兼容格式）
+      // 使用32AI中转站图像生成（302.ai专用文生图接口）
       final ai32Key = (customApiKey?.isNotEmpty ?? false)
           ? customApiKey!
           : 'sk-sMC4yb8EUgS2G6OTlFYVwlqJJ5Pg08NpmbuoTg0Qiceh5uq6';
-      return _generateWithCustom(
+      return _generateWithAi32(
         prompt: prompt,
-        negativePrompt: negativePrompt,
         width: width,
         height: height,
         apiKey: ai32Key,
-        baseUrl: customBaseUrl?.isNotEmpty == true ? customBaseUrl! : 'https://32ai.uk/v1',
-        modelName: 'gemini-2.5-flash-image-preview',
+        baseUrl: customBaseUrl?.isNotEmpty == true ? customBaseUrl! : 'https://32ai.uk',
         onProgress: onProgress,
       );
     } else if (model == 'wanx') {
@@ -405,6 +403,90 @@ class ImageGenService {
       }
       throw Exception('本地SD生成失败：${e.message}');
     }
+  }
+
+  // ==================== 32AI / 302.ai 文生图 ====================
+
+  /// 使用32AI/302.ai专用文生图接口（gemini-2.5-flash-image）
+  /// 参考文档：https://302ai.apifox.cn/341598053e0
+  Future<String> _generateWithAi32({
+    required String prompt,
+    required int width,
+    required int height,
+    required String apiKey,
+    required String baseUrl,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    if (baseUrl.isEmpty) {
+      throw Exception('32AI Base URL 未配置');
+    }
+
+    onProgress?.call('提交32AI文生图任务...', 10);
+
+    // 确保baseUrl不以/结尾
+    final normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+
+    // 计算宽高比，映射到302.ai支持的枚举值
+    final aspectRatio = _getAspectRatioForAi32(width, height);
+
+    try {
+      final response = await _dio.post(
+        '$normalizedBaseUrl/302/submit/gemini-2.5-flash-image',
+        data: jsonEncode({
+          'prompt': prompt,
+          'aspect_ratio': aspectRatio,
+        }),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+          receiveTimeout: const Duration(minutes: 10),
+        ),
+      );
+
+      final data = response.data as Map<String, dynamic>;
+      final images = data['images'] as List<dynamic>?;
+
+      if (images == null || images.isEmpty) {
+        throw Exception('32AI文生图未返回结果');
+      }
+
+      final imageUrl = images[0]['url'] as String?;
+      if (imageUrl == null || imageUrl.isEmpty) {
+        throw Exception('32AI文生图返回数据异常，未找到图片URL');
+      }
+
+      onProgress?.call('下载图片...', 80);
+      final localPath = await _downloadImage(imageUrl, 'ai32');
+      onProgress?.call('完成！', 100);
+      return localPath;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final msg = e.response?.data?.toString() ?? e.message ?? '';
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('32AI图像API鉴权失败：请检查API Key。$msg');
+      }
+      if (statusCode == 402) {
+        throw Exception('32AI账户余额不足：请前往32AI控制台充值。$msg');
+      }
+      throw Exception('32AI图像生成失败($statusCode)：$msg');
+    }
+  }
+
+  /// 将宽高映射为302.ai支持的aspect_ratio枚举值
+  /// 支持值：1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
+  static String _getAspectRatioForAi32(int width, int height) {
+    final ratio = width / height;
+    // 按宽高比匹配
+    if (ratio > 1.9) return '21:9';       // 超宽
+    if (ratio > 1.5) return '16:9';       // 宽屏
+    if (ratio > 1.2) return '5:4';        // 略宽
+    if (ratio > 1.05) return '4:3';       // 标准宽
+    if (ratio > 0.95) return '1:1';       // 方形
+    if (ratio > 0.8) return '3:4';        // 标准竖
+    if (ratio > 0.65) return '2:3';       // 竖屏
+    return '9:16';                         // 超竖
   }
 
   // ==================== 自定义文生图（OpenAI兼容格式） ====================

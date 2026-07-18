@@ -838,18 +838,21 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     onProgress?.call('提交Seedance任务...', 25);
     final submitUrl = '${ApiConfig.ai32VolcBaseUrl}${ApiConfig.ai32VideoGenEndpoint}';
 
+    // 根据文档，参数需通过 -- 形式追加在text后面
+    // 1.5 pro 图生视频场景不支持1080p，使用720p；默认5秒
+    final textWithParams = '${prompt ?? '画面自然动起来'} --resolution 720p --ratio 16:9 --duration 5 --camera_fixed false --watermark false';
+
     final requestBody = {
       'model': 'doubao-seedance-1-5-pro-251215',
       'content': [
         {
+          'type': 'text',
+          'text': textWithParams,
+        },
+        {
           'type': 'image_url',
           'image_url': {'url': imageDataUrl},
         },
-        if (prompt != null && prompt.isNotEmpty)
-          {
-            'type': 'text',
-            'text': prompt,
-          },
       ],
     };
 
