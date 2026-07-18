@@ -423,8 +423,11 @@ class ImageGenService {
 
     onProgress?.call('提交32AI文生图任务...', 10);
 
-    // 确保baseUrl不以/结尾
-    final normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    // 确保baseUrl不以/结尾，并去掉/v1后缀（302.ai图片端点不在/v1路径下）
+    var normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    if (normalizedBaseUrl.endsWith('/v1')) {
+      normalizedBaseUrl = normalizedBaseUrl.substring(0, normalizedBaseUrl.length - 3);
+    }
 
     // 计算宽高比，映射到302.ai支持的枚举值
     final aspectRatio = _getAspectRatioForAi32(width, height);
