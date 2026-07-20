@@ -407,8 +407,9 @@ class ImageGenService {
 
   // ==================== 32AI / 302.ai 文生图 ====================
 
-  /// 使用32AI/302.ai专用文生图接口（gemini-2.5-flash-image）
-  /// 参考文档：https://302ai.apifox.cn/341598053e0
+  /// 使用32AI的Nano-Banana文生图接口（fal.ai代理）
+  /// 端点：POST /fal-ai/nano-banana（异步队列模式）
+  /// 参考文档：32AI API文档
   Future<String> _generateWithAi32({
     required String prompt,
     required int width,
@@ -421,49 +422,100 @@ class ImageGenService {
       throw Exception('32AI Base URL 未配置');
     }
 
-    onProgress?.call('提交32AI文生图任务...', 10);
+    onProgress?.call('提交Nano-Banana文生图任务...', 10);
 
-    // 确保baseUrl不以/结尾，并去掉/v1后缀（302.ai图片端点不在/v1路径下）
+    // 确保baseUrl不以/结尾，并去掉/v1后缀
     var normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
     if (normalizedBaseUrl.endsWith('/v1')) {
       normalizedBaseUrl = normalizedBaseUrl.substring(0, normalizedBaseUrl.length - 3);
     }
 
-    // 计算宽高比，映射到302.ai支持的枚举值
-    final aspectRatio = _getAspectRatioForAi32(width, height);
+    final submitUrl = '$normalizedBaseUrl/fal-ai/nano-banana';
+    final headers = {
+      'Authorization': 'Bearer $apiKey',
+      'Content-Type': 'application/json',
+    };
 
     try {
-      final response = await _dio.post(
-        '$normalizedBaseUrl/302/submit/gemini-2.5-flash-image',
+      // 第1步：提交任务
+      final submitResponse = await _dio.post(
+        submitUrl,
         data: jsonEncode({
           'prompt': prompt,
-          'aspect_ratio': aspectRatio,
+          'num_images': 1,
         }),
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $apiKey',
-            'Content-Type': 'application/json',
-          },
-          receiveTimeout: const Duration(minutes: 10),
-        ),
+        options: Options(headers: headers, receiveTimeout: const Duration(seconds: 60)),
       );
 
-      final data = response.data as Map<String, dynamic>;
-      final images = data['images'] as List<dynamic>?;
+      final submitData = submitResponse.data as Map<String, dynamic>;
+      final status = submitData['status'] as String?;
+      final responseUrl = submitData['response_url'] as String?;
+      final statusUrl = submitData['status_url'] as String?;
+      final requestId = submitData['request_id'] as String?;
 
-      if (images == null || images.isEmpty) {
-        throw Exception('32AI文生图未返回结果');
+      if (status == null || (responseUrl == null && statusUrl == null)) {
+        // 可能是同步响应，直接包含图片
+        final imageUrl = _extractImageUrl(submitData);
+        if (imageUrl != null) {
+          onProgress?.call('下载图片...', 80);
+          final localPath = await _downloadImage(imageUrl, 'ai32');
+          onProgress?.call('完成！', 100);
+          return localPath;
+        }
+        throw Exception('32AI Nano-Banana提交失败：未返回有效的任务信息。响应：$submitData');
       }
 
-      final imageUrl = images[0]['url'] as String?;
-      if (imageUrl == null || imageUrl.isEmpty) {
-        throw Exception('32AI文生图返回数据异常，未找到图片URL');
+      // 第2步：轮询等待结果
+      final pollUrl = statusUrl ?? responseUrl!;
+      onProgress?.call('排队等待生成（${status}）...', 20);
+
+      String? finalImageUrl;
+      for (int attempt = 0; attempt < 120; attempt++) {
+        await Future.delayed(const Duration(seconds: 3));
+
+        final pollResponse = await _dio.get(
+          pollUrl,
+          options: Options(headers: headers, receiveTimeout: const Duration(seconds: 30)),
+        );
+
+        final pollData = pollResponse.data as Map<String, dynamic>;
+        final pollStatus = pollData['status'] as String?;
+
+        if (pollStatus == 'COMPLETED' || pollStatus == 'SUCCESS') {
+          // 尝试从结果中提取图片URL
+          finalImageUrl = _extractImageUrl(pollData);
+          break;
+        } else if (pollStatus == 'FAILED' || pollStatus == 'ERROR') {
+          throw Exception('32AI Nano-Banana生成失败：${pollData.toString()}');
+        }
+
+        // 更新进度
+        final progress = 20 + (attempt * 50 / 120).toInt();
+        onProgress?.call('生成中...（${pollStatus ?? '处理中'}）', progress.clamp(20, 70));
       }
 
-      onProgress?.call('下载图片...', 80);
-      final localPath = await _downloadImage(imageUrl, 'ai32');
+      // 如果轮询结束但没有拿到图片，尝试直接GET response_url
+      if (finalImageUrl == null && responseUrl != null) {
+        onProgress?.call('获取最终结果...', 75);
+        final resultResponse = await _dio.get(
+          responseUrl,
+          options: Options(headers: headers, receiveTimeout: const Duration(seconds: 30)),
+        );
+        final resultData = resultResponse.data;
+        if (resultData is Map<String, dynamic>) {
+          finalImageUrl = _extractImageUrl(resultData);
+        }
+      }
+
+      if (finalImageUrl == null || finalImageUrl.isEmpty) {
+        throw Exception('32AI Nano-Banana生成完成但未返回图片URL。requestId: $requestId');
+      }
+
+      onProgress?.call('下载图片...', 85);
+      final localPath = await _downloadImage(finalImageUrl, 'ai32');
       onProgress?.call('完成！', 100);
       return localPath;
+
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       final msg = e.response?.data?.toString() ?? e.message ?? '';
@@ -473,23 +525,47 @@ class ImageGenService {
       if (statusCode == 402) {
         throw Exception('32AI账户余额不足：请前往32AI控制台充值。$msg');
       }
+      if (statusCode == 404) {
+        throw Exception('32AI Nano-Banana端点不可用(404)，请确认模型已开通。$msg');
+      }
       throw Exception('32AI图像生成失败($statusCode)：$msg');
     }
   }
 
-  /// 将宽高映射为302.ai支持的aspect_ratio枚举值
-  /// 支持值：1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
-  static String _getAspectRatioForAi32(int width, int height) {
-    final ratio = width / height;
-    // 按宽高比匹配
-    if (ratio > 1.9) return '21:9';       // 超宽
-    if (ratio > 1.5) return '16:9';       // 宽屏
-    if (ratio > 1.2) return '5:4';        // 略宽
-    if (ratio > 1.05) return '4:3';       // 标准宽
-    if (ratio > 0.95) return '1:1';       // 方形
-    if (ratio > 0.8) return '3:4';        // 标准竖
-    if (ratio > 0.65) return '2:3';       // 竖屏
-    return '9:16';                         // 超竖
+  /// 从API响应中提取图片URL（兼容多种响应格式）
+  String? _extractImageUrl(Map<String, dynamic> data) {
+    // 格式1: {images: [{url: "..."}]}
+    final images = data['images'];
+    if (images is List && images.isNotEmpty) {
+      final first = images[0];
+      if (first is Map) {
+        final url = first['url'] as String? ?? first['image_url'] as String?;
+        if (url != null && url.isNotEmpty) return url;
+      }
+      if (first is String && first.isNotEmpty) return first;
+    }
+    // 格式2: {image: {url: "..."}} 或 {image_url: "..."}
+    final image = data['image'];
+    if (image is Map) {
+      final url = image['url'] as String?;
+      if (url != null && url.isNotEmpty) return url;
+    }
+    final imageUrlStr = data['image_url'] as String?;
+    if (imageUrlStr != null && imageUrlStr.isNotEmpty) return imageUrlStr;
+    // 格式3: {output: {images: [{url: "..."}]}}
+    final output = data['output'];
+    if (output is Map) {
+      return _extractImageUrl(output);
+    }
+    // 格式4: fal.ai格式 {images: [{url: "..."}]} 或 {output: [{url: "..."}]}
+    final outputList = data['output'];
+    if (outputList is List && outputList.isNotEmpty) {
+      final first = outputList[0];
+      if (first is Map) {
+        return first['url'] as String?;
+      }
+    }
+    return null;
   }
 
   // ==================== 自定义文生图（OpenAI兼容格式） ====================
