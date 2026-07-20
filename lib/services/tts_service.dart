@@ -183,6 +183,14 @@ class TtsService {
       );
     }
 
+    // chat_tts: 32AI Gemini TTS，直接走chat_tts
+    if (provider == 'chat_tts') {
+      return synthesizeChatTts(
+        text: text,
+        voiceName: voiceId.isNotEmpty ? voiceId : 'Kore',
+      );
+    }
+
     // edge_tts / cosyvoice / default: 统一先尝试CosyVoice，失败则回退到qwen_tts
     try {
       final cosyVoiceId = _mapToCosyVoiceId(voiceId);
@@ -680,6 +688,123 @@ class TtsService {
       padded += '=';
     }
     return base64Decode(padded);
+  }
+
+  // ==================== 32AI Chat-TTS（Gemini TTS） ====================
+
+  /// Gemini TTS 可用音色列表（代理到TtsService供外部使用）
+  static List<Map<String, String>> get geminiTtsVoiceList => ApiConfig.geminiTtsVoices;
+
+  /// 使用32AI Gemini TTS合成语音
+  /// 端点：POST /v1beta/models/gemini-2.5-flash-preview-tts:generateContent
+  /// 响应：Gemini原生格式，音频以base64内联返回
+  Future<String> synthesizeChatTts({
+    required String text,
+    String voiceName = 'Kore',
+  }) async {
+    final apiKey = await StorageUtil.getSecure(ApiConfig.ai32ApiKeyKey);
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('请先在设置中配置32AI API Key');
+    }
+
+    final audioDir = await StorageUtil.getAudioDirectory();
+    final fileName = 'chattts_${DateTime.now().millisecondsSinceEpoch}.wav';
+    final filePath = '$audioDir/$fileName';
+
+    // 构建Gemini TTS请求体
+    final requestBody = <String, dynamic>{
+      'contents': [
+        {
+          'parts': [
+            {'text': text}
+          ]
+        }
+      ],
+      'generationConfig': {
+        'responseModalities': ['AUDIO'],
+        'speechConfig': {
+          'voiceConfig': {
+            'prebuiltVoiceConfig': {
+              'voiceName': voiceName,
+            }
+          }
+        },
+      },
+    };
+
+    // 使用独立Dio实例，避免全局拦截器干扰
+    final dio = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 120),
+      sendTimeout: const Duration(seconds: 30),
+    ));
+
+    try {
+      final response = await dio.post(
+        '${ApiConfig.ai32BaseUrl}${ApiConfig.ai32GeminiTtsEndpoint}',
+        data: requestBody,
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+          responseType: ResponseType.json,
+        ),
+      );
+
+      final data = response.data as Map<String, dynamic>;
+
+      // 解析Gemini原生TTS响应格式
+      // 格式: {candidates: [{content: {parts: [{inlineData: {mimeType: "audio/wav", data: "base64..."}}]}}]}
+      final candidates = data['candidates'] as List<dynamic>?;
+      if (candidates == null || candidates.isEmpty) {
+        throw Exception('Gemini TTS未返回candidates，响应：${data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length)}');
+      }
+
+      final content = candidates[0]['content'] as Map<String, dynamic>?;
+      if (content == null) {
+        throw Exception('Gemini TTS响应中缺少content字段');
+      }
+
+      final parts = content['parts'] as List<dynamic>?;
+      if (parts == null || parts.isEmpty) {
+        throw Exception('Gemini TTS响应中缺少parts数据');
+      }
+
+      // 提取音频数据
+      String? audioBase64;
+      for (final part in parts) {
+        if (part is Map<String, dynamic>) {
+          final inlineData = part['inlineData'] as Map<String, dynamic>? ??
+                             part['inline_data'] as Map<String, dynamic>?;
+          if (inlineData != null) {
+            audioBase64 = inlineData['data'] as String?;
+            if (audioBase64 != null && audioBase64.isNotEmpty) break;
+          }
+        }
+      }
+
+      if (audioBase64 == null || audioBase64.isEmpty) {
+        throw Exception('Gemini TTS未返回音频数据');
+      }
+
+      // 解码并保存音频
+      final audioBytes = base64Decode(audioBase64);
+      final file = File(filePath);
+      await file.writeAsBytes(audioBytes);
+      return filePath;
+
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final msg = e.response?.data?.toString() ?? e.message ?? '';
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('32AI TTS鉴权失败：请检查API Key。$msg');
+      }
+      if (statusCode == 402) {
+        throw Exception('32AI账户余额不足：请前往32AI控制台充值。$msg');
+      }
+      throw Exception('Chat-TTS生成失败($statusCode)：$msg');
+    }
   }
 
   // ==================== Edge-TTS（免费备选方案） ====================

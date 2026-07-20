@@ -554,7 +554,7 @@ class ImageGenService {
     if (imageUrlStr != null && imageUrlStr.isNotEmpty) return imageUrlStr;
     // 格式3: {output: {images: [{url: "..."}]}}
     final output = data['output'];
-    if (output is Map) {
+    if (output is Map<String, dynamic>) {
       return _extractImageUrl(output);
     }
     // 格式4: fal.ai格式 {images: [{url: "..."}]} 或 {output: [{url: "..."}]}

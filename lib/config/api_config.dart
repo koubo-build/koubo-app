@@ -79,6 +79,7 @@ class ApiConfig {
   static const List<Map<String, String>> ttsEngineOptions = [
     {'value': 'Edge-TTS', 'label': 'Edge-TTS', 'desc': '免费，音质一般'},
     {'value': 'CosyVoice', 'label': 'CosyVoice', 'desc': '百炼，音质好'},
+    {'value': 'Chat-TTS', 'label': 'Chat-TTS', 'desc': '32AI Gemini TTS，音质自然'},
   ];
   /// CosyVoice音色模型可选
   static const List<Map<String, String>> cosyVoiceModelOptions = [
@@ -105,6 +106,21 @@ class ApiConfig {
   static const String ai32VolcBaseUrl = 'https://32ai.uk/volc/v1';
   /// 32AI视频生成接口（豆包Seedance等）
   static const String ai32VideoGenEndpoint = '/contents/generations/tasks';
+  /// 32AI Gemini TTS 文本转语音接口（原生Gemini格式）
+  static const String ai32GeminiTtsEndpoint = '/v1beta/models/gemini-2.5-flash-preview-tts:generateContent';
+  /// Gemini TTS 模型名
+  static const String geminiTtsModel = 'gemini-2.5-flash-preview-tts';
+  /// Gemini TTS 可用音色列表
+  static const List<Map<String, String>> geminiTtsVoices = [
+    {'id': 'Kore', 'name': 'Kore', 'gender': 'female', 'style': '温柔女声'},
+    {'id': 'Zephyr', 'name': 'Zephyr', 'gender': 'male', 'style': '自然男声'},
+    {'id': 'Puck', 'name': 'Puck', 'gender': 'male', 'style': '活泼男声'},
+    {'id': 'Charon', 'name': 'Charon', 'gender': 'male', 'style': '沉稳男声'},
+    {'id': 'Fenrir', 'name': 'Fenrir', 'gender': 'male', 'style': '磁性男声'},
+    {'id': 'Aoede', 'name': 'Aoede', 'gender': 'female', 'style': '甜美女声'},
+    {'id': 'Leda', 'name': 'Leda', 'gender': 'female', 'style': '知性女声'},
+    {'id': 'Orus', 'name': 'Orus', 'gender': 'male', 'style': '新闻男声'},
+  ];
 
   // ==================== Agnes AI（全模态免费平台） ====================
   static const String agnesBaseUrl = 'https://apihub.agnes-ai.com/v1';

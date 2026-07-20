@@ -531,6 +531,9 @@ class DigitalHumanService {
         case 'Edge-TTS':
           provider = 'edge_tts';
           break;
+        case 'Chat-TTS':
+          provider = 'chat_tts';
+          break;
         default:
           provider = 'cosyvoice';
       }
