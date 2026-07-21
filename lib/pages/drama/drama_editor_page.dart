@@ -108,7 +108,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   static const _imageModels = [
     {'value': 'wanx', 'label': '万相 (Wanx)'},
     {'value': 'agnes-image', 'label': 'Agnes AI Image (免费)'},
-    {'value': 'ai32-image', 'label': '32AI · Nano-Banana'},
+    {'value': 'ai32-image', 'label': '32AI · FLUX Kontext'},
     {'value': 'local_sd', 'label': '本地 SD'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];

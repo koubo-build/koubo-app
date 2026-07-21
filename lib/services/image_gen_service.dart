@@ -407,9 +407,9 @@ class ImageGenService {
 
   // ==================== 32AI / 302.ai 文生图 ====================
 
-  /// 使用32AI的Nano-Banana文生图接口（fal.ai代理）
-  /// 端点：POST /fal-ai/nano-banana（异步队列模式）
-  /// 参考文档：32AI API文档
+  /// 使用32AI的FLUX Kontext Max文生图接口
+  /// 端点：POST /fal-ai/flux-kontext-max-t2i（fal.ai代理，同步/异步兼容）
+  /// 模型已更新：nano-banana渠道已下线，改用flux-kontext-max-t2i
   Future<String> _generateWithAi32({
     required String prompt,
     required int width,
@@ -422,7 +422,7 @@ class ImageGenService {
       throw Exception('32AI Base URL 未配置');
     }
 
-    onProgress?.call('提交Nano-Banana文生图任务...', 10);
+    onProgress?.call('提交FLUX文生图任务...', 10);
 
     // 确保baseUrl不以/结尾，并去掉/v1后缀
     var normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
@@ -430,7 +430,7 @@ class ImageGenService {
       normalizedBaseUrl = normalizedBaseUrl.substring(0, normalizedBaseUrl.length - 3);
     }
 
-    final submitUrl = '$normalizedBaseUrl/fal-ai/nano-banana';
+    final submitUrl = '$normalizedBaseUrl/fal-ai/flux-kontext-max-t2i';
     final headers = {
       'Authorization': 'Bearer $apiKey',
       'Content-Type': 'application/json',
@@ -448,28 +448,31 @@ class ImageGenService {
       );
 
       final submitData = submitResponse.data as Map<String, dynamic>;
+
+      // 尝试直接提取图片URL（同步响应）
+      String? finalImageUrl = _extractImageUrl(submitData);
+
+      if (finalImageUrl != null) {
+        onProgress?.call('下载图片...', 80);
+        final localPath = await _downloadImage(finalImageUrl, 'ai32');
+        onProgress?.call('完成！', 100);
+        return localPath;
+      }
+
+      // 异步队列模式：轮询等待结果
       final status = submitData['status'] as String?;
       final responseUrl = submitData['response_url'] as String?;
       final statusUrl = submitData['status_url'] as String?;
       final requestId = submitData['request_id'] as String?;
 
       if (status == null || (responseUrl == null && statusUrl == null)) {
-        // 可能是同步响应，直接包含图片
-        final imageUrl = _extractImageUrl(submitData);
-        if (imageUrl != null) {
-          onProgress?.call('下载图片...', 80);
-          final localPath = await _downloadImage(imageUrl, 'ai32');
-          onProgress?.call('完成！', 100);
-          return localPath;
-        }
-        throw Exception('32AI Nano-Banana提交失败：未返回有效的任务信息。响应：$submitData');
+        throw Exception('32AI FLUX提交失败：未返回有效的任务信息。响应：$submitData');
       }
 
       // 第2步：轮询等待结果
       final pollUrl = statusUrl ?? responseUrl!;
       onProgress?.call('排队等待生成（${status}）...', 20);
 
-      String? finalImageUrl;
       for (int attempt = 0; attempt < 120; attempt++) {
         await Future.delayed(const Duration(seconds: 3));
 
@@ -482,11 +485,10 @@ class ImageGenService {
         final pollStatus = pollData['status'] as String?;
 
         if (pollStatus == 'COMPLETED' || pollStatus == 'SUCCESS') {
-          // 尝试从结果中提取图片URL
           finalImageUrl = _extractImageUrl(pollData);
           break;
         } else if (pollStatus == 'FAILED' || pollStatus == 'ERROR') {
-          throw Exception('32AI Nano-Banana生成失败：${pollData.toString()}');
+          throw Exception('32AI FLUX生成失败：${pollData.toString()}');
         }
 
         // 更新进度
@@ -508,7 +510,7 @@ class ImageGenService {
       }
 
       if (finalImageUrl == null || finalImageUrl.isEmpty) {
-        throw Exception('32AI Nano-Banana生成完成但未返回图片URL。requestId: $requestId');
+        throw Exception('32AI FLUX生成完成但未返回图片URL。requestId: $requestId');
       }
 
       onProgress?.call('下载图片...', 85);
@@ -526,7 +528,7 @@ class ImageGenService {
         throw Exception('32AI账户余额不足：请前往32AI控制台充值。$msg');
       }
       if (statusCode == 404) {
-        throw Exception('32AI Nano-Banana端点不可用(404)，请确认模型已开通。$msg');
+        throw Exception('32AI FLUX端点不可用(404)，请确认模型已开通。$msg');
       }
       throw Exception('32AI图像生成失败($statusCode)：$msg');
     }
