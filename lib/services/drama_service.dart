@@ -679,9 +679,11 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
 
     onProgress?.call('保存角色...', 32);
 
-    // 3. 保存角色到DB
-    for (final character in characters) {
-      await StorageUtil.insertCharacter(character.copyWith(dramaId: dramaId));
+    // 3. 保存角色到DB（带进度反馈）
+    final totalChars = characters.length;
+    for (int i = 0; i < totalChars; i++) {
+      await StorageUtil.insertCharacter(characters[i].copyWith(dramaId: dramaId));
+      onProgress?.call('保存角色 ${i+1}/$totalChars...', 32 + ((i+1) / totalChars * 3).round());
     }
 
     // 4. AI自动生成分镜（带模板上下文）
@@ -697,11 +699,11 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
       },
     );
 
-    onProgress?.call('保存剧集和镜头...', 92);
-
-    // 5. 保存剧集和镜头到DB
+    // 5. 保存剧集和镜头到DB（带进度反馈）
+    final totalEps = scriptResult.episodes.length;
+    onProgress?.call('保存剧集...', 92);
     await StorageUtil.insertEpisodesWithShots(scriptResult.episodes);
-
+    onProgress?.call('保存完成！', 98);
     onProgress?.call('完成！', 100);
 
     // 6. 返回更新后的Drama
@@ -741,6 +743,9 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
         messages: formattedMessages,
         temperature: temperature,
         maxTokens: maxTokens,
+      ).timeout(
+        const Duration(minutes: 3),
+        onTimeout: () => throw Exception('API请求超时（3分钟），请检查网络或API配置'),
       );
     } else if (config.textModel != 'auto' && config.textModel.isNotEmpty) {
       // 检查是否有预设的Base URL和用户填的API Key
@@ -760,6 +765,9 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
             messages: formattedMessages,
             temperature: temperature,
             maxTokens: maxTokens,
+          ).timeout(
+            const Duration(minutes: 3),
+            onTimeout: () => throw Exception('${config.textModel}请求超时（3分钟），已自动尝试回退'),
           );
         } catch (e) {
           // 自动回退到chatSmart，避免单个模型抽风卡死整个流程
@@ -782,6 +790,9 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
           temperature: temperature,
           modelOverride: config.textModel,
           maxTokens: maxTokens,
+        ).timeout(
+          const Duration(minutes: 3),
+          onTimeout: () => throw Exception('智能路由请求超时（3分钟），请检查网络'),
         );
       }
     } else {
@@ -790,6 +801,9 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
         messages: messages,
         temperature: temperature,
         maxTokens: maxTokens,
+      ).timeout(
+        const Duration(minutes: 3),
+        onTimeout: () => throw Exception('智能路由请求超时（3分钟），请检查网络'),
       );
     }
   }
