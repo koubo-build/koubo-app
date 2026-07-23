@@ -53,7 +53,6 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
 
   static const _imageModels = [
     {'value': 'wanx', 'label': '万相 (Wanx)'},
-    {'value': 'agnes-image', 'label': 'Agnes AI Image (免费)'},
     {'value': 'ai32-image', 'label': '32AI · GPT-Image'},
     {'value': 'local_sd', 'label': '本地 SD'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
@@ -61,7 +60,6 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
 
   static const _videoModels = [
     {'value': 'happyhorse', 'label': 'HappyHorse'},
-    {'value': 'agnes-video', 'label': 'Agnes AI Video (免费)'},
     {'value': 'wanx-s2v', 'label': '万相 S2V'},
     {'value': 'ai32-seedance', 'label': '32AI · 豆包 Seedance'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
@@ -787,13 +785,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           prompt: prompt,
           onProgress: onProgress,
         );
-      case 'agnes-video':
-        // Agnes AI Video：走图生视频，无音频支持
-        return _generateAgnesVideo(
-          imagePath: imagePath,
-          prompt: prompt,
-          onProgress: onProgress,
-        );
+
       case 'custom':
         if (config.videoApiKey.isEmpty || config.videoBaseUrl.isEmpty) {
           throw Exception('自定义视频模型需要配置API Key和Base URL');

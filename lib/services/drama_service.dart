@@ -822,8 +822,6 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
   static String _getPresetBaseUrl(String model) {
     switch (model) {
       case 'agnes-2.0-flash':
-      case 'agnes-image':
-      case 'agnes-video':
         return 'https://apihub.agnes-ai.com/v1';
       case 'ai32-qwen-plus':
       case 'ai32-deepseek':
@@ -847,8 +845,6 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
   static String _getPresetApiKey(String model) {
     switch (model) {
       case 'agnes-2.0-flash':
-      case 'agnes-image':
-      case 'agnes-video':
         return 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
       case 'ai32-qwen-plus':
       case 'ai32-deepseek':
