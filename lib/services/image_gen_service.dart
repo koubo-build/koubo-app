@@ -407,9 +407,11 @@ class ImageGenService {
 
   // ==================== 32AI / 302.ai 文生图 ====================
 
-  /// 使用32AI的FLUX Kontext Max文生图接口
-  /// 端点：POST /fal-ai/flux-kontext-max-t2i（fal.ai代理，同步/异步兼容）
-  /// 模型已更新：nano-banana渠道已下线，改用flux-kontext-max-t2i
+  /// 使用32AI的gpt-image-1文生图接口（OpenAI兼容格式）
+  /// 端点：POST /v1/images/generations
+  /// 模型：gpt-image-1（OpenAI最新图像模型，质量高）
+  /// 注意：32AI的fal.ai代理通道（如FLUX Kontext、nano-banana）频繁下线，
+  ///       改用OpenAI兼容格式的gpt-image-1更稳定
   Future<String> _generateWithAi32({
     required String prompt,
     required int width,
@@ -422,101 +424,64 @@ class ImageGenService {
       throw Exception('32AI Base URL 未配置');
     }
 
-    onProgress?.call('提交FLUX文生图任务...', 10);
+    onProgress?.call('提交gpt-image-1文生图任务...', 10);
 
-    // 确保baseUrl不以/结尾，并去掉/v1后缀
+    // 确保baseUrl不以/结尾
     var normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
-    if (normalizedBaseUrl.endsWith('/v1')) {
-      normalizedBaseUrl = normalizedBaseUrl.substring(0, normalizedBaseUrl.length - 3);
+    // 确保有/v1路径
+    if (!normalizedBaseUrl.endsWith('/v1')) {
+      normalizedBaseUrl = '$normalizedBaseUrl/v1';
     }
 
-    final submitUrl = '$normalizedBaseUrl/fal-ai/flux-kontext-max-t2i';
+    final submitUrl = '$normalizedBaseUrl/images/generations';
     final headers = {
       'Authorization': 'Bearer $apiKey',
       'Content-Type': 'application/json',
     };
 
+    // gpt-image-1 只支持 1024x1024 / 1024x1792 / 1792x1024
+    final normalized = normalizeSizeForDallE3(width, height);
+    final finalWidth = normalized['width']!;
+    final finalHeight = normalized['height']!;
+
     try {
-      // 第1步：提交任务
-      final submitResponse = await _dio.post(
+      final response = await _dio.post(
         submitUrl,
         data: jsonEncode({
+          'model': 'gpt-image-1',
           'prompt': prompt,
-          'num_images': 1,
+          'size': '${finalWidth}x${finalHeight}',
+          'n': 1,
         }),
-        options: Options(headers: headers, receiveTimeout: const Duration(seconds: 60)),
+        options: Options(headers: headers, receiveTimeout: const Duration(minutes: 5)),
       );
 
-      final submitData = submitResponse.data as Map<String, dynamic>;
+      final data = response.data as Map<String, dynamic>;
+      final imageData = data['data'] as List<dynamic>?;
 
-      // 尝试直接提取图片URL（同步响应）
-      String? finalImageUrl = _extractImageUrl(submitData);
+      if (imageData == null || imageData.isEmpty) {
+        throw Exception('32AI gpt-image-1未返回图片数据');
+      }
 
-      if (finalImageUrl != null) {
-        onProgress?.call('下载图片...', 80);
-        final localPath = await _downloadImage(finalImageUrl, 'ai32');
+      // 优先使用b64_json格式（gpt-image-1默认返回格式）
+      final b64 = imageData[0]['b64_json'] as String?;
+      if (b64 != null && b64.isNotEmpty) {
+        onProgress?.call('保存图片...', 80);
+        final localPath = await _saveBase64Image(b64, 'ai32');
         onProgress?.call('完成！', 100);
         return localPath;
       }
 
-      // 异步队列模式：轮询等待结果
-      final status = submitData['status'] as String?;
-      final responseUrl = submitData['response_url'] as String?;
-      final statusUrl = submitData['status_url'] as String?;
-      final requestId = submitData['request_id'] as String?;
-
-      if (status == null || (responseUrl == null && statusUrl == null)) {
-        throw Exception('32AI FLUX提交失败：未返回有效的任务信息。响应：$submitData');
+      // 备用：url格式
+      final imageUrl = imageData[0]['url'] as String?;
+      if (imageUrl != null && imageUrl.isNotEmpty) {
+        onProgress?.call('下载图片...', 80);
+        final localPath = await _downloadImage(imageUrl, 'ai32');
+        onProgress?.call('完成！', 100);
+        return localPath;
       }
 
-      // 第2步：轮询等待结果
-      final pollUrl = statusUrl ?? responseUrl!;
-      onProgress?.call('排队等待生成（${status}）...', 20);
-
-      for (int attempt = 0; attempt < 120; attempt++) {
-        await Future.delayed(const Duration(seconds: 3));
-
-        final pollResponse = await _dio.get(
-          pollUrl,
-          options: Options(headers: headers, receiveTimeout: const Duration(seconds: 30)),
-        );
-
-        final pollData = pollResponse.data as Map<String, dynamic>;
-        final pollStatus = pollData['status'] as String?;
-
-        if (pollStatus == 'COMPLETED' || pollStatus == 'SUCCESS') {
-          finalImageUrl = _extractImageUrl(pollData);
-          break;
-        } else if (pollStatus == 'FAILED' || pollStatus == 'ERROR') {
-          throw Exception('32AI FLUX生成失败：${pollData.toString()}');
-        }
-
-        // 更新进度
-        final progress = 20 + (attempt * 50 / 120).toInt();
-        onProgress?.call('生成中...（${pollStatus ?? '处理中'}）', progress.clamp(20, 70));
-      }
-
-      // 如果轮询结束但没有拿到图片，尝试直接GET response_url
-      if (finalImageUrl == null && responseUrl != null) {
-        onProgress?.call('获取最终结果...', 75);
-        final resultResponse = await _dio.get(
-          responseUrl,
-          options: Options(headers: headers, receiveTimeout: const Duration(seconds: 30)),
-        );
-        final resultData = resultResponse.data;
-        if (resultData is Map<String, dynamic>) {
-          finalImageUrl = _extractImageUrl(resultData);
-        }
-      }
-
-      if (finalImageUrl == null || finalImageUrl.isEmpty) {
-        throw Exception('32AI FLUX生成完成但未返回图片URL。requestId: $requestId');
-      }
-
-      onProgress?.call('下载图片...', 85);
-      final localPath = await _downloadImage(finalImageUrl, 'ai32');
-      onProgress?.call('完成！', 100);
-      return localPath;
+      throw Exception('32AI gpt-image-1返回数据异常：既无b64_json也无url');
 
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
@@ -528,7 +493,10 @@ class ImageGenService {
         throw Exception('32AI账户余额不足：请前往32AI控制台充值。$msg');
       }
       if (statusCode == 404) {
-        throw Exception('32AI FLUX端点不可用(404)，请确认模型已开通。$msg');
+        throw Exception('32AI gpt-image-1端点不可用(404)。$msg');
+      }
+      if (statusCode == 503) {
+        throw Exception('32AI gpt-image-1服务暂时不可用(503)，请稍后重试。$msg');
       }
       throw Exception('32AI图像生成失败($statusCode)：$msg');
     }
