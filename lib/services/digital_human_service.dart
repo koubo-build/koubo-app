@@ -729,18 +729,21 @@ class DigitalHumanService {
     onProgress?.call('提交Seedance生成任务...', 20);
     final submitUrl = '${ApiConfig.ai32VolcBaseUrl}${ApiConfig.ai32VideoGenEndpoint}';
 
+    // 构建带参数的文本（参考 storyboard_page.dart 的正确格式）
+    final textWithParams = '${prompt ?? '画面自然动起来'} --dur 5';
+
     final requestBody = {
-      'model': 'seedance-2.0',
+      'model': 'doubao-seedance-1-5-pro-251215',
       'content': [
+        {
+          'type': 'text',
+          'text': textWithParams,
+        },
         {
           'type': 'image_url',
           'image_url': {'url': imageUrl},
+          'role': 'first_frame',
         },
-        if (prompt != null && prompt.isNotEmpty)
-          {
-            'type': 'text',
-            'text': prompt,
-          },
       ],
     };
 
