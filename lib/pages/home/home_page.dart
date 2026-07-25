@@ -186,6 +186,7 @@ class _HomePageState extends State<HomePage> {
       (Icons.movie_edit, '视频混剪', const Color(0xFF26C6DA), AppRoutes.videoEdit),
       (Icons.theaters, 'AI短剧', const Color(0xFFFF6B9D), AppRoutes.dramaList),
       (Icons.publish, '一键发布', const Color(0xFFFF8A65), AppRoutes.publish),
+      (Icons.task_alt, '任务进度', const Color(0xFFFF9800), AppRoutes.taskLog),
       (Icons.dashboard, '监控台', const Color(0xFF7E57C2), AppRoutes.monitor),
       (Icons.history, '历史记录', const Color(0xFF4DD0E1), AppRoutes.history),
     ];

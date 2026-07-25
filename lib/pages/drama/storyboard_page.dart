@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/api_config.dart';
 import '../../config/theme.dart';
 import '../../models/drama.dart';
+import '../../models/task_log.dart';
 import '../../services/drama_service.dart';
 import '../../services/drama_task_service.dart';
 import '../../services/image_gen_service.dart';
@@ -818,6 +820,9 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       throw Exception('请先在设置中配置32AI中转站API Key');
     }
 
+    final seedanceStartTime = DateTime.now();
+    int? videoLogId;
+
     // 将图片转为base64（32AI可直接访问，无需上传到百炼OSS）
     onProgress?.call('准备图片中...', 5);
     final imageFile = File(imagePath);
@@ -871,12 +876,42 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
         throw Exception('Seedance提交任务失败：$errorMsg');
       }
 
+      // 记录任务日志
+      try {
+        videoLogId = await StorageUtil.saveTaskLog(TaskLog(
+          taskId: taskId,
+          taskType: 'video',
+          modelName: 'doubao-seedance-1-5-pro-251215',
+          provider: '32ai',
+          status: 'running',
+          shotDescription: prompt,
+        ));
+      } catch (_) {}
+
       onProgress?.call('Seedance生成中（通常3-5分钟）...', 50);
       final videoUrl = await _pollSeedanceTask(taskId, apiKey, onProgress: onProgress);
 
       onProgress?.call('下载视频中...', 90);
       final localPath = await _downloadVideo(videoUrl);
       onProgress?.call('完成！', 100);
+
+      // 记录成功
+      if (videoLogId != null) {
+        try {
+          await StorageUtil.updateTaskLog(TaskLog(
+            id: videoLogId,
+            taskId: taskId,
+            taskType: 'video',
+            modelName: 'doubao-seedance-1-5-pro-251215',
+            provider: '32ai',
+            status: 'completed',
+            resultUrl: localPath,
+            durationSeconds: DateTime.now().difference(seedanceStartTime).inSeconds,
+            createdAt: seedanceStartTime,
+            completedAt: DateTime.now(),
+          ));
+        } catch (_) {}
+      }
       return localPath;
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
@@ -885,6 +920,23 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       if (responseBody is Map) {
         detail = responseBody['error']?['message']?.toString() ??
                  responseBody['message']?.toString() ?? '';
+      }
+      // 记录失败
+      if (videoLogId != null) {
+        try {
+          await StorageUtil.updateTaskLog(TaskLog(
+            id: videoLogId,
+            taskId: 'seedance-error',
+            taskType: 'video',
+            modelName: 'doubao-seedance-1-5-pro-251215',
+            provider: '32ai',
+            status: 'failed',
+            errorReason: '$statusCode: $detail',
+            durationSeconds: DateTime.now().difference(seedanceStartTime).inSeconds,
+            createdAt: seedanceStartTime,
+            completedAt: DateTime.now(),
+          ));
+        } catch (_) {}
       }
       if (statusCode == 401 || statusCode == 403) {
         throw Exception('32AI API Key无效或无权限：$detail');

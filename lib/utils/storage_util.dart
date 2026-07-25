@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import '../models/drama.dart';
+import '../models/task_log.dart';
 
 /// 本地存储工具 - 统一管理本地存储操作
 /// 包含：安全存储（API Key）、SharedPreferences（轻量配置）、SQLite数据库（历史记录）、文件目录管理
@@ -26,7 +27,7 @@ class StorageUtil {
   static const String _dbName = 'koubo_app.db';
 
   // 数据库版本
-  static const int _dbVersion = 3;
+  static const int _dbVersion = 4;
 
   /// 初始化SharedPreferences
   static Future<void> init() async {
@@ -310,11 +311,54 @@ class StorageUtil {
           FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         )
       ''');
+
+      // 后台任务日志表
+      await db.execute('''
+        CREATE TABLE task_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id TEXT NOT NULL,
+          task_type TEXT NOT NULL DEFAULT 'image',
+          model_name TEXT NOT NULL DEFAULT '',
+          provider TEXT DEFAULT '',
+          status TEXT DEFAULT 'pending',
+          result_url TEXT,
+          error_reason TEXT,
+          drama_title TEXT,
+          shot_description TEXT,
+          duration_seconds INTEGER DEFAULT 0,
+          cost REAL DEFAULT 0,
+          token_used INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL,
+          completed_at TEXT
+        )
+      ''');
     }
     if (oldVersion < 3) {
       // v2 → v3: dramas表增加模型配置和原始文本字段
       await db.execute("ALTER TABLE dramas ADD COLUMN model_config TEXT DEFAULT '{}'");
       await db.execute("ALTER TABLE dramas ADD COLUMN source_text TEXT DEFAULT ''");
+    }
+    if (oldVersion < 4) {
+      // v3 → v4: 添加后台任务日志表
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS task_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id TEXT NOT NULL,
+          task_type TEXT NOT NULL DEFAULT 'image',
+          model_name TEXT NOT NULL DEFAULT '',
+          provider TEXT DEFAULT '',
+          status TEXT DEFAULT 'pending',
+          result_url TEXT,
+          error_reason TEXT,
+          drama_title TEXT,
+          shot_description TEXT,
+          duration_seconds INTEGER DEFAULT 0,
+          cost REAL DEFAULT 0,
+          token_used INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL,
+          completed_at TEXT
+        )
+      ''');
     }
   }
 
@@ -1540,5 +1584,117 @@ class StorageUtil {
       await videoDir.create(recursive: true);
     }
     return videoDir.path;
+  }
+
+
+  // ==================== 任务日志（TaskLog） ====================
+
+  /// 保存任务日志
+  static Future<int> saveTaskLog(TaskLog log) async {
+    final db = _ensureDb;
+    return await db.insert('task_logs', log.toMap());
+  }
+
+  /// 更新任务状态
+  static Future<void> updateTaskLog(TaskLog log) async {
+    final db = _ensureDb;
+    if (log.id == null) return;
+    await db.update(
+      'task_logs',
+      log.toMap(),
+      where: 'id = ?',
+      whereArgs: [log.id],
+    );
+  }
+
+  /// 通过taskId查找
+  static Future<TaskLog?> getTaskLogByTaskId(String taskId) async {
+    final db = _ensureDb;
+    final maps = await db.query(
+      'task_logs',
+      where: 'task_id = ?',
+      whereArgs: [taskId],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return TaskLog.fromMap(maps.first);
+  }
+
+  /// 查询任务日志列表（支持筛选）
+  /// [taskType] 任务类型筛选（image/video/audio/text）
+  /// [status] 状态筛选（pending/running/completed/failed）
+  /// [limit] 返回条数上限，默认100
+  static Future<List<TaskLog>> getTaskLogs({
+    String? taskType,
+    String? status,
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    final db = _ensureDb;
+    String whereClause = '';
+    List<Object?> whereArgs = [];
+    if (taskType != null && taskType.isNotEmpty) {
+      whereClause = 'task_type = ?';
+      whereArgs.add(taskType);
+    }
+    if (status != null && status.isNotEmpty) {
+      if (whereClause.isNotEmpty) whereClause += ' AND ';
+      whereClause += 'status = ?';
+      whereArgs.add(status);
+    }
+    final maps = await db.query(
+      'task_logs',
+      where: whereClause.isNotEmpty ? whereClause : null,
+      whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
+      orderBy: 'created_at DESC',
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map((m) => TaskLog.fromMap(m)).toList();
+  }
+
+  /// 按关键词搜索任务日志（搜索taskId、modelName、dramaTitle、errorReason）
+  static Future<List<TaskLog>> searchTaskLogs(String keyword, {int limit = 50}) async {
+    final db = _ensureDb;
+    final like = '%$keyword%';
+    final maps = await db.query(
+      'task_logs',
+      where: 'task_id LIKE ? OR model_name LIKE ? OR drama_title LIKE ? OR error_reason LIKE ?',
+      whereArgs: [like, like, like, like],
+      orderBy: 'created_at DESC',
+      limit: limit,
+    );
+    return maps.map((m) => TaskLog.fromMap(m)).toList();
+  }
+
+  /// 获取统计数据
+  static Future<Map<String, int>> getTaskLogStats() async {
+    final db = _ensureDb;
+    final all = await db.rawQuery('SELECT status, COUNT(*) as count FROM task_logs GROUP BY status');
+    final total = await db.rawQuery('SELECT COUNT(*) as count FROM task_logs');
+    final stats = <String, int>{
+      'total': total.first['count'] as int? ?? 0,
+    };
+    for (final row in all) {
+      stats[row['status'] as String? ?? 'unknown'] = row['count'] as int? ?? 0;
+    }
+    return stats;
+  }
+
+  /// 删除任务日志
+  static Future<void> deleteTaskLog(int id) async {
+    final db = _ensureDb;
+    await db.delete('task_logs', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// 清理已完成的任务日志（保留最近N天）
+  static Future<void> cleanOldTaskLogs({int keepDays = 30}) async {
+    final db = _ensureDb;
+    final cutoff = DateTime.now().subtract(Duration(days: keepDays)).toIso8601String();
+    await db.delete(
+      'task_logs',
+      where: 'status IN ('completed', 'failed') AND created_at < ?',
+      whereArgs: [cutoff],
+    );
   }
 }

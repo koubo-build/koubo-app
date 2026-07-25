@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import '../config/api_config.dart';
 import '../utils/storage_util.dart';
+import '../models/task_log.dart';
+import 'dart:math';
 
 /// 图像生成服务 - 支持阿里百炼Wanxiang和本地Stable Diffusion
 class ImageGenService {
@@ -35,6 +37,28 @@ class ImageGenService {
     String? customBaseUrl,
     void Function(String stage, int progress)? onProgress,
   }) async {
+    // 创建任务日志
+    final taskId = 'img-${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(9999).toString().padLeft(4, '0')}';
+    final startTime = DateTime.now();
+    String provider = 'local_sd';
+    if (model == 'wanx') provider = 'bailian';
+    else if (model == 'ai32-image') provider = '32ai';
+    else if (model == 'agnes-image') provider = 'agnes';
+    else if (model == 'custom') provider = 'custom';
+    
+    int? logId;
+    try {
+      logId = await StorageUtil.saveTaskLog(TaskLog(
+        taskId: taskId,
+        taskType: 'image',
+        modelName: model,
+        provider: provider,
+        status: 'running',
+        shotDescription: prompt.length > 100 ? '${prompt.substring(0, 100)}...' : prompt,
+      ));
+    } catch (_) { /* 日志记录失败不影响主流程 */ }
+
+    try {
     if (model == 'custom' && customApiKey != null && customApiKey.isNotEmpty) {
       // 使用自定义配置（兼容OpenAI格式的文生图API）
       return _generateWithCustom(
@@ -91,6 +115,46 @@ class ImageGenService {
         height: height,
         onProgress: onProgress,
       );
+    }
+    } catch (e) {
+      final errorMsg = e.toString();
+      try {
+        if (logId != null) {
+          await StorageUtil.updateTaskLog(TaskLog(
+            id: logId,
+            taskId: taskId,
+            taskType: 'image',
+            modelName: model,
+            provider: provider,
+            status: 'failed',
+            errorReason: errorMsg.length > 200 ? errorMsg.substring(0, 200) : errorMsg,
+            durationSeconds: DateTime.now().difference(startTime).inSeconds,
+            createdAt: startTime,
+            completedAt: DateTime.now(),
+          ));
+        }
+      } catch (_) {}
+      rethrow;
+    } finally {
+      // If we get here without exception, mark as completed
+      try {
+        if (logId != null) {
+          final existingLog = await StorageUtil.getTaskLogByTaskId(taskId);
+          if (existingLog != null && existingLog.status == 'running') {
+            await StorageUtil.updateTaskLog(TaskLog(
+              id: logId,
+              taskId: taskId,
+              taskType: 'image',
+              modelName: model,
+              provider: provider,
+              status: 'completed',
+              durationSeconds: DateTime.now().difference(startTime).inSeconds,
+              createdAt: startTime,
+              completedAt: DateTime.now(),
+            ));
+          }
+        }
+      } catch (_) {}
     }
   }
 
