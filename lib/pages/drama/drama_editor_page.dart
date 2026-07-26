@@ -105,6 +105,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   static const _imageModels = [
     {'value': 'wanx', 'label': '万相 (Wanx)'},
     {'value': 'siliconflow', 'label': '硅基流动 FLUX (免费)'},
+    {'value': 'agnes-image', 'label': 'Agnes Image (免费)'},
     {'value': 'local_sd', 'label': '本地 SD'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
@@ -112,6 +113,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   static const _videoModels = [
     {'value': 'happyhorse', 'label': 'HappyHorse'},
     {'value': 'wanx-s2v', 'label': '万相 S2V'},
+    {'value': 'agnes-video', 'label': 'Agnes Video (免费)'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
 
@@ -1012,6 +1014,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   static String _getPresetBaseUrl(String model) {
     switch (model) {
       case 'agnes-2.0-flash':
+      case 'agnes-image':
+      case 'agnes-video':
         return 'https://apihub.agnes-ai.com/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
@@ -1027,6 +1031,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   static String _getPresetApiKey(String model) {
     switch (model) {
       case 'agnes-2.0-flash':
+      case 'agnes-image':
+      case 'agnes-video':
         return 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
       default:
         return '';

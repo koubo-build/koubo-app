@@ -54,6 +54,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   static const _imageModels = [
     {'value': 'wanx', 'label': '万相 (Wanx)'},
     {'value': 'siliconflow', 'label': '硅基流动 FLUX (免费)'},
+    {'value': 'agnes-image', 'label': 'Agnes Image (免费)'},
     {'value': 'local_sd', 'label': '本地 SD'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
@@ -61,6 +62,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   static const _videoModels = [
     {'value': 'happyhorse', 'label': 'HappyHorse'},
     {'value': 'wanx-s2v', 'label': '万相 S2V'},
+    {'value': 'agnes-video', 'label': 'Agnes Video (免费)'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
 
@@ -778,6 +780,12 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           prompt: prompt,
           onProgress: onProgress,
         );
+      case 'agnes-video':
+        return _generateAgnesVideo(
+          imagePath: imagePath,
+          prompt: prompt,
+          onProgress: onProgress,
+        );
       case 'custom':
         if (config.videoApiKey.isEmpty || config.videoBaseUrl.isEmpty) {
           throw Exception('自定义视频模型需要配置API Key和Base URL');
@@ -799,15 +807,16 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     }
   }
 
-  /// Agnes AI 图生视频
+  /// Agnes AI 图生视频（免费）
   Future<String> _generateAgnesVideo({
     required String imagePath,
     String? prompt,
     void Function(String stage, int progress)? onProgress,
   }) async {
-    final apiKey = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey);
+    var apiKey = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey);
     if (apiKey == null || apiKey.isEmpty) {
-      throw Exception('请先配置Agnes AI API Key');
+      // 使用内置默认Key（Agnes AI全模型免费）
+      apiKey = 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
     }
 
     onProgress?.call('上传图片中...', 5);
@@ -820,7 +829,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
 
     onProgress?.call('提交Agnes Video任务...', 25);
     final requestBody = {
-      'model': 'agnes-video',
+      'model': 'agnes-video-v2.0',
       'messages': [
         {
           'role': 'user',

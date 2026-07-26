@@ -72,10 +72,15 @@ class ImageGenService {
         onProgress: onProgress,
       );
     } else if (model == 'agnes-image') {
-      // 使用Agnes AI图像生成（OpenAI兼容格式）
-      final agnesKey = (customApiKey?.isNotEmpty ?? false)
-          ? customApiKey!
-          : 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
+      // 使用Agnes AI图像生成（免费，OpenAI兼容格式）
+      var agnesKey = (customApiKey?.isNotEmpty ?? false) ? customApiKey! : '';
+      if (agnesKey.isEmpty) {
+        agnesKey = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey) ?? '';
+      }
+      if (agnesKey.isEmpty) {
+        // 使用内置默认Key（Agnes AI全模型免费）
+        agnesKey = 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
+      }
       return _generateWithCustom(
         prompt: prompt,
         negativePrompt: negativePrompt,
