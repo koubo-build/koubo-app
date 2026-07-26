@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/api_config.dart';
 import '../../config/theme.dart';
@@ -44,9 +45,6 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     {'value': 'qwen-plus', 'label': '通义千问 Plus'},
     {'value': 'glm-4.7-flash', 'label': '智谱 GLM-4.7 Flash'},
     {'value': 'agnes-2.0-flash', 'label': 'Agnes 2.0 Flash (免费)'},
-    {'value': 'ai32-qwen-plus', 'label': '32AI · 千问 Plus'},
-    {'value': 'ai32-deepseek', 'label': '32AI · DeepSeek'},
-    {'value': 'ai32-doubao-pro', 'label': '32AI · 豆包 Pro'},
     {'value': 'deepseek-v4-flash', 'label': 'DeepSeek V4 Flash'},
     {'value': 'deepseek-v4-pro', 'label': 'DeepSeek V4 Pro'},
     {'value': 'doubao-pro', 'label': '豆包 Pro (火山引擎)'},
@@ -55,7 +53,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
 
   static const _imageModels = [
     {'value': 'wanx', 'label': '万相 (Wanx)'},
-    {'value': 'ai32-image', 'label': '32AI · GPT-Image'},
+    {'value': 'siliconflow', 'label': '硅基流动 FLUX (免费)'},
     {'value': 'local_sd', 'label': '本地 SD'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
@@ -63,7 +61,6 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   static const _videoModels = [
     {'value': 'happyhorse', 'label': 'HappyHorse'},
     {'value': 'wanx-s2v', 'label': '万相 S2V'},
-    {'value': 'ai32-seedance', 'label': '32AI · 豆包 Seedance'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
 
@@ -781,13 +778,6 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           prompt: prompt,
           onProgress: onProgress,
         );
-      case 'ai32-seedance':
-        return _generateSeedanceVideo(
-          imagePath: imagePath,
-          prompt: prompt,
-          onProgress: onProgress,
-        );
-
       case 'custom':
         if (config.videoApiKey.isEmpty || config.videoBaseUrl.isEmpty) {
           throw Exception('自定义视频模型需要配置API Key和Base URL');
@@ -806,217 +796,6 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           prompt: prompt,
           onProgress: onProgress,
         );
-    }
-  }
-
-  /// 32AI Seedance 图生视频
-  Future<String> _generateSeedanceVideo({
-    required String imagePath,
-    String? prompt,
-    void Function(String stage, int progress)? onProgress,
-  }) async {
-    final apiKey = await StorageUtil.getSecure(ApiConfig.ai32ApiKeyKey);
-    if (apiKey == null || apiKey.isEmpty) {
-      throw Exception('请先在设置中配置32AI中转站API Key');
-    }
-
-    final seedanceStartTime = DateTime.now();
-    int? videoLogId;
-
-    // 将图片转为base64（32AI可直接访问，无需上传到百炼OSS）
-    onProgress?.call('准备图片中...', 5);
-    final imageFile = File(imagePath);
-    final imageBytes = await imageFile.readAsBytes();
-    final base64Image = base64Encode(imageBytes);
-    final ext = imagePath.split('.').last.toLowerCase();
-    final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
-    final imageDataUrl = 'data:$mimeType;base64,$base64Image';
-
-    onProgress?.call('提交Seedance任务...', 25);
-    final submitUrl = '${ApiConfig.ai32VolcBaseUrl}${ApiConfig.ai32VideoGenEndpoint}';
-
-    // 根据首尾帧文档，参数通过 -- 形式追加在text后面，图片需指定role
-    // 使用 --dur 5 指定时长（秒）
-    final textWithParams = '${prompt ?? '画面自然动起来'} --dur 5';
-
-    final requestBody = {
-      'model': 'doubao-seedance-1-5-pro-251215',
-      'content': [
-        {
-          'type': 'text',
-          'text': textWithParams,
-        },
-        {
-          'type': 'image_url',
-          'image_url': {'url': imageDataUrl},
-          'role': 'first_frame',
-        },
-      ],
-    };
-
-    try {
-      final response = await _dio.post(
-        submitUrl,
-        data: jsonEncode(requestBody),
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $apiKey',
-            'Content-Type': 'application/json',
-          },
-          receiveTimeout: const Duration(minutes: 5),
-        ),
-      );
-
-      final data = response.data as Map<String, dynamic>;
-      final taskId = data['id']?.toString() ?? data['task_id']?.toString();
-      if (taskId == null || taskId.isEmpty) {
-        // 检查是否有错误信息
-        final errorMsg = data['error']?['message']?.toString() ??
-                         data['message']?.toString() ?? '';
-        throw Exception('Seedance提交任务失败：$errorMsg');
-      }
-
-      // 记录任务日志
-      try {
-        videoLogId = await StorageUtil.saveTaskLog(TaskLog(
-          taskId: taskId,
-          taskType: 'video',
-          modelName: 'doubao-seedance-1-5-pro-251215',
-          provider: '32ai',
-          status: 'running',
-          shotDescription: prompt,
-        ));
-      } catch (_) {}
-
-      onProgress?.call('Seedance生成中（通常3-5分钟）...', 50);
-      final videoUrl = await _pollSeedanceTask(taskId, apiKey, onProgress: onProgress);
-
-      onProgress?.call('下载视频中...', 90);
-      final localPath = await _downloadVideo(videoUrl);
-      onProgress?.call('完成！', 100);
-
-      // 记录成功
-      if (videoLogId != null) {
-        try {
-          await StorageUtil.updateTaskLog(TaskLog(
-            id: videoLogId,
-            taskId: taskId,
-            taskType: 'video',
-            modelName: 'doubao-seedance-1-5-pro-251215',
-            provider: '32ai',
-            status: 'completed',
-            resultUrl: localPath,
-            durationSeconds: DateTime.now().difference(seedanceStartTime).inSeconds,
-            createdAt: seedanceStartTime,
-            completedAt: DateTime.now(),
-          ));
-        } catch (_) {}
-      }
-      return localPath;
-    } on DioException catch (e) {
-      final statusCode = e.response?.statusCode;
-      final responseBody = e.response?.data;
-      String detail = '';
-      if (responseBody is Map) {
-        detail = responseBody['error']?['message']?.toString() ??
-                 responseBody['message']?.toString() ?? '';
-      }
-      // 记录失败
-      if (videoLogId != null) {
-        try {
-          await StorageUtil.updateTaskLog(TaskLog(
-            id: videoLogId,
-            taskId: 'seedance-error',
-            taskType: 'video',
-            modelName: 'doubao-seedance-1-5-pro-251215',
-            provider: '32ai',
-            status: 'failed',
-            errorReason: '$statusCode: $detail',
-            durationSeconds: DateTime.now().difference(seedanceStartTime).inSeconds,
-            createdAt: seedanceStartTime,
-            completedAt: DateTime.now(),
-          ));
-        } catch (_) {}
-      }
-      if (statusCode == 401 || statusCode == 403) {
-        throw Exception('32AI API Key无效或无权限：$detail');
-      }
-      throw Exception('Seedance提交失败($statusCode)：$detail');
-    }
-  }
-
-  /// 轮询32AI Seedance任务状态
-  Future<String> _pollSeedanceTask(
-    String taskId,
-    String apiKey, {
-    void Function(String stage, int progress)? onProgress,
-  }) async {
-    final queryUrl = '${ApiConfig.ai32VolcBaseUrl}${ApiConfig.ai32VideoGenEndpoint}/$taskId';
-    final startTime = DateTime.now();
-
-    while (true) {
-      try {
-        final response = await _dio.get(
-          queryUrl,
-          options: Options(
-            headers: {'Authorization': 'Bearer $apiKey'},
-            receiveTimeout: const Duration(seconds: 30),
-          ),
-        );
-
-        final data = response.data as Map<String, dynamic>;
-        final status = data['status']?.toString() ?? data['state']?.toString() ?? '';
-
-        if (status == 'succeeded' || status == 'succeed' || status == 'success' || status == 'complete') {
-          String? videoUrl;
-          // Volcengine API: content.video_url
-          final content = data['content'];
-          if (content is Map) {
-            videoUrl = content['video_url']?.toString();
-          }
-          // 302AI/32AI format: output.video_url or output.url
-          if (videoUrl == null || videoUrl.isEmpty) {
-            final output = data['output'] ?? data['result'];
-            if (output is Map) {
-              videoUrl = output['video_url']?.toString() ?? output['url']?.toString();
-            }
-          }
-          // 直接嵌套在顶层
-          if (videoUrl == null || videoUrl.isEmpty) {
-            videoUrl = data['video_url']?.toString() ?? data['url']?.toString();
-          }
-          // List格式
-          if ((videoUrl == null || videoUrl.isEmpty) && data['content'] is List) {
-            final contentList = data['content'] as List;
-            for (final item in contentList) {
-              if (item is Map) {
-                final vUrl = item['video_url']?.toString() ?? item['url']?.toString();
-                if (vUrl != null && vUrl.isNotEmpty) {
-                  videoUrl = vUrl;
-                  break;
-                }
-              }
-            }
-          }
-          if (videoUrl == null || videoUrl.isEmpty) {
-            throw Exception('Seedance任务完成但未返回视频URL，可在32AI控制台查看：https://32ai.uk/console/task');
-          }
-          return videoUrl;
-        } else if (status == 'failed' || status == 'error') {
-          final errorMsg = data['error']?['message']?.toString() ??
-                           data['message']?.toString() ?? '生成失败';
-          throw Exception('Seedance生成失败：$errorMsg');
-        }
-        onProgress?.call('Seedance生成中（通常3-5分钟）...', 50);
-      } on DioException catch (_) {
-        // 查询失败，继续重试
-      }
-
-      final elapsed = DateTime.now().difference(startTime).inSeconds;
-      if (elapsed >= 600) {
-        throw Exception('Seedance视频生成超时（10分钟）');
-      }
-      await Future.delayed(const Duration(seconds: 10));
     }
   }
 
@@ -1713,7 +1492,34 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (shot.imagePath != null && shot.imagePath!.isNotEmpty) ...[
+              // 视频播放器（优先显示视频）
+              if (shot.videoPath != null && shot.videoPath!.isNotEmpty && File(shot.videoPath!).existsSync()) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: _ShotVideoPlayer(videoPath: shot.videoPath!),
+                ),
+                const SizedBox(height: 12),
+              ] else if (shot.status == 'video_ready') ...[
+                Container(
+                  height: 150,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: AppTheme.darkSurface,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.video_file_outlined, size: 40, color: AppTheme.textHint),
+                        SizedBox(height: 8),
+                        Text('视频已生成但文件丢失', style: TextStyle(fontSize: 12, color: AppTheme.textHint)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ] else if (shot.imagePath != null && shot.imagePath!.isNotEmpty) ...[
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.file(
@@ -2261,6 +2067,28 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
                       ),
                     ),
                   ),
+                  // 视频播放按钮覆盖层
+                  if (shot.status == 'video_ready' && shot.videoPath != null && File(shot.videoPath!).existsSync())
+                    Positioned.fill(
+                      child: Container(
+                        color: Colors.black.withOpacity(0.3),
+                        child: Center(
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.85),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.play_arrow,
+                              color: Colors.black87,
+                              size: 28,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   // 重试次数标记
                   if (totalRetries > 0)
                     Positioned(
@@ -2625,6 +2453,126 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 镜头视频播放器组件 - 在详情弹窗中显示生成的视频
+class _ShotVideoPlayer extends StatefulWidget {
+  final String videoPath;
+  const _ShotVideoPlayer({required this.videoPath});
+
+  @override
+  State<_ShotVideoPlayer> createState() => _ShotVideoPlayerState();
+}
+
+class _ShotVideoPlayerState extends State<_ShotVideoPlayer> {
+  late VideoPlayerController _controller;
+  bool _initialized = false;
+  bool _hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initController();
+  }
+
+  Future<void> _initController() async {
+    try {
+      _controller = VideoPlayerController.file(File(widget.videoPath));
+      await _controller.initialize();
+      await _controller.setLooping(true);
+      if (mounted) {
+        setState(() => _initialized = true);
+        _controller.play();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _hasError = true);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hasError) {
+      return Container(
+        height: 200,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: AppTheme.darkSurface,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 36, color: AppTheme.textHint),
+              SizedBox(height: 8),
+              Text('视频加载失败', style: TextStyle(fontSize: 12, color: AppTheme.textHint)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!_initialized) {
+      return Container(
+        height: 200,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: AppTheme.darkSurface,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Center(
+          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFF6B9D)),
+        ),
+      );
+    }
+
+    return AspectRatio(
+      aspectRatio: _controller.value.aspectRatio,
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: VideoPlayer(_controller),
+          ),
+          // 播放/暂停控制
+          Positioned(
+            bottom: 8,
+            child: Material(
+              color: Colors.black.withOpacity(0.5),
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: () {
+                  setState(() {
+                    _controller.value.isPlaying
+                        ? _controller.pause()
+                        : _controller.play();
+                  });
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(
+                    _controller.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

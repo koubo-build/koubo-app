@@ -64,22 +64,17 @@ class ApiConfig {
     {'value': 'qwen-plus', 'label': 'qwen-plus', 'desc': '阿里百炼，效果好'},
     {'value': 'glm-4.7-flash', 'label': 'GLM-4-Flash', 'desc': '智谱AI，永久免费'},
     {'value': 'Qwen2.5-7B', 'label': 'Qwen2.5-7B', 'desc': '硅基流动，免费'},
-    {'value': 'ai32-qwen-plus', 'label': '32AI/qwen-plus', 'desc': '32AI中转，约官方价56%'},
-    {'value': 'ai32-deepseek', 'label': '32AI/DeepSeek', 'desc': '32AI中转，性价比高'},
-    {'value': 'ai32-doubao-pro', 'label': '32AI/豆包1.5-Pro', 'desc': '32AI中转，Doubao-1.5-pro-32k'},
     {'value': 'agnes-2.0-flash', 'label': 'Agnes-2.0-Flash', 'desc': 'Agnes AI，免费'},
   ];
   /// 数字人视频可选模型
   static const List<Map<String, String>> videoModelOptions = [
     {'value': 'wan2.2-s2v', 'label': '万相数字人', 'desc': '照片+音频→口型视频(百炼)'},
     {'value': 'happyhorse-1.0-i2v', 'label': 'HappyHorse图生视频', 'desc': '照片→动作视频(百炼)'},
-    {'value': 'ai32-seedance', 'label': '豆包Seedance(32AI)', 'desc': '中转站，性价比高'},
   ];
   /// TTS引擎可选
   static const List<Map<String, String>> ttsEngineOptions = [
     {'value': 'Edge-TTS', 'label': 'Edge-TTS', 'desc': '免费，音质一般'},
     {'value': 'CosyVoice', 'label': 'CosyVoice', 'desc': '百炼，音质好'},
-    {'value': 'Chat-TTS', 'label': 'Chat-TTS', 'desc': '32AI Gemini TTS，音质自然'},
   ];
   /// CosyVoice音色模型可选
   static const List<Map<String, String>> cosyVoiceModelOptions = [
@@ -101,26 +96,9 @@ class ApiConfig {
   static const String tikhubBaseUrl = 'https://api.tikhub.dev/api/v1';
   static const String tikhubVideoDataEndpoint = '/hybrid/video_data';
 
-  // ==================== 32AI中转站（约官方价56%） ====================
-  static const String ai32BaseUrl = 'https://32ai.uk/v1';
-  static const String ai32VolcBaseUrl = 'https://32ai.uk/volc/v1';
-  /// 32AI视频生成接口（豆包Seedance等）
-  static const String ai32VideoGenEndpoint = '/contents/generations/tasks';
-  /// 32AI Gemini TTS 文本转语音接口（原生Gemini格式）
-  static const String ai32GeminiTtsEndpoint = '/v1beta/models/gemini-2.5-flash-preview-tts:generateContent';
-  /// Gemini TTS 模型名
-  static const String geminiTtsModel = 'gemini-2.5-flash-preview-tts';
-  /// Gemini TTS 可用音色列表
-  static const List<Map<String, String>> geminiTtsVoices = [
-    {'id': 'Kore', 'name': 'Kore', 'gender': 'female', 'style': '温柔女声'},
-    {'id': 'Zephyr', 'name': 'Zephyr', 'gender': 'male', 'style': '自然男声'},
-    {'id': 'Puck', 'name': 'Puck', 'gender': 'male', 'style': '活泼男声'},
-    {'id': 'Charon', 'name': 'Charon', 'gender': 'male', 'style': '沉稳男声'},
-    {'id': 'Fenrir', 'name': 'Fenrir', 'gender': 'male', 'style': '磁性男声'},
-    {'id': 'Aoede', 'name': 'Aoede', 'gender': 'female', 'style': '甜美女声'},
-    {'id': 'Leda', 'name': 'Leda', 'gender': 'female', 'style': '知性女声'},
-    {'id': 'Orus', 'name': 'Orus', 'gender': 'male', 'style': '新闻男声'},
-  ];
+  // ==================== 硅基流动 FLUX.1-schnell 免费文生图 ====================
+  static const String siliconFlowImageEndpoint = 'https://api.siliconflow.cn/v1/images/generations';
+  static const String siliconFlowFluxSchnellModel = 'black-forest-labs/FLUX.1-schnell';
 
   // ==================== Agnes AI（全模态免费平台） ====================
   static const String agnesBaseUrl = 'https://apihub.agnes-ai.com/v1';
@@ -132,7 +110,6 @@ class ApiConfig {
   static const String aliBailianApiKeyKey = 'ali_bailian_api_key';
   static const String kuhuyunApiKeyKey = 'kuhuyun_api_key';
   static const String tikhubApiKeyKey = 'tikhub_api_key';
-  static const String ai32ApiKeyKey = 'ai32_api_key';
   static const String agnesApiKeyKey = 'agnes_api_key';
 
   // ==================== 阿里百炼 Wanxiang 文生图 ====================

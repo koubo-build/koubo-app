@@ -317,7 +317,7 @@ class ApiClient {
   /// [messages] 消息列表
   /// [temperature] 温度参数
   /// [preferReasoning] 是否偏好强推理模型（法务审核等场景，优先阿里百炼qwen-plus）
-  /// [modelOverride] 指定模型（如'qwen-plus'、'ai32-qwen-plus'等），覆盖智能路由
+  /// [modelOverride] 指定模型（如'qwen-plus'、'glm-4.7-flash'等），覆盖智能路由
   Future<String> chatSmart({
     required List<Map<String, String>> messages,
     double temperature = 0.7,
@@ -453,38 +453,8 @@ class ApiClient {
   }
 
   /// 根据模型标识路由到对应Provider
-  /// 支持：qwen-plus, glm-4.7-flash, Qwen2.5-7B, ai32-qwen-plus, ai32-deepseek
+  /// 支持：qwen-plus, glm-4.7-flash, Qwen2.5-7B, agnes-2.0-flash
   Future<String> _chatWithModel(String model, List<Map<String, String>> messages, double temperature, {bool enableSearch = false, int maxTokens = 4096}) async {
-    // 32AI中转路由
-    if (model.startsWith('ai32-')) {
-      final apiKey = await StorageUtil.getSecure(ApiConfig.ai32ApiKeyKey);
-      if (apiKey == null || apiKey.isEmpty) {
-        throw Exception('请先在设置中配置32AI中转站API Key');
-      }
-      final actualModel = model.replaceFirst('ai32-', '');
-      // 32AI模型名映射
-      String chatModel;
-      switch (actualModel) {
-        case 'deepseek':
-          chatModel = 'deepseek-chat';
-          break;
-        case 'doubao-pro':
-          chatModel = 'Doubao-1.5-pro-32k';
-          break;
-        default:
-          chatModel = actualModel;
-      }
-      return chatCompletion(
-        baseUrl: ApiConfig.ai32BaseUrl,
-        apiKey: apiKey,
-        model: chatModel,
-        messages: messages,
-        temperature: temperature,
-        maxTokens: maxTokens,
-        enableSearch: enableSearch,
-      );
-    }
-
     // 直接指定模型的Provider路由
     if (model == 'qwen-plus') {
       final apiKey = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey);
@@ -597,9 +567,6 @@ class _AuthInterceptor extends Interceptor {
     } else if (url.contains('agnes-ai.com')) {
       // Agnes AI
       storageKey = ApiConfig.agnesApiKeyKey;
-    } else if (url.contains('32ai.uk')) {
-      // 32AI中转站
-      storageKey = ApiConfig.ai32ApiKeyKey;
     }
 
     if (storageKey != null) {

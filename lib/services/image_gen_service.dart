@@ -42,7 +42,7 @@ class ImageGenService {
     final startTime = DateTime.now();
     String provider = 'local_sd';
     if (model == 'wanx') provider = 'bailian';
-    else if (model == 'ai32-image') provider = '32ai';
+    else if (model == 'siliconflow') provider = 'siliconflow';
     else if (model == 'agnes-image') provider = 'agnes';
     else if (model == 'custom') provider = 'custom';
     
@@ -86,53 +86,6 @@ class ImageGenService {
         modelName: 'agnes-image-2.1-flash',
         onProgress: onProgress,
       );
-    } else if (model == 'ai32-image') {
-      // 使用32AI中转站图像生成（302.ai专用文生图接口）
-      final ai32Key = (customApiKey?.isNotEmpty ?? false)
-          ? customApiKey!
-          : 'sk-sMC4yb8EUgS2G6OTlFYVwlqJJ5Pg08NpmbuoTg0Qiceh5uq6';
-      return _generateWithAi32(
-        prompt: prompt,
-        width: width,
-        height: height,
-        apiKey: ai32Key,
-        baseUrl: customBaseUrl?.isNotEmpty == true ? customBaseUrl! : 'https://32ai.uk',
-        onProgress: onProgress,
-      );
-    } else if (model == 'wanx') {
-      return _generateWithWanx(
-        prompt: prompt,
-        negativePrompt: negativePrompt,
-        width: width,
-        height: height,
-        onProgress: onProgress,
-      );
-    } else {
-      return _generateWithLocalSd(
-        prompt: prompt,
-        negativePrompt: negativePrompt,
-        width: width,
-        height: height,
-        onProgress: onProgress,
-      );
-    }
-    } catch (e) {
-      final errorMsg = e.toString();
-      try {
-        if (logId != null) {
-          await StorageUtil.updateTaskLog(TaskLog(
-            id: logId,
-            taskId: taskId,
-            taskType: 'image',
-            modelName: model,
-            provider: provider,
-            status: 'failed',
-            errorReason: errorMsg.length > 200 ? errorMsg.substring(0, 200) : errorMsg,
-            durationSeconds: DateTime.now().difference(startTime).inSeconds,
-            createdAt: startTime,
-            completedAt: DateTime.now(),
-          ));
-        }
       } catch (_) {}
       rethrow;
     } finally {
@@ -225,6 +178,101 @@ class ImageGenService {
         return {'width': (defaultWidth * 3 / 4).round(), 'height': defaultWidth};
       default:
         return {'width': defaultWidth, 'height': (defaultWidth * 9 / 16).round()};
+    }
+  }
+
+  // ==================== 硅基流动 FLUX.1-schnell 免费文生图 ====================
+
+  /// 使用硅基流动 FLUX.1-schnell 生成图片（完全免费）
+  Future<String> _generateWithSiliconFlow({
+    required String prompt,
+    required int width,
+    required int height,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final apiKey = await StorageUtil.getSecure(ApiConfig.siliconFlowApiKeyKey);
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('请先配置硅基流动API Key（设置页面，免费申请）');
+    }
+
+    onProgress?.call('提交FLUX文生图任务...', 10);
+
+    // FLUX.1-schnell 支持的尺寸：1024x1024, 1024x768, 768x1024 等
+    // 选择最接近的合法尺寸
+    final supportedSizes = [
+      [1024, 1024],
+      [1024, 768],
+      [768, 1024],
+      [1280, 720],
+      [720, 1280],
+      [1440, 810],
+    ];
+    final targetRatio = width / height;
+    List<int> bestSize = [1024, 1024];
+    double bestDiff = double.infinity;
+    for (final s in supportedSizes) {
+      final diff = (s[0] / s[1] - targetRatio).abs();
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestSize = s;
+      }
+    }
+
+    try {
+      final response = await _dio.post(
+        ApiConfig.siliconFlowImageEndpoint,
+        data: jsonEncode({
+          'model': ApiConfig.siliconFlowFluxSchnellModel,
+          'prompt': prompt,
+          'image_size': '${bestSize[0]}x${bestSize[1]}',
+          'n': 1,
+        }),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+          receiveTimeout: const Duration(minutes: 3),
+        ),
+      );
+
+      final data = response.data as Map<String, dynamic>;
+      final imageData = data['data'] as List<dynamic>?;
+
+      if (imageData == null || imageData.isEmpty) {
+        throw Exception('FLUX.1-schnell未返回图片数据');
+      }
+
+      // 优先使用url格式
+      final imageUrl = imageData[0]['url'] as String?;
+      if (imageUrl != null && imageUrl.isNotEmpty) {
+        onProgress?.call('下载图片...', 80);
+        final localPath = await _downloadImage(imageUrl, 'flux');
+        onProgress?.call('完成！', 100);
+        return localPath;
+      }
+
+      // 备用：b64_json格式
+      final b64 = imageData[0]['b64_json'] as String?;
+      if (b64 != null && b64.isNotEmpty) {
+        onProgress?.call('保存图片...', 80);
+        final localPath = await _saveBase64Image(b64, 'flux');
+        onProgress?.call('完成！', 100);
+        return localPath;
+      }
+
+      throw Exception('FLUX.1-schnell返回数据异常：既无url也无b64_json');
+
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final msg = e.response?.data?.toString() ?? e.message ?? '';
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('硅基流动API鉴权失败：请检查API Key。$msg');
+      }
+      if (statusCode == 429) {
+        throw Exception('硅基流动请求过于频繁，请稍后重试。$msg');
+      }
+      throw Exception('FLUX图像生成失败($statusCode)：$msg');
     }
   }
 
@@ -468,104 +516,6 @@ class ImageGenService {
       throw Exception('本地SD生成失败：${e.message}');
     }
   }
-
-  // ==================== 32AI / 302.ai 文生图 ====================
-
-  /// 使用32AI的gpt-image-1文生图接口（OpenAI兼容格式）
-  /// 端点：POST /v1/images/generations
-  /// 模型：gpt-image-1（OpenAI最新图像模型，质量高）
-  /// 注意：32AI的fal.ai代理通道（如FLUX Kontext、nano-banana）频繁下线，
-  ///       改用OpenAI兼容格式的gpt-image-1更稳定
-  Future<String> _generateWithAi32({
-    required String prompt,
-    required int width,
-    required int height,
-    required String apiKey,
-    required String baseUrl,
-    void Function(String stage, int progress)? onProgress,
-  }) async {
-    if (baseUrl.isEmpty) {
-      throw Exception('32AI Base URL 未配置');
-    }
-
-    onProgress?.call('提交gpt-image-1文生图任务...', 10);
-
-    // 确保baseUrl不以/结尾
-    var normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
-    // 确保有/v1路径
-    if (!normalizedBaseUrl.endsWith('/v1')) {
-      normalizedBaseUrl = '$normalizedBaseUrl/v1';
-    }
-
-    final submitUrl = '$normalizedBaseUrl/images/generations';
-    final headers = {
-      'Authorization': 'Bearer $apiKey',
-      'Content-Type': 'application/json',
-    };
-
-    // gpt-image-1 只支持 1024x1024 / 1024x1792 / 1792x1024
-    final normalized = normalizeSizeForDallE3(width, height);
-    final finalWidth = normalized['width']!;
-    final finalHeight = normalized['height']!;
-
-    try {
-      final response = await _dio.post(
-        submitUrl,
-        data: jsonEncode({
-          'model': 'gpt-image-1',
-          'prompt': prompt,
-          'size': '${finalWidth}x${finalHeight}',
-          'n': 1,
-        }),
-        options: Options(headers: headers, receiveTimeout: const Duration(minutes: 5)),
-      );
-
-      final data = response.data as Map<String, dynamic>;
-      final imageData = data['data'] as List<dynamic>?;
-
-      if (imageData == null || imageData.isEmpty) {
-        throw Exception('32AI gpt-image-1未返回图片数据');
-      }
-
-      // 优先使用b64_json格式（gpt-image-1默认返回格式）
-      final b64 = imageData[0]['b64_json'] as String?;
-      if (b64 != null && b64.isNotEmpty) {
-        onProgress?.call('保存图片...', 80);
-        final localPath = await _saveBase64Image(b64, 'ai32');
-        onProgress?.call('完成！', 100);
-        return localPath;
-      }
-
-      // 备用：url格式
-      final imageUrl = imageData[0]['url'] as String?;
-      if (imageUrl != null && imageUrl.isNotEmpty) {
-        onProgress?.call('下载图片...', 80);
-        final localPath = await _downloadImage(imageUrl, 'ai32');
-        onProgress?.call('完成！', 100);
-        return localPath;
-      }
-
-      throw Exception('32AI gpt-image-1返回数据异常：既无b64_json也无url');
-
-    } on DioException catch (e) {
-      final statusCode = e.response?.statusCode;
-      final msg = e.response?.data?.toString() ?? e.message ?? '';
-      if (statusCode == 401 || statusCode == 403) {
-        throw Exception('32AI图像API鉴权失败：请检查API Key。$msg');
-      }
-      if (statusCode == 402) {
-        throw Exception('32AI账户余额不足：请前往32AI控制台充值。$msg');
-      }
-      if (statusCode == 404) {
-        throw Exception('32AI gpt-image-1端点不可用(404)。$msg');
-      }
-      if (statusCode == 503) {
-        throw Exception('32AI gpt-image-1服务暂时不可用(503)，请稍后重试。$msg');
-      }
-      throw Exception('32AI图像生成失败($statusCode)：$msg');
-    }
-  }
-
   /// 从API响应中提取图片URL（兼容多种响应格式）
   String? _extractImageUrl(Map<String, dynamic> data) {
     // 格式1: {images: [{url: "..."}]}

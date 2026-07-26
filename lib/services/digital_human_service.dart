@@ -33,7 +33,6 @@ class VideoSegmentResult {
 /// 支持的模型：
 /// - wan2.2-s2v: 万相数字人（照片+音频→口型视频，百炼直连）
 /// - happyhorse-1.0-i2v: HappyHorse图生视频（百炼直连）
-/// - ai32-seedance: 豆包Seedance（32AI中转站）
 /// 
 /// 万相流程：
 /// 1. 上传图片到百炼OSS获取oss:// URL
@@ -531,8 +530,6 @@ class DigitalHumanService {
         case 'Edge-TTS':
           provider = 'edge_tts';
           break;
-        case 'Chat-TTS':
-          provider = 'chat_tts';
           break;
         default:
           provider = 'cosyvoice';
@@ -555,18 +552,6 @@ class DigitalHumanService {
       // 4.2 根据视频模型路由生成
       String localVideoPath;
       switch (videoModel) {
-        case 'ai32-seedance':
-          localVideoPath = await _generateWith32AISeedance(
-            imagePath: imagePath,
-            audioPath: audioPath,
-            prompt: prompt,
-            outputResolution: outputResolution,
-            onProgress: (stage, progress) {
-              final actualProgress = ((i + progress / 100) / totalSegments * 100).round();
-              onProgress?.call('第$segIdx/$totalSegments段：$stage', actualProgress, segIdx, totalSegments);
-            },
-          );
-          break;
         case 'happyhorse-1.0-i2v':
           localVideoPath = await _generateWithHappyHorse(
             imagePath: imagePath,
@@ -617,14 +602,6 @@ class DigitalHumanService {
     final videoModel = StorageUtil.getVideoModel();
 
     switch (videoModel) {
-      case 'ai32-seedance':
-        return _generateWith32AISeedance(
-          imagePath: imagePath,
-          audioPath: audioPath,
-          prompt: prompt,
-          outputResolution: outputResolution,
-          onProgress: onProgress,
-        );
       case 'happyhorse-1.0-i2v':
         return _generateWithHappyHorse(
           imagePath: imagePath,
@@ -705,154 +682,6 @@ class DigitalHumanService {
     return localPath;
   }
 
-  // ==================== 32AI Seedance 视频生成 ====================
-
-  /// 通过32AI中转站调用豆包Seedance视频生成
-  /// Seedance支持图生视频，需先上传图片获取公网URL
-  Future<String> _generateWith32AISeedance({
-    required String imagePath,
-    required String audioPath,
-    String? prompt,
-    int outputResolution = 720,
-    void Function(String stage, int progress)? onProgress,
-  }) async {
-    final apiKey = await StorageUtil.getSecure(ApiConfig.ai32ApiKeyKey);
-    if (apiKey == null || apiKey.isEmpty) {
-      throw Exception('请先在设置中配置32AI中转站API Key');
-    }
-
-    // 1. 上传图片到百炼OSS获取公网可访问URL
-    onProgress?.call('上传人像照片中...', 5);
-    final imageUrl = await uploadFileToBailian(imagePath, ApiConfig.wanxS2vModel);
-
-    // 2. 提交Seedance视频生成任务
-    onProgress?.call('提交Seedance生成任务...', 20);
-    final submitUrl = '${ApiConfig.ai32VolcBaseUrl}${ApiConfig.ai32VideoGenEndpoint}';
-
-    // 构建带参数的文本（参考 storyboard_page.dart 的正确格式）
-    final textWithParams = '${prompt ?? '画面自然动起来'} --dur 5';
-
-    final requestBody = {
-      'model': 'doubao-seedance-1-5-pro-251215',
-      'content': [
-        {
-          'type': 'text',
-          'text': textWithParams,
-        },
-        {
-          'type': 'image_url',
-          'image_url': {'url': imageUrl},
-          'role': 'first_frame',
-        },
-      ],
-    };
-
-    try {
-      final response = await _dio.post(
-        submitUrl,
-        data: jsonEncode(requestBody),
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $apiKey',
-            'Content-Type': 'application/json',
-          },
-          receiveTimeout: const Duration(minutes: 5),
-        ),
-      );
-
-      final data = response.data as Map<String, dynamic>;
-      final taskId = data['id']?.toString() ?? data['task_id']?.toString();
-
-      if (taskId == null || taskId.isEmpty) {
-        throw Exception('Seedance提交任务未返回task_id');
-      }
-
-      // 3. 轮询等待完成
-      final videoUrl = await _poll32AITask(
-        taskId,
-        apiKey,
-        onProgress: onProgress,
-      );
-
-      // 4. 下载视频
-      onProgress?.call('下载视频中...', 90);
-      final localPath = await downloadVideo(videoUrl);
-      onProgress?.call('完成！', 100);
-      return localPath;
-    } on DioException catch (e) {
-      final statusCode = e.response?.statusCode;
-      final responseBody = e.response?.data;
-      String detail = '';
-      if (responseBody is Map) {
-        detail = responseBody['error']?['message']?.toString() ?? 
-                 responseBody['message']?.toString() ?? '';
-      }
-      if (statusCode == 401 || statusCode == 403) {
-        throw Exception('32AI API Key无效或无权限：$detail');
-      }
-      throw Exception('Seedance提交失败($statusCode)：$detail');
-    }
-  }
-
-  /// 轮询32AI任务状态
-  Future<String> _poll32AITask(
-    String taskId,
-    String apiKey, {
-    void Function(String stage, int progress)? onProgress,
-  }) async {
-    final queryUrl = '${ApiConfig.ai32VolcBaseUrl}${ApiConfig.ai32VideoGenEndpoint}/$taskId';
-    final startTime = DateTime.now();
-
-    while (true) {
-      try {
-        final response = await _dio.get(
-          queryUrl,
-          options: Options(
-            headers: {
-              'Authorization': 'Bearer $apiKey',
-            },
-            receiveTimeout: const Duration(seconds: 30),
-          ),
-        );
-
-        final data = response.data as Map<String, dynamic>;
-        final status = data['status']?.toString() ?? data['state']?.toString() ?? '';
-
-        if (status == 'succeeded' || status == 'success' || status == 'complete') {
-          // 提取视频URL
-          final output = data['output'] ?? data['result'] ?? data;
-          String? videoUrl;
-          if (output is Map) {
-            videoUrl = output['video_url']?.toString() ?? 
-                       output['url']?.toString();
-          }
-          if (output is List && output.isNotEmpty) {
-            videoUrl = output[0]['url']?.toString() ?? output[0]['video_url']?.toString();
-          }
-          if (videoUrl == null || videoUrl.isEmpty) {
-            throw Exception('Seedance任务完成但未返回视频URL');
-          }
-          return videoUrl;
-        } else if (status == 'failed' || status == 'error') {
-          final errorMsg = data['error']?['message']?.toString() ?? 
-                           data['message']?.toString() ?? '生成失败';
-          throw Exception('Seedance生成失败：$errorMsg');
-        }
-
-        // 仍在处理中
-        onProgress?.call('Seedance生成中（通常3-5分钟）...', 50);
-      } on DioException catch (_) {
-        // 查询失败，继续重试
-      }
-
-      final elapsed = DateTime.now().difference(startTime).inSeconds;
-      if (elapsed >= 600) {
-        throw Exception('Seedance视频生成超时（10分钟）');
-      }
-
-      await Future.delayed(const Duration(seconds: 10));
-    }
-  }
 
   // ==================== HappyHorse 图生视频 ====================
 

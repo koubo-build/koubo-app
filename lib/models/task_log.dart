@@ -5,7 +5,7 @@ class TaskLog {
   final String taskId;          // 任务ID（API返回或本地生成）
   final String taskType;        // 任务类型：image / video / audio / text
   final String modelName;       // 使用的模型名称
-  final String provider;        // 服务商：32ai / bailian / local_sd / custom 等
+  final String provider;        // 服务商：bailian / siliconflow / local_sd / custom 等
   final String status;          // pending / running / completed / failed
   final String? resultUrl;      // 结果URL或本地路径
   final String? errorReason;    // 失败原因

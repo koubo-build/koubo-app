@@ -25,7 +25,6 @@ class _SettingsPageState extends State<SettingsPage> {
   final _siliconFlowKeyController = TextEditingController();
   final _aliBailianKeyController = TextEditingController();
   final _tikhubKeyController = TextEditingController();
-  final _ai32KeyController = TextEditingController();
   final _agnesKeyController = TextEditingController();
 
 
@@ -34,7 +33,6 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _siliconFlowKeyVisible = false;
   bool _aliBailianKeyVisible = false;
   bool _tikhubKeyVisible = false;
-  bool _ai32KeyVisible = false;
   bool _agnesKeyVisible = false;
 
 
@@ -43,7 +41,6 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _siliconFlowKeyStatus;
   String? _aliBailianKeyStatus;
   String? _tikhubKeyStatus;
-  String? _ai32KeyStatus;
   String? _agnesKeyStatus;
 
 
@@ -87,7 +84,6 @@ class _SettingsPageState extends State<SettingsPage> {
     _siliconFlowKeyController.dispose();
     _aliBailianKeyController.dispose();
     _tikhubKeyController.dispose();
-    _ai32KeyController.dispose();
     _agnesKeyController.dispose();
 
     _customWordController.dispose();
@@ -101,7 +97,6 @@ class _SettingsPageState extends State<SettingsPage> {
     _siliconFlowKeyController.text = await StorageUtil.getSecure(ApiConfig.siliconFlowApiKeyKey) ?? '';
     _aliBailianKeyController.text = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey) ?? '';
     _tikhubKeyController.text = await StorageUtil.getSecure(ApiConfig.tikhubApiKeyKey) ?? '';
-    _ai32KeyController.text = await StorageUtil.getSecure(ApiConfig.ai32ApiKeyKey) ?? 'sk-sMC4yb8EUgS2G6OTlFYVwlqJJ5Pg08NpmbuoTg0Qiceh5uq6';
     _agnesKeyController.text = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey) ?? '';
 
 
@@ -235,24 +230,6 @@ class _SettingsPageState extends State<SettingsPage> {
               isTesting: _testingKey == 'tikhub',
               onTest: () => _testApiKey('tikhub'),
               onClear: () => _clearApiKey('tikhub'),
-            ),
-
-            const SizedBox(height: AppTheme.spacingSmall),
-
-            // 32AI中转站
-            _buildApiKeyCard(
-              platformName: '32AI中转站',
-              platformDesc: '约官方价56%，支持豆包/DeepSeek等',
-              icon: Icons.swap_horiz,
-              iconColor: const Color(0xFFFF9800),
-              controller: _ai32KeyController,
-              hintText: '输入 32AI API Key（32ai.uk）',
-              isVisible: _ai32KeyVisible,
-              onToggleVisibility: () => setState(() => _ai32KeyVisible = !_ai32KeyVisible),
-              status: _ai32KeyStatus,
-              isTesting: _testingKey == 'ai32',
-              onTest: () => _testApiKey('ai32'),
-              onClear: () => _clearApiKey('ai32'),
             ),
 
             const SizedBox(height: AppTheme.spacingSmall),
@@ -879,7 +856,6 @@ class _SettingsPageState extends State<SettingsPage> {
         ApiConfig.siliconFlowApiKeyKey: _siliconFlowKeyController.text.trim(),
         ApiConfig.aliBailianApiKeyKey: _aliBailianKeyController.text.trim(),
         ApiConfig.tikhubApiKeyKey: _tikhubKeyController.text.trim(),
-        ApiConfig.ai32ApiKeyKey: _ai32KeyController.text.trim(),
         ApiConfig.agnesApiKeyKey: _agnesKeyController.text.trim(),
       });
 
@@ -928,11 +904,6 @@ class _SettingsPageState extends State<SettingsPage> {
           apiKey = _tikhubKeyController.text.trim();
           testUrl = '${ApiConfig.tikhubBaseUrl}${ApiConfig.tikhubVideoDataEndpoint}';
           model = '';
-          break;
-        case 'ai32':
-          apiKey = _ai32KeyController.text.trim();
-          testUrl = '${ApiConfig.ai32BaseUrl}/chat/completions';
-          model = 'qwen-plus';
           break;
         case 'agnes':
           apiKey = _agnesKeyController.text.trim();
@@ -1013,7 +984,6 @@ class _SettingsPageState extends State<SettingsPage> {
           case 'siliconflow': _siliconFlowKeyStatus = isValid ? 'valid' : 'invalid'; break;
           case 'alibailian': _aliBailianKeyStatus = isValid ? 'valid' : 'invalid'; break;
           case 'tikhub': _tikhubKeyStatus = isValid ? 'valid' : 'invalid'; break;
-          case 'ai32': _ai32KeyStatus = isValid ? 'valid' : 'invalid'; break;
             case 'agnes': _agnesKeyStatus = isValid ? 'valid' : 'invalid'; break;
         }
       });
@@ -1035,7 +1005,6 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'siliconflow': _siliconFlowKeyStatus = 'invalid'; break;
             case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
             case 'tikhub': _tikhubKeyStatus = 'invalid'; break;
-            case 'ai32': _ai32KeyStatus = 'invalid'; break;
             case 'agnes': _agnesKeyStatus = 'invalid'; break;
           }
         });
@@ -1074,7 +1043,6 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'siliconflow': _siliconFlowKeyStatus = 'invalid'; break;
             case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
             case 'tikhub': _tikhubKeyStatus = 'invalid'; break;
-            case 'ai32': _ai32KeyStatus = 'invalid'; break;
             case 'agnes': _agnesKeyStatus = 'invalid'; break;
           }
         });
@@ -1087,7 +1055,6 @@ class _SettingsPageState extends State<SettingsPage> {
           case 'siliconflow': _siliconFlowKeyStatus = 'invalid'; break;
           case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
           case 'tikhub': _tikhubKeyStatus = 'invalid'; break;
-          case 'ai32': _ai32KeyStatus = 'invalid'; break;
           case 'agnes': _agnesKeyStatus = 'invalid'; break;
         }
       });
@@ -1120,11 +1087,6 @@ class _SettingsPageState extends State<SettingsPage> {
         storageKey = ApiConfig.tikhubApiKeyKey;
         _tikhubKeyController.clear();
         _tikhubKeyStatus = null;
-        break;
-      case 'ai32':
-        storageKey = ApiConfig.ai32ApiKeyKey;
-        _ai32KeyController.clear();
-        _ai32KeyStatus = null;
         break;
       case 'agnes':
         storageKey = ApiConfig.agnesApiKeyKey;
