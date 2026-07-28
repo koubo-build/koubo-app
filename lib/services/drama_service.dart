@@ -744,8 +744,8 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
         temperature: temperature,
         maxTokens: maxTokens,
       ).timeout(
-        const Duration(minutes: 3),
-        onTimeout: () => throw Exception('API请求超时（3分钟），请检查网络或API配置'),
+        const Duration(minutes: 5),
+        onTimeout: () => throw Exception('API请求超时（5分钟），请检查网络或API配置'),
       );
     } else if (config.textModel != 'auto' && config.textModel.isNotEmpty) {
       // 检查是否有预设的Base URL和用户填的API Key
@@ -765,8 +765,8 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
             temperature: temperature,
             maxTokens: maxTokens,
           ).timeout(
-            const Duration(minutes: 3),
-            onTimeout: () => throw Exception('${config.textModel}请求超时（3分钟），已自动尝试回退'),
+            const Duration(minutes: 5),
+            onTimeout: () => throw Exception('${config.textModel}请求超时（5分钟），已自动尝试回退'),
           );
         } catch (e) {
           // 自动回退到chatSmart，避免单个模型抽风卡死整个流程
@@ -790,8 +790,8 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
           modelOverride: config.textModel,
           maxTokens: maxTokens,
         ).timeout(
-          const Duration(minutes: 3),
-          onTimeout: () => throw Exception('智能路由请求超时（3分钟），请检查网络'),
+          const Duration(minutes: 5),
+          onTimeout: () => throw Exception('智能路由请求超时（5分钟），请检查网络'),
         );
       }
     } else {
@@ -801,8 +801,8 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
         temperature: temperature,
         maxTokens: maxTokens,
       ).timeout(
-        const Duration(minutes: 3),
-        onTimeout: () => throw Exception('智能路由请求超时（3分钟），请检查网络'),
+        const Duration(minutes: 5),
+        onTimeout: () => throw Exception('智能路由请求超时（5分钟），请检查网络'),
       );
     }
   }

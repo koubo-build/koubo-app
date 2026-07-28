@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/drama.dart';
+import '../models/task_log.dart';
 import '../utils/storage_util.dart';
 import 'image_gen_service.dart';
 
@@ -44,6 +45,21 @@ class DramaTaskService {
 
     Future<void> processShot(DramaShot shot) async {
       final shotId = shot.id;
+      // TaskLog: 图片生成开始
+      final imgTaskId = 'drama_image_${dramaId}_${shotId}_${DateTime.now().millisecondsSinceEpoch}';
+      final imgTaskStart = DateTime.now();
+      try {
+        await StorageUtil.saveTaskLog(TaskLog(
+          taskId: imgTaskId,
+          taskType: 'image',
+          modelName: config.imageModel,
+          provider: 'drama_image_gen',
+          status: 'running',
+          dramaTitle: drama.title,
+          shotDescription: shot.visualDescription.length > 100 ? shot.visualDescription.substring(0, 100) : shot.visualDescription,
+        ));
+      } catch (_) {}
+
       if (shotId != null) {
         activeShotIds.add(shotId);
         onProgress?.call(completed, total, '生成图片: 镜头 #${shot.shotNumber}', shotId: shotId, status: 'processing');
@@ -86,6 +102,21 @@ class DramaTaskService {
           );
           await StorageUtil.updateShot(updatedShot);
           shotSuccess = true;
+
+          // TaskLog: 图片生成成功
+          final imgDuration = DateTime.now().difference(imgTaskStart).inSeconds;
+          try {
+            final log = await StorageUtil.getTaskLogByTaskId(imgTaskId);
+            if (log != null) {
+              await StorageUtil.updateTaskLog(log.copyWith(
+                status: 'completed',
+                resultUrl: imagePath,
+                durationSeconds: imgDuration,
+                completedAt: DateTime.now(),
+              ));
+            }
+          } catch (_) {}
+
           onProgress?.call(completed, total, '镜头 #${shot.shotNumber} 图片完成', shotId: shotId, status: 'image_ready');
           break;
         } catch (e) {
@@ -94,6 +125,19 @@ class DramaTaskService {
           final errStr = e.toString();
           final finalFailedShot = shot.copyWith(status: 'failed');
           await StorageUtil.updateShot(finalFailedShot);
+
+          // TaskLog: 图片生成失败
+          try {
+            final log = await StorageUtil.getTaskLogByTaskId(imgTaskId);
+            if (log != null) {
+              await StorageUtil.updateTaskLog(log.copyWith(
+                status: 'failed',
+                errorReason: errStr.length > 200 ? errStr.substring(0, 200) : errStr,
+                completedAt: DateTime.now(),
+              ));
+            }
+          } catch (_) {}
+
           onProgress?.call(completed, total, '镜头 #${shot.shotNumber} 失败: ${errStr.length > 50 ? errStr.substring(0, 50) : errStr}', shotId: shotId, status: 'failed');
         }
       }
@@ -106,11 +150,18 @@ class DramaTaskService {
 
     try {
       // 先处理已完成的镜头（中断恢复场景）
+      // 注意：failed 但有 imagePath 的镜头也跳过（图片已存在，无需重新生成）
       final pendingShots = <DramaShot>[];
       for (final shot in shots) {
-        if (shot.status != 'pending') {
+        if (shot.status != 'pending' && shot.status != 'failed') {
           completed++;
           onProgress?.call(completed, total, '跳过已完成: #${shot.shotNumber}');
+        } else if (shot.status == 'failed' && shot.imagePath != null && shot.imagePath!.isNotEmpty) {
+          // 图片已存在但状态为failed → 直接标记为image_ready
+          final fixedShot = shot.copyWith(status: 'image_ready');
+          await StorageUtil.updateShot(fixedShot);
+          completed++;
+          onProgress?.call(completed, total, '修复状态: #${shot.shotNumber}');
         } else {
           pendingShots.add(shot);
         }

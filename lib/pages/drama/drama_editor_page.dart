@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/theme.dart';
 import '../../config/routes.dart';
 import '../../models/drama.dart';
+import '../../models/task_log.dart';
 import '../../services/drama_service.dart';
 import '../../utils/storage_util.dart';
 
@@ -26,6 +28,10 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   bool _isLoading = true;
   bool _isCreating = false;
   bool _isNewMode = true;
+
+  // 进度对话框计时器
+  Timer? _progressTimer;
+  final Stopwatch _progressStopwatch = Stopwatch();
 
   // 新建模式 - 步骤导航
   int _currentStep = 0;
@@ -126,6 +132,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
 
   @override
   void dispose() {
+    _progressTimer?.cancel();
+    _progressStopwatch.stop();
     _tabController.dispose();
     _titleController.dispose();
     _descController.dispose();
@@ -209,6 +217,20 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     final modelConfigJson = jsonEncode(modelConfig.toJson());
 
     try {
+      // TaskLog: 记录角色提取开始
+      final charExtractTaskId = 'drama_char_extract_${DateTime.now().millisecondsSinceEpoch}';
+      final charExtractStart = DateTime.now();
+      try {
+        await StorageUtil.saveTaskLog(TaskLog(
+          taskId: charExtractTaskId,
+          taskType: 'text',
+          modelName: _textModel,
+          provider: 'drama_create',
+          status: 'running',
+          dramaTitle: title,
+        ));
+      } catch (_) {}
+
       final dramaService = ref.read(dramaServiceProvider);
       final drama = await dramaService.createDramaFromFullScript(
         title: title,
@@ -224,6 +246,34 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
           }
         },
       );
+
+      // TaskLog: 角色提取+分镜生成完成
+      final charExtractDuration = DateTime.now().difference(charExtractStart).inSeconds;
+      try {
+        final log = await StorageUtil.getTaskLogByTaskId(charExtractTaskId);
+        if (log != null) {
+          await StorageUtil.updateTaskLog(log.copyWith(
+            status: 'completed',
+            durationSeconds: charExtractDuration,
+            completedAt: DateTime.now(),
+          ));
+        }
+      } catch (_) {}
+
+      // TaskLog: 记录分镜生成完成
+      final storyboardTaskId = 'drama_storyboard_${drama.id}_${DateTime.now().millisecondsSinceEpoch}';
+      try {
+        await StorageUtil.saveTaskLog(TaskLog(
+          taskId: storyboardTaskId,
+          taskType: 'text',
+          modelName: _textModel,
+          provider: 'drama_create',
+          status: 'completed',
+          dramaTitle: title,
+          durationSeconds: charExtractDuration,
+          completedAt: DateTime.now(),
+        ));
+      } catch (_) {}
 
       _dismissProgressDialog();
 
@@ -241,6 +291,20 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
         _tabController.animateTo(2);
       }
     } catch (e) {
+      // TaskLog: 创建失败
+      try {
+        final failTaskId = 'drama_create_fail_${DateTime.now().millisecondsSinceEpoch}';
+        await StorageUtil.saveTaskLog(TaskLog(
+          taskId: failTaskId,
+          taskType: 'text',
+          modelName: _textModel,
+          provider: 'drama_create',
+          status: 'failed',
+          dramaTitle: title,
+          errorReason: e.toString().length > 200 ? e.toString().substring(0, 200) : e.toString(),
+        ));
+      } catch (_) {}
+
       _dismissProgressDialog();
       if (mounted) {
         setState(() => _isCreating = false);
@@ -252,8 +316,30 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   }
 
   void _showProgressDialog(String stage, int progress) {
+    // 启动计时（首次调用时启动）
+    if (!_progressStopwatch.isRunning) {
+      _progressStopwatch.reset();
+      _progressStopwatch.start();
+      // 每秒刷新弹窗显示经过时间
+      _progressTimer?.cancel();
+      _progressTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted && _progressStopwatch.isRunning) {
+          // 通过setState触发重建来更新经过时间显示
+          final elapsedSec = _progressStopwatch.elapsed.inSeconds;
+          // 关闭旧弹窗再显示新的（带更新后的时间）
+          Navigator.of(context, rootNavigator: true).pop();
+          _showProgressDialogInternal(stage, progress, elapsedSec);
+        }
+      });
+    }
+
+    final elapsedSec = _progressStopwatch.elapsed.inSeconds;
     // 先关闭旧弹窗再显示新的，避免弹窗叠加
     Navigator.of(context, rootNavigator: true).pop();
+    _showProgressDialogInternal(stage, progress, elapsedSec);
+  }
+
+  void _showProgressDialogInternal(String stage, int progress, int elapsedSec) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -264,7 +350,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
           children: [
             LinearProgressIndicator(value: progress / 100),
             const SizedBox(height: 16),
-            Text(stage),
+            Text('$stage (已等待 ${elapsedSec}秒)'),
             const SizedBox(height: 8),
             Text('$progress%'),
           ],
@@ -274,6 +360,10 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   }
 
   void _dismissProgressDialog() {
+    _progressTimer?.cancel();
+    _progressTimer = null;
+    _progressStopwatch.stop();
+    _progressStopwatch.reset();
     Navigator.of(context, rootNavigator: true).pop();
   }
 
@@ -1516,6 +1606,21 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     }
 
     setState(() => _isCreating = true);
+
+    // TaskLog: 角色提取开始
+    final charTaskId = 'drama_char_extract_${_drama!.id}_${DateTime.now().millisecondsSinceEpoch}';
+    final charTaskStart = DateTime.now();
+    try {
+      await StorageUtil.saveTaskLog(TaskLog(
+        taskId: charTaskId,
+        taskType: 'text',
+        modelName: _textModel,
+        provider: 'drama_reextract',
+        status: 'running',
+        dramaTitle: _drama!.title,
+      ));
+    } catch (_) {}
+
     try {
       final dramaService = ref.read(dramaServiceProvider);
       final characters = await dramaService.extractCharacters(
@@ -1534,6 +1639,19 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
         await StorageUtil.insertCharacter(character.copyWith(dramaId: _drama!.id!));
       }
 
+      // TaskLog: 角色提取完成
+      final charDuration = DateTime.now().difference(charTaskStart).inSeconds;
+      try {
+        final log = await StorageUtil.getTaskLogByTaskId(charTaskId);
+        if (log != null) {
+          await StorageUtil.updateTaskLog(log.copyWith(
+            status: 'completed',
+            durationSeconds: charDuration,
+            completedAt: DateTime.now(),
+          ));
+        }
+      } catch (_) {}
+
       _dismissProgressDialog();
       if (mounted) {
         await _loadData();
@@ -1542,6 +1660,18 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
         );
       }
     } catch (e) {
+      // TaskLog: 角色提取失败
+      try {
+        final log = await StorageUtil.getTaskLogByTaskId(charTaskId);
+        if (log != null) {
+          await StorageUtil.updateTaskLog(log.copyWith(
+            status: 'failed',
+            errorReason: e.toString().length > 200 ? e.toString().substring(0, 200) : e.toString(),
+            completedAt: DateTime.now(),
+          ));
+        }
+      } catch (_) {}
+
       _dismissProgressDialog();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1725,6 +1855,21 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     }
 
     setState(() => _isCreating = true);
+
+    // TaskLog: 分镜生成开始
+    final sbTaskId = 'drama_storyboard_${_drama!.id}_${DateTime.now().millisecondsSinceEpoch}';
+    final sbTaskStart = DateTime.now();
+    try {
+      await StorageUtil.saveTaskLog(TaskLog(
+        taskId: sbTaskId,
+        taskType: 'text',
+        modelName: _textModel,
+        provider: 'drama_regenerate_sb',
+        status: 'running',
+        dramaTitle: _drama!.title,
+      ));
+    } catch (_) {}
+
     try {
       final dramaService = ref.read(dramaServiceProvider);
       final result = await dramaService.generateStoryboardFromScript(
@@ -1740,6 +1885,19 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       // 保存剧集和镜头
       await StorageUtil.insertEpisodesWithShots(result.episodes);
 
+      // TaskLog: 分镜生成完成
+      final sbDuration = DateTime.now().difference(sbTaskStart).inSeconds;
+      try {
+        final log = await StorageUtil.getTaskLogByTaskId(sbTaskId);
+        if (log != null) {
+          await StorageUtil.updateTaskLog(log.copyWith(
+            status: 'completed',
+            durationSeconds: sbDuration,
+            completedAt: DateTime.now(),
+          ));
+        }
+      } catch (_) {}
+
       _dismissProgressDialog();
       if (mounted) {
         await _loadData();
@@ -1748,6 +1906,18 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
         );
       }
     } catch (e) {
+      // TaskLog: 分镜生成失败
+      try {
+        final log = await StorageUtil.getTaskLogByTaskId(sbTaskId);
+        if (log != null) {
+          await StorageUtil.updateTaskLog(log.copyWith(
+            status: 'failed',
+            errorReason: e.toString().length > 200 ? e.toString().substring(0, 200) : e.toString(),
+            completedAt: DateTime.now(),
+          ));
+        }
+      } catch (_) {}
+
       _dismissProgressDialog();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1796,23 +1966,80 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _episodes.length,
-      itemBuilder: (context, index) {
-        final episode = _episodes[index];
-        return _buildEpisodeCard(episode);
-      },
+    return Column(
+      children: [
+        // 顶部操作栏：查看任务记录
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pushNamed(context, AppRoutes.taskLog);
+                },
+                icon: const Icon(Icons.history, size: 18),
+                label: const Text('查看任务记录', style: TextStyle(fontSize: 13)),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _episodes.length,
+            itemBuilder: (context, index) {
+              final episode = _episodes[index];
+              return _buildEpisodeCard(episode);
+            },
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildEpisodeCard(DramaEpisode episode) {
+    // 判断是否有待处理/失败的镜头
+    final hasPendingShots = episode.shots.any(
+      (s) => s.status == 'pending' || s.status == 'failed',
+    );
+
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: ExpansionTile(
-        title: Text(
-          '第${episode.episodeNumber}集：${episode.title}',
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                '第${episode.episodeNumber}集：${episode.title}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            if (hasPendingShots)
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pushNamed(
+                    context,
+                    AppRoutes.storyboard,
+                    arguments: {
+                      'episodeId': episode.id,
+                      'dramaId': _drama!.id,
+                    },
+                  );
+                },
+                icon: const Icon(Icons.play_circle_outline, size: 18),
+                label: const Text('继续创作', style: TextStyle(fontSize: 12)),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFFF6B9D),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+          ],
         ),
         subtitle: Text(
           '${episode.shots.length}个镜头',
