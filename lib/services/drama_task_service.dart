@@ -244,17 +244,59 @@ class DramaTaskService {
 
         onProgress?.call(completed, total, '生成视频: 镜头 #${shot.shotNumber}');
 
+        // TaskLog: 视频生成开始
+        final vidTaskId = 'drama_video_${dramaId}_${shot.id}_${DateTime.now().millisecondsSinceEpoch}';
+        final vidTaskStart = DateTime.now();
+        final config = drama.parsedModelConfig;
+        try {
+          await StorageUtil.saveTaskLog(TaskLog(
+            taskId: vidTaskId,
+            taskType: 'video',
+            modelName: config.videoModel,
+            provider: 'drama_video_gen',
+            status: 'running',
+            dramaTitle: drama.title,
+            shotDescription: shot.visualDescription.length > 100 ? shot.visualDescription.substring(0, 100) : shot.visualDescription,
+          ));
+        } catch (_) {}
+
         try {
           // TODO: 实现视频生成逻辑（调用视频生成API）
           // 目前先标记为完成，后续接入wanx-s2v等视频模型
           final updatedShot = shot.copyWith(status: 'video_ready');
           await StorageUtil.updateShot(updatedShot);
 
+          // TaskLog: 视频生成成功
+          final vidDuration = DateTime.now().difference(vidTaskStart).inSeconds;
+          try {
+            final log = await StorageUtil.getTaskLogByTaskId(vidTaskId);
+            if (log != null) {
+              await StorageUtil.updateTaskLog(log.copyWith(
+                status: 'completed',
+                durationSeconds: vidDuration,
+                completedAt: DateTime.now(),
+              ));
+            }
+          } catch (_) {}
+
           completed++;
           onProgress?.call(completed, total, '镜头 #${shot.shotNumber} 视频完成');
         } catch (e) {
           final failedShot = shot.copyWith(status: 'failed');
           await StorageUtil.updateShot(failedShot);
+
+          // TaskLog: 视频生成失败
+          final errStr = e.toString();
+          try {
+            final log = await StorageUtil.getTaskLogByTaskId(vidTaskId);
+            if (log != null) {
+              await StorageUtil.updateTaskLog(log.copyWith(
+                status: 'failed',
+                errorReason: errStr.length > 200 ? errStr.substring(0, 200) : errStr,
+                completedAt: DateTime.now(),
+              ));
+            }
+          } catch (_) {}
 
           completed++;
           onProgress?.call(completed, total, '镜头 #${shot.shotNumber} 视频失败');

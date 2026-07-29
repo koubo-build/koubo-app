@@ -1106,7 +1106,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       case 'agnes-2.0-flash':
       case 'agnes-image':
       case 'agnes-video':
-        return 'https://apihub.agnes-ai.com/v1';
+        return 'https://apihub.agnes-ai.cn/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
         return 'https://api.deepseek.com';
@@ -1123,7 +1123,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       case 'agnes-2.0-flash':
       case 'agnes-image':
       case 'agnes-video':
-        return 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
+        return 'sk-7910JE6f3qpCtYchwYPgzPdpFC2X99chkCNExCvTmvLObACo';
       default:
         return '';
     }

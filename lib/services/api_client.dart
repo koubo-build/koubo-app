@@ -564,7 +564,7 @@ class _AuthInterceptor extends Interceptor {
     } else if (url.contains('dashscope')) {
       // 阿里百炼
       storageKey = ApiConfig.aliBailianApiKeyKey;
-    } else if (url.contains('agnes-ai.com')) {
+    } else if (url.contains('agnes-ai.com') || url.contains('agnes-ai.cn')) {
       // Agnes AI
       storageKey = ApiConfig.agnesApiKeyKey;
     }

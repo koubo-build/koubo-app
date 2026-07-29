@@ -811,7 +811,7 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
   static String _getPresetBaseUrl(String model) {
     switch (model) {
       case 'agnes-2.0-flash':
-        return 'https://apihub.agnes-ai.com/v1';
+        return 'https://apihub.agnes-ai.cn/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
         return 'https://api.deepseek.com';

@@ -816,7 +816,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     var apiKey = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey);
     if (apiKey == null || apiKey.isEmpty) {
       // 使用内置默认Key（Agnes AI全模型免费）
-      apiKey = 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
+      apiKey = 'sk-7910JE6f3qpCtYchwYPgzPdpFC2X99chkCNExCvTmvLObACo';
     }
 
     onProgress?.call('上传图片中...', 5);

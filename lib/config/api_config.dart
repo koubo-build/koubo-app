@@ -101,7 +101,7 @@ class ApiConfig {
   static const String siliconFlowFluxSchnellModel = 'black-forest-labs/FLUX.1-schnell';
 
   // ==================== Agnes AI（全模态免费平台） ====================
-  static const String agnesBaseUrl = 'https://apihub.agnes-ai.com/v1';
+  static const String agnesBaseUrl = 'https://apihub.agnes-ai.cn/v1';
   static const String agnesModelFlash = 'agnes-2.0-flash';
 
   // ==================== API Key存储键名 ====================

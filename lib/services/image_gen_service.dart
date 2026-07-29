@@ -79,7 +79,7 @@ class ImageGenService {
       }
       if (agnesKey.isEmpty) {
         // 使用内置默认Key（Agnes AI全模型免费）
-        agnesKey = 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
+        agnesKey = 'sk-7910JE6f3qpCtYchwYPgzPdpFC2X99chkCNExCvTmvLObACo';
       }
       return _generateWithCustom(
         prompt: prompt,
@@ -87,7 +87,7 @@ class ImageGenService {
         width: width,
         height: height,
         apiKey: agnesKey,
-        baseUrl: customBaseUrl?.isNotEmpty == true ? customBaseUrl! : 'https://apihub.agnes-ai.com/v1',
+        baseUrl: customBaseUrl?.isNotEmpty == true ? customBaseUrl! : 'https://apihub.agnes-ai.cn/v1',
         modelName: 'agnes-image-2.1-flash',
         onProgress: onProgress,
       );

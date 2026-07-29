@@ -241,7 +241,7 @@ class _SettingsPageState extends State<SettingsPage> {
               icon: Icons.smart_toy_outlined,
               iconColor: const Color(0xFF00E676),
               controller: _agnesKeyController,
-              hintText: '输入 Agnes AI API Key（platform.agnes-ai.com）',
+              hintText: '输入 Agnes AI API Key（platform.agnes-ai.cn）',
               isVisible: _agnesKeyVisible,
               onToggleVisibility: () => setState(() => _agnesKeyVisible = !_agnesKeyVisible),
               status: _agnesKeyStatus,
