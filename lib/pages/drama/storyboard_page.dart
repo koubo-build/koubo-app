@@ -408,12 +408,29 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     });
 
     try {
+      final drama = _drama!;
+      final config = drama.parsedModelConfig;
       for (int i = 0; i < readyShots.length; i++) {
         final shot = readyShots[i];
         setState(() {
           _currentProcessingIndex = _shots.indexWhere((s) => s.id == shot.id);
           _generateProgress = '[视频 ${i + 1}/${readyShots.length}] 镜头 #${shot.shotNumber}';
         });
+
+        // TaskLog: 视频生成开始
+        final vidTaskId = 'drama_video_${drama.id}_${shot.id}_${DateTime.now().millisecondsSinceEpoch}';
+        final vidTaskStart = DateTime.now();
+        try {
+          await StorageUtil.saveTaskLog(TaskLog(
+            taskId: vidTaskId,
+            taskType: 'video',
+            modelName: config.videoModel == 'agnes-video' ? 'agnes-video-v2.0' : (config.videoModel == 'wanx-s2v' ? 'wan2.2-s2v' : (config.videoModel == 'happyhorse' ? 'happyhorse-1.0' : config.videoModel)),
+            provider: config.videoModel == 'agnes-video' ? 'agnes-ai' : (config.videoModel == 'custom' ? 'custom' : 'bailian'),
+            status: 'running',
+            dramaTitle: drama.title,
+            shotDescription: (shot.visualDescription.length > 100) ? shot.visualDescription.substring(0, 100) : shot.visualDescription,
+          ));
+        } catch (_) {}
 
         try {
           final videoPath = await _generateVideoForShot(
@@ -428,6 +445,19 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           );
           await StorageUtil.updateShot(updatedShot);
 
+          // TaskLog: 视频生成成功
+          try {
+            final log = await StorageUtil.getTaskLogByTaskId(vidTaskId);
+            if (log != null) {
+              await StorageUtil.updateTaskLog(log.copyWith(
+                status: 'completed',
+                resultUrl: videoPath,
+                durationSeconds: DateTime.now().difference(vidTaskStart).inSeconds,
+                completedAt: DateTime.now(),
+              ));
+            }
+          } catch (_) {}
+
           setState(() {
             final index = _shots.indexWhere((s) => s.id == shot.id);
             if (index != -1) {
@@ -435,6 +465,19 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
             }
           });
         } catch (e) {
+          // TaskLog: 视频生成失败
+          try {
+            final log = await StorageUtil.getTaskLogByTaskId(vidTaskId);
+            if (log != null) {
+              await StorageUtil.updateTaskLog(log.copyWith(
+                status: 'failed',
+                errorReason: e.toString().length > 200 ? e.toString().substring(0, 200) : e.toString(),
+                durationSeconds: DateTime.now().difference(vidTaskStart).inSeconds,
+                completedAt: DateTime.now(),
+              ));
+            }
+          } catch (_) {}
+
           final failedShot = shot.copyWith(status: 'failed');
           await StorageUtil.updateShot(failedShot);
           setState(() {
@@ -1133,6 +1176,21 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
               );
               final updatedShot = shot.copyWith(videoPath: videoPath, status: 'video_ready');
               await StorageUtil.updateShot(updatedShot);
+              // TaskLog: 批量重试视频成功
+              try {
+                final batchVidTaskId = 'drama_video_${_drama!.id}_${shot.id}_${DateTime.now().millisecondsSinceEpoch}';
+                await StorageUtil.saveTaskLog(TaskLog(
+                  taskId: batchVidTaskId,
+                  taskType: 'video',
+                  modelName: (_drama?.parsedModelConfig.videoModel == 'agnes-video') ? 'agnes-video-v2.0' : (_drama?.parsedModelConfig.videoModel ?? 'unknown'),
+                  provider: (_drama?.parsedModelConfig.videoModel == 'agnes-video') ? 'agnes-ai' : 'bailian',
+                  status: 'completed',
+                  dramaTitle: _drama?.title,
+                  shotDescription: shot.visualDescription.length > 100 ? shot.visualDescription.substring(0, 100) : shot.visualDescription,
+                  resultUrl: videoPath,
+                  completedAt: DateTime.now(),
+                ));
+              } catch (_) {}
               if (mounted) {
                 setState(() {
                   final idx = _shots.indexWhere((s) => s.id == shot.id);
@@ -1338,6 +1396,21 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
             );
             var updated = shot.copyWith(videoPath: videoPath, status: 'video_ready');
             await StorageUtil.updateShot(updated);
+            // TaskLog: 单镜头重试视频成功
+            try {
+              final retryVidTaskId = 'drama_video_${_drama!.id}_${shot.id}_${DateTime.now().millisecondsSinceEpoch}';
+              await StorageUtil.saveTaskLog(TaskLog(
+                taskId: retryVidTaskId,
+                taskType: 'video',
+                modelName: (_drama?.parsedModelConfig.videoModel == 'agnes-video') ? 'agnes-video-v2.0' : (_drama?.parsedModelConfig.videoModel ?? 'unknown'),
+                provider: (_drama?.parsedModelConfig.videoModel == 'agnes-video') ? 'agnes-ai' : 'bailian',
+                status: 'completed',
+                dramaTitle: _drama?.title,
+                shotDescription: shot.visualDescription.length > 100 ? shot.visualDescription.substring(0, 100) : shot.visualDescription,
+                resultUrl: videoPath,
+                completedAt: DateTime.now(),
+              ));
+            } catch (_) {}
             if (mounted) setState(() {
               final idx = _shots.indexWhere((s) => s.id == shot.id);
               if (idx != -1) _shots[idx] = updated;
@@ -1450,6 +1523,21 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           status: 'video_ready',
         );
         await StorageUtil.updateShot(updatedShot);
+        // TaskLog: 单镜头视频生成成功
+        try {
+          final singleVidTaskId = 'drama_video_${_drama!.id}_${shot.id}_${DateTime.now().millisecondsSinceEpoch}';
+          await StorageUtil.saveTaskLog(TaskLog(
+            taskId: singleVidTaskId,
+            taskType: 'video',
+            modelName: (_drama?.parsedModelConfig.videoModel == 'agnes-video') ? 'agnes-video-v2.0' : (_drama?.parsedModelConfig.videoModel ?? 'unknown'),
+            provider: (_drama?.parsedModelConfig.videoModel == 'agnes-video') ? 'agnes-ai' : 'bailian',
+            status: 'completed',
+            dramaTitle: _drama?.title,
+            shotDescription: shot.visualDescription.length > 100 ? shot.visualDescription.substring(0, 100) : shot.visualDescription,
+            resultUrl: videoPath,
+            completedAt: DateTime.now(),
+          ));
+        } catch (_) {}
         await _loadData();
 
         if (mounted) {

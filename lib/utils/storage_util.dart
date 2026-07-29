@@ -27,7 +27,7 @@ class StorageUtil {
   static const String _dbName = 'koubo_app.db';
 
   // 数据库版本
-  static const int _dbVersion = 4;
+  static const int _dbVersion = 5;
 
   /// 初始化SharedPreferences
   static Future<void> init() async {
@@ -245,6 +245,27 @@ class StorageUtil {
         FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
       )
     ''');
+
+    // 后台任务日志表
+    await db.execute('''
+      CREATE TABLE task_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        task_type TEXT NOT NULL DEFAULT 'image',
+        model_name TEXT NOT NULL DEFAULT '',
+        provider TEXT DEFAULT '',
+        status TEXT DEFAULT 'pending',
+        result_url TEXT,
+        error_reason TEXT,
+        drama_title TEXT,
+        shot_description TEXT,
+        duration_seconds INTEGER DEFAULT 0,
+        cost REAL DEFAULT 0,
+        token_used INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        completed_at TEXT
+      )
+    ''');
   }
 
   /// 数据库升级
@@ -340,6 +361,28 @@ class StorageUtil {
     }
     if (oldVersion < 4) {
       // v3 → v4: 添加后台任务日志表
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS task_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id TEXT NOT NULL,
+          task_type TEXT NOT NULL DEFAULT 'image',
+          model_name TEXT NOT NULL DEFAULT '',
+          provider TEXT DEFAULT '',
+          status TEXT DEFAULT 'pending',
+          result_url TEXT,
+          error_reason TEXT,
+          drama_title TEXT,
+          shot_description TEXT,
+          duration_seconds INTEGER DEFAULT 0,
+          cost REAL DEFAULT 0,
+          token_used INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL,
+          completed_at TEXT
+        )
+      ''');
+    }
+    if (oldVersion < 5) {
+      // v4 → v5: 修复 _onCreate 遗漏 task_logs 表的问题，确保升级用户也有表
       await db.execute('''
         CREATE TABLE IF NOT EXISTS task_logs (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
