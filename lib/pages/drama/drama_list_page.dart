@@ -103,6 +103,11 @@ class _DramaListPageState extends ConsumerState<DramaListPage> {
         title: const Text('AI短剧'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.auto_awesome),
+            tooltip: 'ToonFlow流水线',
+            onPressed: () => Navigator.pushNamed(context, AppRoutes.toonFlow),
+          ),
+          IconButton(
             icon: const Icon(Icons.task_alt),
             tooltip: '任务进度',
             onPressed: () => Navigator.pushNamed(context, AppRoutes.taskLog),

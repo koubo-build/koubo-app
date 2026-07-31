@@ -16,6 +16,7 @@ import '../pages/drama/drama_list_page.dart';
 import '../pages/drama/drama_editor_page.dart';
 import '../pages/drama/storyboard_page.dart';
 import '../pages/drama/task_log_page.dart';
+import '../pages/drama/toonflow_page.dart';
 
 /// 路由配置 - 统一管理所有页面路由
 class AppRoutes {
@@ -39,6 +40,7 @@ class AppRoutes {
   static const String dramaEditor = '/drama/editor';  // 短剧编辑器
   static const String storyboard = '/drama/storyboard'; // 分镜工作台
   static const String taskLog = '/drama/task-log';    // 任务进度
+  static const String toonFlow = '/drama/toonflow';   // ToonFlow短剧流水线
 
   // ==================== 路由表 ====================
   static final Map<String, WidgetBuilder> routes = {
@@ -51,6 +53,7 @@ class AppRoutes {
     help: (context) => const HelpPage(),
     dramaList: (context) => const DramaListPage(),
     taskLog: (context) => const TaskLogPage(),
+    toonFlow: (context) => const ToonFlowPage(),
   };
 
   // ==================== 动态路由 ====================
