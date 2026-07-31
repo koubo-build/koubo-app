@@ -1736,7 +1736,7 @@ class StorageUtil {
     final cutoff = DateTime.now().subtract(Duration(days: keepDays)).toIso8601String();
     await db.delete(
       'task_logs',
-      where: 'status IN ('completed', 'failed') AND created_at < ?',
+      where: "status IN ('completed', 'failed') AND created_at < ?",
       whereArgs: [cutoff],
     );
   }

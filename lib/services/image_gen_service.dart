@@ -91,6 +91,47 @@ class ImageGenService {
         modelName: 'agnes-image-2.1-flash',
         onProgress: onProgress,
       );
+    } else if (model == 'siliconflow') {
+      return _generateWithSiliconFlow(
+        prompt: prompt,
+        width: width,
+        height: height,
+        onProgress: onProgress,
+      );
+    } else if (model == 'wanx') {
+      return _generateWithWanx(
+        prompt: prompt,
+        negativePrompt: negativePrompt,
+        width: width,
+        height: height,
+        onProgress: onProgress,
+      );
+    } else {
+      return _generateWithLocalSd(
+        prompt: prompt,
+        negativePrompt: negativePrompt,
+        width: width,
+        height: height,
+        onProgress: onProgress,
+      );
+    }
+    } catch (e) {
+      final errorMsg = e.toString();
+      try {
+        if (logId != null) {
+          await StorageUtil.updateTaskLog(TaskLog(
+            id: logId,
+            taskId: taskId,
+            taskType: 'image',
+            modelName: model,
+            provider: provider,
+            status: 'failed',
+            errorReason: errorMsg.length > 200 ? errorMsg.substring(0, 200) : errorMsg,
+            durationSeconds: DateTime.now().difference(startTime).inSeconds,
+            createdAt: startTime,
+            completedAt: DateTime.now(),
+          ));
+        }
       } catch (_) {}
       rethrow;
     } finally {
