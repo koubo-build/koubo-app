@@ -5,7 +5,7 @@ import '../../services/toonflow_service.dart';
 import '../../services/tts_service.dart';
 
 /// ToonFlow短剧流水线页面
-/// 输入剧本 → 一键生成全流程 → 显示进度 → 展示结果
+/// 输入剧本 → 导演Agent识别角色 → 分配角色音色 → 分镜+视频+配音 → 展示结果
 class ToonFlowPage extends ConsumerStatefulWidget {
   const ToonFlowPage({super.key});
 
@@ -21,8 +21,11 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   String _videoModel = ToonFlowService.defaultVideoModel;
   String _aspectRatio = ToonFlowService.defaultAspectRatio;
   String _baseStyle = ToonFlowService.defaultBaseStyle;
-  String _ttsVoiceId = 'longanhuan';
   bool _enableTts = true;
+
+  // 角色与音色
+  List<ToonCharacter> _characters = [];
+  bool _charactersReady = false; // 导演Agent是否已完成，角色已就绪
 
   // 运行状态
   bool _isRunning = false;
@@ -51,8 +54,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     super.dispose();
   }
 
-  /// 启动ToonFlow全流程
-  Future<void> _startPipeline() async {
+  /// 第一步：分析剧本，识别角色
+  Future<void> _analyzeScript() async {
     final script = _scriptController.text.trim();
     if (script.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -66,17 +69,83 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       _error = null;
       _result = null;
       _progress = 0;
-      _currentStage = '准备中...';
+      _currentStage = '导演Agent分析剧本...';
+      _charactersReady = false;
+      _characters = [];
     });
 
     try {
       final service = ref.read(toonFlowServiceProvider);
+      final directorResult = await service.runDirectorAgent(
+        userInput: script,
+        onProgress: (stage, progress) {
+          if (mounted) {
+            setState(() {
+              _currentStage = stage;
+              _progress = progress;
+            });
+          }
+        },
+      );
+
+      // 自动为角色分配音色
+      ToonFlowService.autoAssignVoices(directorResult.characters);
+
+      if (mounted) {
+        setState(() {
+          _characters = directorResult.characters;
+          _charactersReady = true;
+          _isRunning = false;
+          _progress = 20;
+          _currentStage = '导演分析完成，请确认角色音色';
+        });
+        // 滚动到角色配置区
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeOut,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isRunning = false;
+        });
+      }
+    }
+  }
+
+  /// 第二步：开始生成视频+配音
+  Future<void> _startGeneration() async {
+    final script = _scriptController.text.trim();
+    if (script.isEmpty || _characters.isEmpty) return;
+
+    setState(() {
+      _isRunning = true;
+      _error = null;
+      _result = null;
+      _progress = 20;
+      _currentStage = '开始生成视频与配音...';
+    });
+
+    try {
+      final service = ref.read(toonFlowServiceProvider);
+
+      // 构建角色音色映射
+      final voiceMap = <String, String>{};
+      for (final char in _characters) {
+        if (char.voiceId.isNotEmpty) {
+          voiceMap[char.name] = char.voiceId;
+        }
+      }
+
       final result = await service.runFullPipeline(
         userInput: script,
         videoModel: _videoModel,
         aspectRatio: _aspectRatio,
         baseStyle: _baseStyle,
-        ttsVoiceId: _ttsVoiceId,
+        characterVoiceMap: voiceMap,
         enableTts: _enableTts,
         onProgress: (stage, progress) {
           if (mounted) {
@@ -106,7 +175,65 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     }
   }
 
-  /// 停止运行（目前不支持中途取消，仅UI提示）
+  /// 一键生成（跳过角色确认，直接全流程）
+  Future<void> _quickGenerate() async {
+    final script = _scriptController.text.trim();
+    if (script.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请输入剧本文本')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isRunning = true;
+      _error = null;
+      _result = null;
+      _progress = 0;
+      _currentStage = '准备中...';
+      _charactersReady = false;
+      _characters = [];
+    });
+
+    try {
+      final service = ref.read(toonFlowServiceProvider);
+      final result = await service.runFullPipeline(
+        userInput: script,
+        videoModel: _videoModel,
+        aspectRatio: _aspectRatio,
+        baseStyle: _baseStyle,
+        enableTts: _enableTts,
+        onProgress: (stage, progress) {
+          if (mounted) {
+            setState(() {
+              _currentStage = stage;
+              _progress = progress;
+            });
+          }
+        },
+      );
+
+      if (mounted) {
+        setState(() {
+          _result = result;
+          _characters = result.characters;
+          _charactersReady = true;
+          _isRunning = false;
+          _progress = 100;
+          _currentStage = '完成！';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isRunning = false;
+        });
+      }
+    }
+  }
+
+  /// 停止运行
   void _stopPipeline() {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('视频生成任务已提交到服务端，无法中途取消')),
@@ -142,6 +269,11 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   // 配置区
                   _buildConfigSection(),
                   const SizedBox(height: AppTheme.spacingMedium),
+                  // 角色音色配置区（导演分析完成后显示）
+                  if (_charactersReady && _result == null) ...[
+                    _buildCharacterVoiceSection(),
+                    const SizedBox(height: AppTheme.spacingMedium),
+                  ],
                   // 进度区
                   if (_isRunning || _result != null || _error != null)
                     _buildProgressSection(),
@@ -298,23 +430,6 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
               ),
             ],
           ),
-          if (_enableTts) ...[
-            const SizedBox(height: 8),
-            // TTS音色
-            _buildConfigDropdown(
-              label: '配音音色',
-              value: _ttsVoiceId,
-              items: TtsService.cosyVoiceList
-                  .map((v) => {
-                        'value': v['id'] ?? '',
-                        'label': '${v['name']}（${v['style']}）',
-                      })
-                  .toList(),
-              onChanged: _isRunning
-                  ? null
-                  : (v) => setState(() => _ttsVoiceId = v!),
-            ),
-          ],
         ],
       ),
     );
@@ -347,6 +462,218 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           isDense: true,
         ),
       ],
+    );
+  }
+
+  // ==================== 角色音色配置区 ====================
+
+  Widget _buildCharacterVoiceSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.darkCard,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        border: Border.all(
+          color: const Color(0xFFFF6B9D).withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 标题栏
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppTheme.spacingMedium,
+              vertical: AppTheme.spacingSmall,
+            ),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF6B9D).withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(AppTheme.radiusMedium),
+                topRight: Radius.circular(AppTheme.radiusMedium),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.record_voice_over, size: 18, color: Color(0xFFFF6B9D)),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    '角色音色配置',
+                    style: TextStyle(
+                      color: Color(0xFFFF6B9D),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${_characters.length}个角色',
+                  style: TextStyle(color: AppTheme.textHint.withOpacity(0.7), fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          // 角色音色列表
+          ..._characters.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final char = entry.value;
+            return _buildCharacterVoiceItem(idx, char);
+          }),
+          // 底部操作
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppTheme.spacingMedium,
+              AppTheme.spacingSmall,
+              AppTheme.spacingMedium,
+              AppTheme.spacingMedium,
+            ),
+            child: Row(
+              children: [
+                // 重新分析按钮
+                OutlinedButton.icon(
+                  onPressed: _isRunning ? null : _analyzeScript,
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('重新分析', style: TextStyle(fontSize: 12)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFFF6B9D),
+                    side: const BorderSide(color: Color(0xFFFF6B9D), width: 0.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                // 开始生成按钮
+                ElevatedButton.icon(
+                  onPressed: _isRunning ? null : _startGeneration,
+                  icon: const Icon(Icons.play_arrow, size: 16),
+                  label: const Text('开始生成', style: TextStyle(fontSize: 13)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C4DFF),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCharacterVoiceItem(int idx, ToonCharacter char) {
+    // 获取当前选中音色的名称
+    final currentVoice = ToonFlowService.voicePool.firstWhere(
+      (v) => v['id'] == char.voiceId,
+      orElse: () => {'name': '未选择', 'style': ''},
+    );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTheme.spacingMedium,
+        vertical: AppTheme.spacingSmall,
+      ),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: const Color(0xFF2A2A4A).withOpacity(0.3),
+            width: 0.5,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          // 角色序号
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF6B9D).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Center(
+              child: Text(
+                '${idx + 1}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFFF6B9D),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          // 角色名和描述
+          Expanded(
+            flex: 2,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  char.name,
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  char.desc,
+                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          // 音色选择下拉
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF7C4DFF).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: const Color(0xFF7C4DFF).withOpacity(0.3),
+                width: 0.5,
+              ),
+            ),
+            child: DropdownButton<String>(
+              value: char.voiceId.isEmpty ? null : char.voiceId,
+              items: ToonFlowService.voicePool
+                  .map((v) => DropdownMenuItem(
+                        value: v['id'],
+                        child: Text(
+                          '${v['name']}（${v['style']}）',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ))
+                  .toList(),
+              onChanged: _isRunning
+                  ? null
+                  : (v) {
+                      if (v != null) {
+                        setState(() {
+                          _characters[idx].voiceId = v;
+                        });
+                      }
+                    },
+              underline: const SizedBox.shrink(),
+              dropdownColor: AppTheme.darkSurface,
+              isDense: true,
+              icon: const Icon(Icons.arrow_drop_down, size: 18, color: Color(0xFF7C4DFF)),
+              style: const TextStyle(fontSize: 11, color: Color(0xFF7C4DFF)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -479,7 +806,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
             ...result.outline.map((o) => _buildOutlineItem(o)),
           ],
           const Divider(height: 1, color: Color(0xFF2A2A4A)),
-          // 角色列表
+          // 角色列表（含音色信息）
           if (result.characters.isNotEmpty) ...[
             Container(
               padding: const EdgeInsets.symmetric(
@@ -490,7 +817,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                 children: [
                   Icon(Icons.people, size: 16, color: Color(0xFFFF6B9D)),
                   SizedBox(width: 8),
-                  Text('角色', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFFFF6B9D))),
+                  Text('角色与音色', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFFFF6B9D))),
                 ],
               ),
             ),
@@ -502,6 +829,13 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                 spacing: 8,
                 runSpacing: 8,
                 children: result.characters.map((c) {
+                  // 获取角色对应的音色名称
+                  final voiceInfo = ToonFlowService.voicePool.firstWhere(
+                    (v) => v['id'] == c.voiceId,
+                    orElse: () => {'name': '', 'style': ''},
+                  );
+                  final voiceName = voiceInfo['name'] ?? '';
+
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
@@ -516,13 +850,35 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          c.name,
-                          style: const TextStyle(
-                            color: Color(0xFFFF6B9D),
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              c.name,
+                              style: const TextStyle(
+                                color: Color(0xFFFF6B9D),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            if (voiceName.isNotEmpty) ...[
+                              const SizedBox(width: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF7C4DFF).withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                                child: Text(
+                                  '🎤 $voiceName',
+                                  style: const TextStyle(
+                                    color: Color(0xFF7C4DFF),
+                                    fontSize: 9,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 2),
                         ConstrainedBox(
@@ -603,7 +959,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     );
   }
 
-  /// 分镜列表
+  /// 分镜列表（显示角色音色信息）
   Widget _buildShotsList(ToonFlowResult result) {
     return Container(
       decoration: BoxDecoration(
@@ -647,6 +1003,21 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                 ? result.videoSegments[idx]
                 : null;
             final isSuccess = video?.status == 'success';
+
+            // 获取说话角色对应的音色名
+            String speakerVoiceName = '';
+            if (shot.speaker.isNotEmpty) {
+              for (final char in result.characters) {
+                if (char.name == shot.speaker && char.voiceId.isNotEmpty) {
+                  final voiceInfo = ToonFlowService.voicePool.firstWhere(
+                    (v) => v['id'] == char.voiceId,
+                    orElse: () => {'name': ''},
+                  );
+                  speakerVoiceName = voiceInfo['name'] ?? '';
+                  break;
+                }
+              }
+            }
 
             return Container(
               padding: const EdgeInsets.all(AppTheme.spacingMedium),
@@ -705,7 +1076,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 4),
-                        Row(
+                        Wrap(
+                          spacing: 6,
                           children: [
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -718,7 +1090,6 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                                 style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary),
                               ),
                             ),
-                            const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
@@ -730,10 +1101,20 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                                 style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary),
                               ),
                             ),
-                            if (shot.audio_text.isNotEmpty) ...[
-                              const SizedBox(width: 6),
-                              const Icon(Icons.record_voice_over, size: 12, color: AppTheme.accentColor),
-                            ],
+                            if (shot.speaker.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFF6B9D).withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  speakerVoiceName.isNotEmpty
+                                      ? '${shot.speaker} · $speakerVoiceName'
+                                      : shot.speaker,
+                                  style: const TextStyle(fontSize: 10, color: Color(0xFFFF6B9D)),
+                                ),
+                              ),
                           ],
                         ),
                       ],
@@ -882,7 +1263,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     );
   }
 
-  /// 音频结果
+  /// 音频结果（显示角色音色信息）
   Widget _buildAudioResults(ToonFlowResult result) {
     final successAudios = result.audioSegments.where((a) => a.status == 'success').toList();
 
@@ -921,30 +1302,79 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
               ],
             ),
           ),
-          ...result.audioSegments.map((a) => Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppTheme.spacingMedium,
-                  vertical: AppTheme.spacingSmall,
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      a.status == 'success' ? Icons.volume_up : Icons.volume_off,
-                      size: 18,
-                      color: a.status == 'success' ? AppTheme.safeColor : AppTheme.highRiskColor,
+          ...result.audioSegments.map((a) {
+            // 获取该镜头对应的角色和音色
+            final shot = a.index < result.shots.length ? result.shots[a.index] : null;
+            String voiceLabel = '';
+            if (shot != null && shot.speaker.isNotEmpty) {
+              for (final char in result.characters) {
+                if (char.name == shot.speaker && char.voiceId.isNotEmpty) {
+                  final voiceInfo = ToonFlowService.voicePool.firstWhere(
+                    (v) => v['id'] == char.voiceId,
+                    orElse: () => {'name': ''},
+                  );
+                  voiceLabel = voiceInfo['name'] ?? '';
+                  break;
+                }
+              }
+            }
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppTheme.spacingMedium,
+                vertical: AppTheme.spacingSmall,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    a.status == 'success' ? Icons.volume_up : Icons.volume_off,
+                    size: 18,
+                    color: a.status == 'success' ? AppTheme.safeColor : AppTheme.highRiskColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              '镜头 ${a.index + 1}',
+                              style: const TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            if (voiceLabel.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF7C4DFF).withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                                child: Text(
+                                  '🎤 $voiceLabel',
+                                  style: const TextStyle(fontSize: 9, color: Color(0xFF7C4DFF)),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        Text(
+                          a.audioText,
+                          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '镜头 ${a.index + 1}: ${a.audioText}',
-                        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              )),
+                  ),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );
@@ -1004,17 +1434,40 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
             style: const TextStyle(color: AppTheme.textHint, fontSize: 12),
           ),
           const Spacer(),
-          // 开始按钮
+          if (_charactersReady && _result == null) ...[
+            // 角色已就绪时显示"开始生成"
+            OutlinedButton.icon(
+              onPressed: _isRunning ? null : _quickGenerate,
+              icon: const Icon(Icons.flash_on, size: 16),
+              label: const Text('一键生成', style: TextStyle(fontSize: 12)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF7C4DFF),
+                side: const BorderSide(color: Color(0xFF7C4DFF), width: 0.5),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          // 主按钮
           ElevatedButton.icon(
-            onPressed: _isRunning ? null : _startPipeline,
+            onPressed: _isRunning
+                ? null
+                : (_charactersReady && _result == null ? null : _analyzeScript),
             icon: _isRunning
                 ? const SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                   )
-                : const Icon(Icons.play_arrow),
-            label: Text(_isRunning ? '生成中...' : '一键生成短剧'),
+                : Icon(_charactersReady && _result == null
+                    ? Icons.check_circle_outline
+                    : Icons.auto_awesome),
+            label: Text(_isRunning
+                ? '生成中...'
+                : (_charactersReady && _result == null ? '角色已就绪' : '分析剧本')),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF7C4DFF),
               foregroundColor: Colors.white,

@@ -340,11 +340,13 @@ class ApiClient {
             _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModel4, '智谱AI'),
             _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModelFlash, '智谱AI-Flash'),
             _ProviderConfig(ApiConfig.siliconFlowApiKeyKey, ApiConfig.siliconFlowBaseUrl, ApiConfig.siliconFlowModelQwen, '硅基流动'),
+            _ProviderConfig(ApiConfig.agnesApiKeyKey, ApiConfig.agnesBaseUrl, ApiConfig.agnesModelFlash, 'Agnes AI'),
           ]
         : [
             _ProviderConfig(ApiConfig.aliBailianApiKeyKey, ApiConfig.aliBailianCompatUrl, 'qwen-plus', '阿里百炼'),
             _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModelFlash, '智谱AI'),
             _ProviderConfig(ApiConfig.siliconFlowApiKeyKey, ApiConfig.siliconFlowBaseUrl, ApiConfig.siliconFlowModelQwen, '硅基流动'),
+            _ProviderConfig(ApiConfig.agnesApiKeyKey, ApiConfig.agnesBaseUrl, ApiConfig.agnesModelFlash, 'Agnes AI'),
           ];
 
     for (final provider in providers) {
@@ -417,6 +419,7 @@ class ApiClient {
       _ProviderConfig(ApiConfig.aliBailianApiKeyKey, ApiConfig.aliBailianCompatUrl, 'qwen-plus', '阿里百炼'),
       _ProviderConfig(ApiConfig.zhipuApiKeyKey, ApiConfig.zhipuBaseUrl, ApiConfig.zhipuModelFlash, '智谱AI'),
       _ProviderConfig(ApiConfig.siliconFlowApiKeyKey, ApiConfig.siliconFlowBaseUrl, ApiConfig.siliconFlowModelQwen, '硅基流动'),
+      _ProviderConfig(ApiConfig.agnesApiKeyKey, ApiConfig.agnesBaseUrl, ApiConfig.agnesModelFlash, 'Agnes AI'),
     ];
 
     String? lastError;

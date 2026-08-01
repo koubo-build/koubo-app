@@ -36,6 +36,86 @@ class ToonFlowService {
     return 'sk-7910JE6f3qpCtYchwYPgzPdpFC2X99chkCNExCvTmvLObACo';
   }
 
+  // ==================== 角色音色池 ====================
+
+  /// 可用音色池，包含男声和女声
+  /// 每个音色包含：id、name、gender（male/female）、style描述
+  static const List<Map<String, String>> voicePool = [
+    {'id': 'longanhuan', 'name': '龙安欢', 'gender': 'female', 'style': '元气女声'},
+    {'id': 'longxiaochun', 'name': '龙小淳', 'gender': 'female', 'style': '知性女声'},
+    {'id': 'longyue', 'name': '龙悦', 'gender': 'female', 'style': '温柔女声'},
+    {'id': 'longmiao', 'name': '龙喵', 'gender': 'female', 'style': '甜美女声'},
+    {'id': 'loongbella', 'name': '龙贝拉', 'gender': 'female', 'style': '优雅女声'},
+    {'id': 'loongstella', 'name': '龙思黛拉', 'gender': 'female', 'style': '成熟女声'},
+    {'id': 'longshuo', 'name': '龙硕', 'gender': 'male', 'style': '沉稳男声'},
+    {'id': 'longanyang', 'name': '龙安洋', 'gender': 'male', 'style': '阳光男声'},
+    {'id': 'longxiang', 'name': '龙翔', 'gender': 'male', 'style': '磁性男声'},
+    {'id': 'longtong', 'name': '龙彤', 'gender': 'male', 'style': '少年男声'},
+  ];
+
+  /// 根据角色描述自动为角色分配不同音色
+  /// 根据角色名字或描述中的性别关键词匹配男/女声，未匹配到则交替分配
+  static void autoAssignVoices(List<ToonCharacter> characters) {
+    final femaleVoices = voicePool.where((v) => v['gender'] == 'male' ? false : true).toList();
+    final maleVoices = voicePool.where((v) => v['gender'] == 'male').toList();
+    int femaleIdx = 0;
+    int maleIdx = 0;
+
+    for (final char in characters) {
+      // 根据角色描述判断性别
+      final desc = (char.name + ' ' + char.desc).toLowerCase();
+      bool? isMale;
+
+      // 中文性别关键词
+      if (desc.contains('男') || desc.contains('先生') || desc.contains('哥') ||
+          desc.contains('爷') || desc.contains('叔') || desc.contains('少年')) {
+        isMale = true;
+      } else if (desc.contains('女') || desc.contains('小姐') || desc.contains('姐') ||
+          desc.contains('娘') || desc.contains('婆') || desc.contains('少女')) {
+        isMale = false;
+      }
+      // 英文性别关键词
+      else if (desc.contains('boy') || desc.contains('man') || desc.contains('mr') ||
+          desc.contains('male') || desc.contains('king') || desc.contains('uncle')) {
+        isMale = true;
+      } else if (desc.contains('girl') || desc.contains('woman') || desc.contains('mrs') ||
+          desc.contains('ms') || desc.contains('female') || desc.contains('queen')) {
+        isMale = false;
+      }
+
+      // 分配音色
+      if (isMale == true && maleVoices.isNotEmpty) {
+        char.voiceId = maleVoices[maleIdx % maleVoices.length]['id']!;
+        maleIdx++;
+      } else if (isMale == false && femaleVoices.isNotEmpty) {
+        char.voiceId = femaleVoices[femaleIdx % femaleVoices.length]['id']!;
+        femaleIdx++;
+      } else {
+        // 无法判断性别，交替分配所有音色
+        final allIdx = femaleIdx + maleIdx;
+        char.voiceId = voicePool[allIdx % voicePool.length]['id']!;
+        femaleIdx++;
+      }
+    }
+  }
+
+  /// 根据角色名获取对应音色ID
+  static String _getVoiceForSpeaker(String speaker, List<ToonCharacter> characters) {
+    if (speaker.isEmpty) return 'longanhuan'; // 旁白默认用龙安欢
+    for (final char in characters) {
+      if (char.name == speaker && char.voiceId.isNotEmpty) {
+        return char.voiceId;
+      }
+    }
+    // 模糊匹配：角色名包含speaker或speaker包含角色名
+    for (final char in characters) {
+      if (speaker.contains(char.name) || char.name.contains(speaker)) {
+        if (char.voiceId.isNotEmpty) return char.voiceId;
+      }
+    }
+    return 'longanhuan'; // 未找到匹配角色，使用默认音色
+  }
+
   // ==================== 节点1：LLM 导演Agent ====================
 
   static const String _directorSystemPrompt =
@@ -87,7 +167,7 @@ class ToonFlowService {
   // ==================== 节点3：LLM 分镜Agent ====================
 
   static const String _storyboardSystemPrompt =
-      '你是影视分镜师。\n输入：标准化剧本 + 全部角色外貌档案\n输出JSON数组，一条数据=一个镜头。\n强制规则：\n1.每一条分镜画面描述，自动拼接对应角色固定外貌信息，保证人物统一；\n2.标注景别：特写/近景/中景/全景；增加运镜：缓慢推进、固定镜头、轻微平移；\n3.画风统一，竖屏9:16，高清，电影级光影；\n4.控制镜头时长，单镜头2～8秒；\nJSON结构：\n{\n  "shot_list":[\n    {\n      "scene_desc":"完整画面提示词",\n      "camera":"景别+运镜",\n      "audio_text":"当前镜头需要配音的旁白/台词",\n      "duration":"镜头时长(数字，单位秒)"\n    }\n  ]\n}';
+      '你是影视分镜师。\n输入：标准化剧本 + 全部角色外貌档案\n输出JSON数组，一条数据=一个镜头。\n强制规则：\n1.每一条分镜画面描述，自动拼接对应角色固定外貌信息，保证人物统一；\n2.标注景别：特写/近景/中景/全景；增加运镜：缓慢推进、固定镜头、轻微平移；\n3.画风统一，竖屏9:16，高清，电影级光影；\n4.控制镜头时长，单镜头2～8秒；\n5.每个镜头必须标注说话角色名（speaker），旁白填"旁白"；\nJSON结构：\n{\n  "shot_list":[\n    {\n      "scene_desc":"完整画面提示词",\n      "camera":"景别+运镜",\n      "audio_text":"当前镜头需要配音的旁白/台词",\n      "speaker":"说话角色名（对应角色档案中的name，旁白填\'旁白\'）",\n      "duration":"镜头时长(数字，单位秒)"\n    }\n  ]\n}';
 
   /// 分镜Agent：输入剧本+角色，输出分镜列表
   Future<List<ShotItem>> runStoryboardAgent({
@@ -252,12 +332,14 @@ class ToonFlowService {
 
   /// 一键执行ToonFlow全流程
   /// 返回ToonFlowResult（包含所有视频/音频链接和结尾悬念）
+  /// [characterVoiceMap] 可选，手动指定角色音色映射 {角色名: voiceId}
+  /// 若未提供，则自动根据角色性别分配音色
   Future<ToonFlowResult> runFullPipeline({
     required String userInput,
     String videoModel = defaultVideoModel,
     String aspectRatio = defaultAspectRatio,
     String baseStyle = defaultBaseStyle,
-    String ttsVoiceId = 'longanhuan',
+    Map<String, String>? characterVoiceMap,
     bool enableTts = true,
     void Function(String stage, int progress)? onProgress,
   }) async {
@@ -269,6 +351,19 @@ class ToonFlowService {
       userInput: userInput,
       onProgress: onProgress,
     );
+
+    // 自动为角色分配音色
+    if (characterVoiceMap != null && characterVoiceMap.isNotEmpty) {
+      // 用户手动指定了角色音色映射
+      for (final char in directorResult.characters) {
+        if (characterVoiceMap.containsKey(char.name)) {
+          char.voiceId = characterVoiceMap[char.name]!;
+        }
+      }
+    } else {
+      // 自动分配音色
+      autoAssignVoices(directorResult.characters);
+    }
 
     // 获取结尾悬念
     final episodeHook = directorResult.outline.isNotEmpty
@@ -348,16 +443,19 @@ class ToonFlowService {
         ));
       }
 
-      // 4-3: TTS配音（可选）
+      // 4-3: TTS配音（可选）- 根据角色分配不同音色
       if (enableTts && shot.audio_text.isNotEmpty) {
         onProgress?.call(
           '镜头 ${i + 1}/$totalShots 生成配音...',
           shotProgress + 5,
         );
 
+        // 根据说话角色获取对应音色
+        final voiceId = _getVoiceForSpeaker(shot.speaker, directorResult.characters);
+
         final audioPath = await _generateAudioForShot(
           audioText: shot.audio_text,
-          voiceId: ttsVoiceId,
+          voiceId: voiceId,
         );
 
         audioList.add(AudioSegment(
@@ -484,8 +582,13 @@ class OutlineItem {
 class ToonCharacter {
   final String name;
   final String desc;
+  String voiceId; // 分配给该角色的TTS音色ID
 
-  ToonCharacter({required this.name, required this.desc});
+  ToonCharacter({
+    required this.name,
+    required this.desc,
+    this.voiceId = '',
+  });
 
   factory ToonCharacter.fromJson(Map<String, dynamic> json) {
     return ToonCharacter(
@@ -501,12 +604,14 @@ class ShotItem {
   final String camera;
   final String audio_text;
   final String duration; // 原始值，可能是字符串
+  final String speaker; // 说话角色名
 
   ShotItem({
     required this.scene_desc,
     required this.camera,
     required this.audio_text,
     required this.duration,
+    this.speaker = '',
   });
 
   /// 获取整数时长（秒），默认5
@@ -522,6 +627,7 @@ class ShotItem {
       camera: json['camera'] as String? ?? '',
       audio_text: json['audio_text'] as String? ?? '',
       duration: (json['duration'] ?? 5).toString(),
+      speaker: json['speaker'] as String? ?? '',
     );
   }
 }
