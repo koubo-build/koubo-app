@@ -328,11 +328,129 @@ class ToonFlowService {
     }
   }
 
+  // ==================== 角色定妆照生成 ====================
+
+  /// 为所有角色生成定妆照（角色参考图）
+  /// 使用 Agnes AI 图像生成 API，生成统一风格的角色肖像
+  /// 返回成功生成的角色数
+  Future<int> generateCharacterPortraits({
+    required List<ToonCharacter> characters,
+    required String baseStyle,
+    required String aspectRatio,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final apiKey = await _getAgnesApiKey();
+    int successCount = 0;
+
+    for (int i = 0; i < characters.length; i++) {
+      final char = characters[i];
+      // 进度映射：30%~45%之间分配
+      final progressVal = 30 + ((i / characters.length) * 15).round();
+      onProgress?.call('生成角色定妆照 ${i + 1}/${characters.length}: ${char.name}', progressVal);
+
+      try {
+        final portraitUrl = await _generatePortrait(
+          apiKey: apiKey,
+          characterName: char.name,
+          characterDesc: char.desc,
+          baseStyle: baseStyle,
+          aspectRatio: aspectRatio,
+        );
+        char.portraitUrl = portraitUrl;
+        successCount++;
+        debugPrint('[ToonFlow] 角色 ${char.name} 定妆照生成成功: $portraitUrl');
+      } catch (e) {
+        debugPrint('[ToonFlow] 角色 ${char.name} 定妆照生成失败: $e');
+        // 不影响其他角色，继续
+      }
+    }
+
+    onProgress?.call('定妆照生成完成，成功$successCount/${characters.length}', 45);
+    return successCount;
+  }
+
+  /// 生成单个角色的定妆照
+  Future<String> _generatePortrait({
+    required String apiKey,
+    required String characterName,
+    required String characterDesc,
+    required String baseStyle,
+    required String aspectRatio,
+  }) async {
+    // 构造角色定妆照专用prompt
+    // 关键：角色肖像照，正面或3/4侧面，纯色背景，清晰展现角色外貌特征
+    final prompt = '角色设定照，$characterName，$characterDesc，正面或微侧面半身像，中性灰色纯色背景，柔和均匀灯光，$baseStyle，高清细节，角色一致性参考图';
+
+    // 确定图片尺寸
+    // aspectRatio 9:16 -> 1024x1792, 16:9 -> 1792x1024, 1:1 -> 1024x1024
+    String size = '1024x1792'; // 默认竖屏
+    if (aspectRatio == '16:9') {
+      size = '1792x1024';
+    } else if (aspectRatio == '1:1') {
+      size = '1024x1024';
+    }
+
+    final dio = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(minutes: 5),
+    ));
+
+    final response = await dio.post(
+      '${ApiConfig.agnesBaseUrl}/images/generations',
+      data: jsonEncode({
+        'model': 'agnes-image-2.1-flash',
+        'prompt': prompt,
+        'size': size,
+        'n': 1,
+      }),
+      options: Options(headers: {
+        'Authorization': 'Bearer $apiKey',
+        'Content-Type': 'application/json',
+      }),
+    );
+
+    final data = response.data as Map<String, dynamic>;
+    final imageData = data['data'] as List<dynamic>?;
+    if (imageData == null || imageData.isEmpty) {
+      throw Exception('定妆照生成未返回图片');
+    }
+
+    final imageUrl = imageData[0]['url'] as String?;
+    if (imageUrl == null || imageUrl.isEmpty) {
+      // 尝试b64_json
+      final b64 = imageData[0]['b64_json'] as String?;
+      if (b64 != null && b64.isNotEmpty) {
+        // base64 无法直接作为 image_ref，需要URL
+        throw Exception('定妆照返回base64格式，无法用作参考图');
+      }
+      throw Exception('定妆照生成失败：未返回图片URL');
+    }
+
+    return imageUrl;
+  }
+
+  /// 第一步+：在导演分析完成后，生成角色定妆照
+  /// 返回成功生成的定妆照数量
+  Future<int> runPortraitGeneration({
+    required List<ToonCharacter> characters,
+    required String baseStyle,
+    required String aspectRatio,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    return generateCharacterPortraits(
+      characters: characters,
+      baseStyle: baseStyle,
+      aspectRatio: aspectRatio,
+      onProgress: onProgress,
+    );
+  }
+
   // ==================== 主流程：一键生成完整短剧 ====================
 
   /// 一键执行ToonFlow全流程
   /// 返回ToonFlowResult（包含所有视频/音频链接和结尾悬念）
   /// [characterVoiceMap] 可选，手动指定角色音色映射 {角色名: voiceId}
+  /// [existingCharacters] 可选，传入已有角色（含定妆照和音色），跳过导演Agent的角色分析
   /// 若未提供，则自动根据角色性别分配音色
   Future<ToonFlowResult> runFullPipeline({
     required String userInput,
@@ -340,29 +458,56 @@ class ToonFlowService {
     String aspectRatio = defaultAspectRatio,
     String baseStyle = defaultBaseStyle,
     Map<String, String>? characterVoiceMap,
+    List<ToonCharacter>? existingCharacters,
     bool enableTts = true,
     void Function(String stage, int progress)? onProgress,
   }) async {
     // 获取API Key
     final apiKey = await _getAgnesApiKey();
 
-    // ====== 节点1：导演Agent ======
-    final directorResult = await runDirectorAgent(
-      userInput: userInput,
-      onProgress: onProgress,
-    );
+    DirectorResult directorResult;
 
-    // 自动为角色分配音色
-    if (characterVoiceMap != null && characterVoiceMap.isNotEmpty) {
-      // 用户手动指定了角色音色映射
-      for (final char in directorResult.characters) {
-        if (characterVoiceMap.containsKey(char.name)) {
-          char.voiceId = characterVoiceMap[char.name]!;
+    if (existingCharacters != null && existingCharacters.isNotEmpty) {
+      // 使用已有角色，但仍执行导演Agent获取outline
+      // 合并：用existingCharacters的voiceId和portraitUrl覆盖freshResult的characters
+      final freshResult = await runDirectorAgent(
+        userInput: userInput,
+        onProgress: onProgress,
+      );
+
+      for (final existingChar in existingCharacters) {
+        for (final freshChar in freshResult.characters) {
+          if (freshChar.name == existingChar.name) {
+            freshChar.voiceId = existingChar.voiceId;
+            freshChar.portraitUrl = existingChar.portraitUrl;
+            break;
+          }
         }
       }
+
+      directorResult = DirectorResult(
+        outline: freshResult.outline,
+        characters: freshResult.characters,
+      );
     } else {
-      // 自动分配音色
-      autoAssignVoices(directorResult.characters);
+      // ====== 节点1：导演Agent ======
+      directorResult = await runDirectorAgent(
+        userInput: userInput,
+        onProgress: onProgress,
+      );
+
+      // 自动为角色分配音色
+      if (characterVoiceMap != null && characterVoiceMap.isNotEmpty) {
+        // 用户手动指定了角色音色映射
+        for (final char in directorResult.characters) {
+          if (characterVoiceMap.containsKey(char.name)) {
+            char.voiceId = characterVoiceMap[char.name]!;
+          }
+        }
+      } else {
+        // 自动分配音色
+        autoAssignVoices(directorResult.characters);
+      }
     }
 
     // 获取结尾悬念
@@ -377,6 +522,27 @@ class ToonFlowService {
       onProgress: onProgress,
     );
 
+    // ====== 新增：角色定妆照生成 ======
+    // 仅在角色还没有定妆照时生成
+    final needsPortraits = directorResult.characters.any((c) => c.portraitUrl.isEmpty);
+    if (needsPortraits) {
+      onProgress?.call('生成角色定妆照...', 30);
+      await generateCharacterPortraits(
+        characters: directorResult.characters,
+        baseStyle: baseStyle,
+        aspectRatio: aspectRatio,
+        onProgress: onProgress,
+      );
+    }
+
+    // 构建角色名→定妆照URL映射
+    final characterPortraitMap = <String, String>{};
+    for (final char in directorResult.characters) {
+      if (char.portraitUrl.isNotEmpty) {
+        characterPortraitMap[char.name] = char.portraitUrl;
+      }
+    }
+
     // ====== 节点4：遍历所有分镜，生成视频+配音 ======
     final videoList = <VideoSegment>[];
     final audioList = <AudioSegment>[];
@@ -385,11 +551,33 @@ class ToonFlowService {
 
     for (int i = 0; i < totalShots; i++) {
       final shot = allShots[i];
-      final shotProgress = 35 + ((i / totalShots) * 60).round();
+      // 进度调整：定妆照占30-45%，视频占45-100%
+      final shotProgress = 45 + ((i / totalShots) * 50).round();
       onProgress?.call(
         '生成镜头 ${i + 1}/$totalShots: ${shot.camera}',
         shotProgress,
       );
+
+      // 根据speaker查找对应角色的定妆照URL
+      String? shotImageRef;
+      if (shot.speaker.isNotEmpty && shot.speaker != '旁白') {
+        // 精确匹配
+        if (characterPortraitMap.containsKey(shot.speaker)) {
+          shotImageRef = characterPortraitMap[shot.speaker];
+        } else {
+          // 模糊匹配
+          for (final entry in characterPortraitMap.entries) {
+            if (shot.speaker.contains(entry.key) || entry.key.contains(shot.speaker)) {
+              shotImageRef = entry.value;
+              break;
+            }
+          }
+        }
+      }
+      // 如果speaker是旁白或没匹配到，尝试使用第一个有定妆照的角色
+      if (shotImageRef == null && characterPortraitMap.isNotEmpty) {
+        shotImageRef = characterPortraitMap.values.first;
+      }
 
       // 4-1: 提交Agnes视频任务
       String? taskId;
@@ -403,6 +591,7 @@ class ToonFlowService {
           videoModel: videoModel,
           aspectRatio: aspectRatio,
           duration: duration,
+          imageRef: shotImageRef,
         );
       } catch (e) {
         debugPrint('[ToonFlow] 镜头${i + 1}提交失败: $e');
@@ -583,17 +772,20 @@ class ToonCharacter {
   final String name;
   final String desc;
   String voiceId; // 分配给该角色的TTS音色ID
+  String portraitUrl; // 角色定妆照URL（用于视频生成时的角色参考）
 
   ToonCharacter({
     required this.name,
     required this.desc,
     this.voiceId = '',
+    this.portraitUrl = '',
   });
 
   factory ToonCharacter.fromJson(Map<String, dynamic> json) {
     return ToonCharacter(
       name: json['name'] as String? ?? '',
       desc: json['desc'] as String? ?? '',
+      portraitUrl: json['portraitUrl'] as String? ?? '',
     );
   }
 }

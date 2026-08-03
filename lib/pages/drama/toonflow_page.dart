@@ -26,6 +26,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   // 角色与音色
   List<ToonCharacter> _characters = [];
   bool _charactersReady = false; // 导演Agent是否已完成，角色已就绪
+  bool _portraitsReady = false; // 定妆照是否已生成
+  int _portraitSuccessCount = 0; // 成功生成定妆照的角色数
 
   // 运行状态
   bool _isRunning = false;
@@ -54,7 +56,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     super.dispose();
   }
 
-  /// 第一步：分析剧本，识别角色
+  /// 第一步：分析剧本，识别角色并生成定妆照
   Future<void> _analyzeScript() async {
     final script = _scriptController.text.trim();
     if (script.isEmpty) {
@@ -71,6 +73,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       _progress = 0;
       _currentStage = '导演Agent分析剧本...';
       _charactersReady = false;
+      _portraitsReady = false;
+      _portraitSuccessCount = 0;
       _characters = [];
     });
 
@@ -95,9 +99,33 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
         setState(() {
           _characters = directorResult.characters;
           _charactersReady = true;
-          _isRunning = false;
+          _currentStage = '导演分析完成，正在生成角色定妆照...';
           _progress = 20;
-          _currentStage = '导演分析完成，请确认角色音色';
+        });
+      }
+
+      // 自动生成定妆照
+      final successCount = await service.runPortraitGeneration(
+        characters: directorResult.characters,
+        baseStyle: _baseStyle,
+        aspectRatio: _aspectRatio,
+        onProgress: (stage, progress) {
+          if (mounted) {
+            setState(() {
+              _currentStage = stage;
+              _progress = progress;
+            });
+          }
+        },
+      );
+
+      if (mounted) {
+        setState(() {
+          _portraitsReady = true;
+          _portraitSuccessCount = successCount;
+          _isRunning = false;
+          _progress = 40;
+          _currentStage = '定妆照生成完成，请确认角色配置';
         });
         // 滚动到角色配置区
         _scrollController.animateTo(
@@ -116,7 +144,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     }
   }
 
-  /// 第二步：开始生成视频+配音
+  /// 第二步：开始生成视频+配音（复用已有角色含定妆照）
   Future<void> _startGeneration() async {
     final script = _scriptController.text.trim();
     if (script.isEmpty || _characters.isEmpty) return;
@@ -125,7 +153,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       _isRunning = true;
       _error = null;
       _result = null;
-      _progress = 20;
+      _progress = 0;
       _currentStage = '开始生成视频与配音...';
     });
 
@@ -140,12 +168,14 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
         }
       }
 
+      // 传入已有的角色（含定妆照和已确认的音色），避免重复执行导演Agent
       final result = await service.runFullPipeline(
         userInput: script,
         videoModel: _videoModel,
         aspectRatio: _aspectRatio,
         baseStyle: _baseStyle,
         characterVoiceMap: voiceMap,
+        existingCharacters: _characters,
         enableTts: _enableTts,
         onProgress: (stage, progress) {
           if (mounted) {
@@ -192,6 +222,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       _progress = 0;
       _currentStage = '准备中...';
       _charactersReady = false;
+      _portraitsReady = false;
+      _portraitSuccessCount = 0;
       _characters = [];
     });
 
@@ -465,7 +497,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     );
   }
 
-  // ==================== 角色音色配置区 ====================
+  // ==================== 角色配置区（定妆照+音色） ====================
 
   Widget _buildCharacterVoiceSection() {
     return Container(
@@ -495,11 +527,11 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.record_voice_over, size: 18, color: Color(0xFFFF6B9D)),
+                const Icon(Icons.theater_comedy, size: 18, color: Color(0xFFFF6B9D)),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
-                    '角色音色配置',
+                    '角色配置',
                     style: TextStyle(
                       color: Color(0xFFFF6B9D),
                       fontWeight: FontWeight.w600,
@@ -508,13 +540,13 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   ),
                 ),
                 Text(
-                  '${_characters.length}个角色',
+                  '${_characters.length}个角色, $_portraitSuccessCount张定妆照',
                   style: TextStyle(color: AppTheme.textHint.withOpacity(0.7), fontSize: 12),
                 ),
               ],
             ),
           ),
-          // 角色音色列表
+          // 角色配置列表（含定妆照）
           ..._characters.asMap().entries.map((entry) {
             final idx = entry.key;
             final char = entry.value;
@@ -568,16 +600,10 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   }
 
   Widget _buildCharacterVoiceItem(int idx, ToonCharacter char) {
-    // 获取当前选中音色的名称
-    final currentVoice = ToonFlowService.voicePool.firstWhere(
-      (v) => v['id'] == char.voiceId,
-      orElse: () => {'name': '未选择', 'style': ''},
-    );
-
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppTheme.spacingMedium,
-        vertical: AppTheme.spacingSmall,
+        vertical: AppTheme.spacingSmall + 4,
       ),
       decoration: BoxDecoration(
         border: Border(
@@ -589,45 +615,105 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       ),
       child: Row(
         children: [
-          // 角色序号
+          // 角色定妆照
           Container(
-            width: 24,
-            height: 24,
+            width: 56,
+            height: 56,
             decoration: BoxDecoration(
-              color: const Color(0xFFFF6B9D).withOpacity(0.15),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Center(
-              child: Text(
-                '${idx + 1}',
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFFFF6B9D),
-                ),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: char.portraitUrl.isNotEmpty
+                    ? const Color(0xFF7C4DFF).withOpacity(0.5)
+                    : const Color(0xFF2A2A4A).withOpacity(0.5),
+                width: 1,
               ),
             ),
+            child: char.portraitUrl.isNotEmpty
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(7),
+                    child: Image.network(
+                      char.portraitUrl,
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Container(
+                          color: const Color(0xFF2A2A4A),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Color(0xFF7C4DFF),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: const Color(0xFF2A2A4A),
+                          child: const Icon(
+                            Icons.broken_image,
+                            color: AppTheme.textHint,
+                            size: 20,
+                          ),
+                        );
+                      },
+                    ),
+                  )
+                : Container(
+                    color: const Color(0xFF2A2A4A),
+                    child: const Icon(
+                      Icons.person_outline,
+                      color: AppTheme.textHint,
+                      size: 24,
+                    ),
+                  ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           // 角色名和描述
           Expanded(
             flex: 2,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  char.name,
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  children: [
+                    Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF6B9D).withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${idx + 1}',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFFF6B9D),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      char.name,
+                      style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   char.desc,
                   style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
@@ -853,6 +939,30 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            // 角色定妆照小头像
+                            if (c.portraitUrl.isNotEmpty) ...[
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: Image.network(
+                                  c.portraitUrl,
+                                  width: 28,
+                                  height: 28,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      Container(
+                                        width: 28,
+                                        height: 28,
+                                        color: const Color(0xFF2A2A4A),
+                                        child: const Icon(
+                                          Icons.person_outline,
+                                          color: AppTheme.textHint,
+                                          size: 16,
+                                        ),
+                                      ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                            ],
                             Text(
                               c.name,
                               style: const TextStyle(
@@ -1004,16 +1114,20 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                 : null;
             final isSuccess = video?.status == 'success';
 
-            // 获取说话角色对应的音色名
+            // 获取说话角色对应的音色名和定妆照
             String speakerVoiceName = '';
+            String speakerPortraitUrl = '';
             if (shot.speaker.isNotEmpty) {
               for (final char in result.characters) {
-                if (char.name == shot.speaker && char.voiceId.isNotEmpty) {
-                  final voiceInfo = ToonFlowService.voicePool.firstWhere(
-                    (v) => v['id'] == char.voiceId,
-                    orElse: () => {'name': ''},
-                  );
-                  speakerVoiceName = voiceInfo['name'] ?? '';
+                if (char.name == shot.speaker) {
+                  if (char.voiceId.isNotEmpty) {
+                    final voiceInfo = ToonFlowService.voicePool.firstWhere(
+                      (v) => v['id'] == char.voiceId,
+                      orElse: () => {'name': ''},
+                    );
+                    speakerVoiceName = voiceInfo['name'] ?? '';
+                  }
+                  speakerPortraitUrl = char.portraitUrl;
                   break;
                 }
               }
@@ -1108,11 +1222,31 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                                   color: const Color(0xFFFF6B9D).withOpacity(0.15),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
-                                child: Text(
-                                  speakerVoiceName.isNotEmpty
-                                      ? '${shot.speaker} · $speakerVoiceName'
-                                      : shot.speaker,
-                                  style: const TextStyle(fontSize: 10, color: Color(0xFFFF6B9D)),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // 角色定妆照小头像
+                                    if (speakerPortraitUrl.isNotEmpty) ...[
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(3),
+                                        child: Image.network(
+                                          speakerPortraitUrl,
+                                          width: 16,
+                                          height: 16,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) =>
+                                              const SizedBox.shrink(),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                    ],
+                                    Text(
+                                      speakerVoiceName.isNotEmpty
+                                          ? '${shot.speaker} · $speakerVoiceName'
+                                          : shot.speaker,
+                                      style: const TextStyle(fontSize: 10, color: Color(0xFFFF6B9D)),
+                                    ),
+                                  ],
                                 ),
                               ),
                           ],
