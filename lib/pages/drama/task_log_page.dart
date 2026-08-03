@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../config/theme.dart';
 import '../../models/task_log.dart';
 import '../../utils/storage_util.dart';
 
 /// 后台任务进度页面
-/// 展示所有图片/视频生成任务的日志，支持搜索和筛选
+/// 展示所有图片/视频生成任务的日志，支持搜索、筛选、重试、删除等操作
 class TaskLogPage extends StatefulWidget {
   const TaskLogPage({super.key});
 
@@ -82,6 +83,112 @@ class _TaskLogPageState extends State<TaskLogPage>
     _loadLogs();
   }
 
+  // ==================== 操作方法 ====================
+
+  /// 删除单条任务日志
+  Future<void> _deleteTaskLog(TaskLog log) async {
+    if (log.id == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.darkSurface,
+        title: const Text('删除记录', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('确定删除任务 ${log.taskId} 的记录吗？此操作不可撤销。',
+            style: const TextStyle(color: AppTheme.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消', style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await StorageUtil.deleteTaskLog(log.id!);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已删除'), duration: Duration(seconds: 1)),
+        );
+        _loadLogs();
+      }
+    }
+  }
+
+  /// 清除已完成的任务日志
+  Future<void> _cleanCompletedLogs() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.darkSurface,
+        title: const Text('清除已完成', style: TextStyle(color: AppTheme.textPrimary)),
+        content: const Text('确定清除所有已完成的任务记录吗？此操作不可撤销。',
+            style: TextStyle(color: AppTheme.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消', style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('清除', style: TextStyle(color: Colors.orange)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await StorageUtil.cleanOldTaskLogs(keepDays: 0);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已清除已完成记录'), duration: Duration(seconds: 1)),
+        );
+        _loadLogs();
+      }
+    }
+  }
+
+  /// 重试失败任务：创建新的pending状态记录
+  Future<void> _retryTask(TaskLog log) async {
+    // 创建新的任务记录
+    final newLog = TaskLog(
+      taskType: log.taskType,
+      modelName: log.modelName,
+      provider: log.provider,
+      status: 'pending',
+      dramaTitle: log.dramaTitle,
+      shotDescription: log.shotDescription,
+    );
+
+    final newId = await StorageUtil.saveTaskLog(newLog);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已创建重试任务 #$newId'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      _loadLogs();
+    }
+  }
+
+  /// 打开结果URL
+  Future<void> _openResultUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri != null) {
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched && mounted) {
+        // 启动失败则复制到剪贴板
+        Clipboard.setData(ClipboardData(text: url));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('无法打开链接，已复制到剪贴板'), duration: Duration(seconds: 2)),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -90,6 +197,12 @@ class _TaskLogPageState extends State<TaskLogPage>
         title: const Text('任务进度'),
         backgroundColor: AppTheme.darkSurface,
         actions: [
+          // 清除已完成按钮
+          IconButton(
+            icon: const Icon(Icons.cleaning_services_outlined),
+            tooltip: '清除已完成',
+            onPressed: _cleanCompletedLogs,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadLogs,
@@ -421,6 +534,65 @@ class _TaskLogPageState extends State<TaskLogPage>
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
+              // 操作按钮行
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  // 失败任务：重试按钮
+                  if (log.status == 'failed')
+                    SizedBox(
+                      height: 28,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _retryTask(log),
+                        icon: const Icon(Icons.refresh, size: 14),
+                        label: const Text('重试', style: TextStyle(fontSize: 11)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFF44336).withOpacity(0.8),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
+                  // 已完成且有结果URL：查看结果按钮
+                  if (log.status == 'completed' && log.resultUrl != null && log.resultUrl!.isNotEmpty) ...[
+                    if (log.status == 'failed') const SizedBox(width: 8),
+                    SizedBox(
+                      height: 28,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _openResultUrl(log.resultUrl!),
+                        icon: const Icon(Icons.open_in_new, size: 14),
+                        label: const Text('查看结果', style: TextStyle(fontSize: 11)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4CAF50).withOpacity(0.8),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
+                  ],
+                  const Spacer(),
+                  // 删除按钮（小号灰色）
+                  SizedBox(
+                    height: 28,
+                    child: IconButton(
+                      onPressed: () => _deleteTaskLog(log),
+                      icon: const Icon(Icons.delete_outline, size: 16),
+                      color: AppTheme.textHint,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 28),
+                      tooltip: '删除记录',
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -506,7 +678,10 @@ class _TaskLogPageState extends State<TaskLogPage>
               if (log.dramaTitle != null) _detailRow('短剧', log.dramaTitle!),
               if (log.errorReason != null && log.errorReason!.isNotEmpty)
                 _detailRow('失败原因', log.errorReason!),
+              if (log.resultUrl != null && log.resultUrl!.isNotEmpty)
+                _detailRow('结果URL', log.resultUrl!, true),
               const SizedBox(height: 16),
+              // 复制任务ID
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -521,6 +696,60 @@ class _TaskLogPageState extends State<TaskLogPage>
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primaryColor,
                     foregroundColor: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // 失败任务：重新执行按钮
+              if (log.status == 'failed')
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      _retryTask(log);
+                    },
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('重新执行此任务'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF9800),
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              if (log.status == 'failed') const SizedBox(height: 8),
+              // 已完成且有结果URL：查看结果按钮
+              if (log.status == 'completed' && log.resultUrl != null && log.resultUrl!.isNotEmpty)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      _openResultUrl(log.resultUrl!);
+                    },
+                    icon: const Icon(Icons.open_in_new, size: 16),
+                    label: const Text('查看结果'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4CAF50),
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              if (log.status == 'completed' && log.resultUrl != null && log.resultUrl!.isNotEmpty)
+                const SizedBox(height: 8),
+              // 删除此记录
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    _deleteTaskLog(log);
+                  },
+                  icon: const Icon(Icons.delete_outline, size: 16),
+                  label: const Text('删除此记录'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.red54, width: 0.5),
                   ),
                 ),
               ),

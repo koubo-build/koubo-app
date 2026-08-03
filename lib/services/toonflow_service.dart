@@ -672,6 +672,182 @@ class ToonFlowService {
     );
   }
 
+  // ==================== 重试失败镜头 ====================
+
+  /// 重试失败镜头：只重新生成 status=='failed' 的镜头
+  /// 接收已有 ToonFlowResult，保留成功视频，对失败镜头重新执行视频生成+配音
+  /// 返回新的 ToonFlowResult（合并成功和重试结果）
+  Future<ToonFlowResult> retryFailedShots({
+    required ToonFlowResult previousResult,
+    String videoModel = defaultVideoModel,
+    String aspectRatio = defaultAspectRatio,
+    String baseStyle = defaultBaseStyle,
+    bool enableTts = true,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final apiKey = await _getAgnesApiKey();
+
+    // 构建角色名→定妆照URL映射
+    final characterPortraitMap = <String, String>{};
+    for (final char in previousResult.characters) {
+      if (char.portraitUrl.isNotEmpty) {
+        characterPortraitMap[char.name] = char.portraitUrl;
+      }
+    }
+
+    // 收集需要重试的镜头索引
+    final failedIndices = <int>[];
+    for (int i = 0; i < previousResult.videoSegments.length; i++) {
+      if (previousResult.videoSegments[i].status == 'failed') {
+        failedIndices.add(i);
+      }
+    }
+
+    if (failedIndices.isEmpty) {
+      onProgress?.call('没有需要重试的镜头', 100);
+      return previousResult;
+    }
+
+    onProgress?.call('重试${failedIndices.length}个失败镜头...', 0);
+
+    // 复制成功视频（不可变列表）
+    final newVideoList = <VideoSegment>[];
+    for (final v in previousResult.videoSegments) {
+      if (v.status == 'success') {
+        newVideoList.add(v);
+      }
+    }
+
+    // 复制成功音频
+    final newAudioList = <AudioSegment>[];
+    for (final a in previousResult.audioSegments) {
+      if (a.status == 'success') {
+        newAudioList.add(a);
+      }
+    }
+
+    int retryCount = 0;
+
+    for (final idx in failedIndices) {
+      retryCount++;
+      final shot = idx < previousResult.shots.length
+          ? previousResult.shots[idx]
+          : null;
+      if (shot == null) continue;
+
+      final shotProgress = ((retryCount / failedIndices.length) * 95).round();
+      onProgress?.call(
+        '重试镜头 ${idx + 1}（$retryCount/${failedIndices.length}）: ${shot.camera}',
+        shotProgress,
+      );
+
+      // 根据speaker查找对应角色的定妆照URL
+      String? shotImageRef;
+      if (shot.speaker.isNotEmpty && shot.speaker != '旁白') {
+        if (characterPortraitMap.containsKey(shot.speaker)) {
+          shotImageRef = characterPortraitMap[shot.speaker];
+        } else {
+          for (final entry in characterPortraitMap.entries) {
+            if (shot.speaker.contains(entry.key) || entry.key.contains(shot.speaker)) {
+              shotImageRef = entry.value;
+              break;
+            }
+          }
+        }
+      }
+      if (shotImageRef == null && characterPortraitMap.isNotEmpty) {
+        shotImageRef = characterPortraitMap.values.first;
+      }
+
+      // 提交视频任务
+      String? taskId;
+      try {
+        final prompt = '${shot.scene_desc},$baseStyle';
+        final duration = shot.durationInt;
+
+        taskId = await _submitVideoTask(
+          prompt: prompt,
+          apiKey: apiKey,
+          videoModel: videoModel,
+          aspectRatio: aspectRatio,
+          duration: duration,
+          imageRef: shotImageRef,
+        );
+      } catch (e) {
+        debugPrint('[ToonFlow] 重试镜头${idx + 1}提交失败: $e');
+        newVideoList.add(VideoSegment(
+          index: idx,
+          videoUrl: '',
+          status: 'failed',
+          error: e.toString(),
+        ));
+        continue;
+      }
+
+      // 轮询查询任务状态
+      onProgress?.call(
+        '重试镜头 ${idx + 1} 视频生成中...',
+        shotProgress + 2,
+      );
+
+      final pollResult = await _pollVideoTask(
+        taskId: taskId,
+        apiKey: apiKey,
+      );
+
+      if (pollResult.status == 'success') {
+        newVideoList.add(VideoSegment(
+          index: idx,
+          videoUrl: pollResult.videoUrl,
+          status: 'success',
+        ));
+      } else {
+        newVideoList.add(VideoSegment(
+          index: idx,
+          videoUrl: '',
+          status: 'failed',
+          error: pollResult.error,
+        ));
+      }
+
+      // TTS配音（可选）
+      if (enableTts && shot.audio_text.isNotEmpty) {
+        final voiceId = _getVoiceForSpeaker(shot.speaker, previousResult.characters);
+
+        final audioPath = await _generateAudioForShot(
+          audioText: shot.audio_text,
+          voiceId: voiceId,
+        );
+
+        newAudioList.add(AudioSegment(
+          index: idx,
+          audioPath: audioPath ?? '',
+          audioText: shot.audio_text,
+          status: audioPath != null ? 'success' : 'failed',
+        ));
+      }
+    }
+
+    // 按index排序，保证顺序正确
+    newVideoList.sort((a, b) => a.index.compareTo(b.index));
+    newAudioList.sort((a, b) => a.index.compareTo(b.index));
+
+    final failedCount = newVideoList.where((v) => v.status == 'failed').length;
+    onProgress?.call(
+      '重试完成！成功${newVideoList.where((v) => v.status == 'success').length}个，仍失败$failedCount个',
+      100,
+    );
+
+    return ToonFlowResult(
+      videoSegments: newVideoList,
+      audioSegments: newAudioList,
+      endingHook: previousResult.endingHook,
+      characters: previousResult.characters,
+      outline: previousResult.outline,
+      shots: previousResult.shots,
+    );
+  }
+
   // ==================== JSON清洗工具 ====================
 
   /// 从文本中提取JSON字符串

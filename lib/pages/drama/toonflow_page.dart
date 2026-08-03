@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../config/theme.dart';
 import '../../services/toonflow_service.dart';
 import '../../services/tts_service.dart';
@@ -270,6 +271,72 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('视频生成任务已提交到服务端，无法中途取消')),
     );
+  }
+
+  /// 重试失败镜头
+  Future<void> _retryFailedShots() async {
+    if (_result == null) return;
+    final failedCount = _result!.videoSegments.where((v) => v.status == 'failed').length;
+    if (failedCount == 0) return;
+
+    setState(() {
+      _isRunning = true;
+      _error = null;
+      _progress = 0;
+      _currentStage = '准备重试$failedCount个失败镜头...';
+    });
+
+    try {
+      final service = ref.read(toonFlowServiceProvider);
+      final result = await service.retryFailedShots(
+        previousResult: _result!,
+        videoModel: _videoModel,
+        aspectRatio: _aspectRatio,
+        baseStyle: _baseStyle,
+        enableTts: _enableTts,
+        onProgress: (stage, progress) {
+          if (mounted) {
+            setState(() {
+              _currentStage = stage;
+              _progress = progress;
+            });
+          }
+        },
+      );
+
+      if (mounted) {
+        setState(() {
+          _result = result;
+          _isRunning = false;
+          _progress = 100;
+          _currentStage = '重试完成！';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isRunning = false;
+        });
+      }
+    }
+  }
+
+  /// 预览全部成功视频
+  void _previewAllVideos() {
+    if (_result == null) return;
+    final successVideos = _result!.videoSegments.where((v) => v.status == 'success').toList();
+    if (successVideos.isEmpty) return;
+
+    // 逐个打开成功视频的URL
+    for (final v in successVideos) {
+      if (v.videoUrl.isNotEmpty) {
+        final uri = Uri.tryParse(v.videoUrl);
+        if (uri != null) {
+          launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      }
+    }
   }
 
   @override
@@ -1547,6 +1614,12 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   // ==================== 底部操作栏 ====================
 
   Widget _buildBottomBar() {
+    final hasResult = _result != null;
+    final failedCount = _result?.videoSegments.where((v) => v.status == 'failed').length ?? 0;
+    final successCount = _result?.videoSegments.where((v) => v.status == 'success').length ?? 0;
+    final hasFailedShots = hasResult && failedCount > 0;
+    final hasSuccessVideos = hasResult && successCount > 0;
+
     return Container(
       padding: EdgeInsets.only(
         left: AppTheme.spacingMedium,
@@ -1560,58 +1633,137 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           top: BorderSide(color: const Color(0xFF2A2A4A).withOpacity(0.5), width: 0.5),
         ),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // 字数统计
-          Text(
-            '${_scriptController.text.length}字',
-            style: const TextStyle(color: AppTheme.textHint, fontSize: 12),
-          ),
-          const Spacer(),
-          if (_charactersReady && _result == null) ...[
-            // 角色已就绪时显示"开始生成"
-            OutlinedButton.icon(
-              onPressed: _isRunning ? null : _quickGenerate,
-              icon: const Icon(Icons.flash_on, size: 16),
-              label: const Text('一键生成', style: TextStyle(fontSize: 12)),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF7C4DFF),
-                side: const BorderSide(color: Color(0xFF7C4DFF), width: 0.5),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+          // 结果状态时的按钮行
+          if (hasResult) ...[
+            Row(
+              children: [
+                // 字数统计
+                Text(
+                  '${_scriptController.text.length}字',
+                  style: const TextStyle(color: AppTheme.textHint, fontSize: 12),
                 ),
-              ),
+                const Spacer(),
+                // 重试失败镜头按钮（橙色警告风格）
+                if (hasFailedShots) ...[
+                  ElevatedButton.icon(
+                    onPressed: _isRunning ? null : _retryFailedShots,
+                    icon: _isRunning
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.refresh, size: 16),
+                    label: Text(
+                      _isRunning ? '重试中...' : '重试失败($failedCount)',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF9800),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(0xFFFF9800).withOpacity(0.5),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                // 预览全部视频按钮
+                if (hasSuccessVideos) ...[
+                  ElevatedButton.icon(
+                    onPressed: _isRunning ? null : _previewAllVideos,
+                    icon: const Icon(Icons.play_circle_filled, size: 16),
+                    label: Text('预览($successCount)', style: const TextStyle(fontSize: 12)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4CAF50),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(0xFF4CAF50).withOpacity(0.5),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                // 重新分析按钮
+                OutlinedButton.icon(
+                  onPressed: _isRunning ? null : _analyzeScript,
+                  icon: const Icon(Icons.auto_awesome, size: 16),
+                  label: const Text('重新分析', style: TextStyle(fontSize: 12)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF7C4DFF),
+                    side: const BorderSide(color: Color(0xFF7C4DFF), width: 0.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
+          ] else ...[
+            // 无结果时的原始按钮行
+            Row(
+              children: [
+                // 字数统计
+                Text(
+                  '${_scriptController.text.length}字',
+                  style: const TextStyle(color: AppTheme.textHint, fontSize: 12),
+                ),
+                const Spacer(),
+                if (_charactersReady) ...[
+                  // 角色已就绪时显示"一键生成"
+                  OutlinedButton.icon(
+                    onPressed: _isRunning ? null : _quickGenerate,
+                    icon: const Icon(Icons.flash_on, size: 16),
+                    label: const Text('一键生成', style: TextStyle(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF7C4DFF),
+                      side: const BorderSide(color: Color(0xFF7C4DFF), width: 0.5),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                // 主按钮
+                ElevatedButton.icon(
+                  onPressed: _isRunning
+                      ? null
+                      : (_charactersReady ? null : _analyzeScript),
+                  icon: _isRunning
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : Icon(_charactersReady
+                          ? Icons.check_circle_outline
+                          : Icons.auto_awesome),
+                  label: Text(_isRunning
+                      ? '生成中...'
+                      : (_charactersReady ? '角色已就绪' : '分析剧本')),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C4DFF),
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: const Color(0xFF7C4DFF).withOpacity(0.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
-          // 主按钮
-          ElevatedButton.icon(
-            onPressed: _isRunning
-                ? null
-                : (_charactersReady && _result == null ? null : _analyzeScript),
-            icon: _isRunning
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
-                : Icon(_charactersReady && _result == null
-                    ? Icons.check_circle_outline
-                    : Icons.auto_awesome),
-            label: Text(_isRunning
-                ? '生成中...'
-                : (_charactersReady && _result == null ? '角色已就绪' : '分析剧本')),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF7C4DFF),
-              foregroundColor: Colors.white,
-              disabledBackgroundColor: const Color(0xFF7C4DFF).withOpacity(0.5),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-              ),
-            ),
-          ),
         ],
       ),
     );
