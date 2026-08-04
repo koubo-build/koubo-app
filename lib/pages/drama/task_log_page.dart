@@ -154,6 +154,7 @@ class _TaskLogPageState extends State<TaskLogPage>
   Future<void> _retryTask(TaskLog log) async {
     // 创建新的任务记录
     final newLog = TaskLog(
+      taskId: 'retry_${DateTime.now().millisecondsSinceEpoch}',
       taskType: log.taskType,
       modelName: log.modelName,
       provider: log.provider,
@@ -749,7 +750,7 @@ class _TaskLogPageState extends State<TaskLogPage>
                   label: const Text('删除此记录'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.red,
-                    side: const BorderSide(color: Colors.red54, width: 0.5),
+                    side: const BorderSide(color: Color(0xFFF44336), width: 0.5),
                   ),
                 ),
               ),
