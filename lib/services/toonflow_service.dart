@@ -848,6 +848,82 @@ class ToonFlowService {
     );
   }
 
+  // ==================== 单角色/单镜头重生成 ====================
+
+  /// 为单个角色重新生成定妆照
+  /// 返回新的 portraitUrl
+  Future<String> regenerateSinglePortrait({
+    required ToonCharacter character,
+    required String baseStyle,
+    required String aspectRatio,
+  }) async {
+    final apiKey = await _getAgnesApiKey();
+    return _generatePortrait(
+      apiKey: apiKey,
+      characterName: character.name,
+      characterDesc: character.desc,
+      baseStyle: baseStyle,
+      aspectRatio: aspectRatio,
+    );
+  }
+
+  /// 重试单个失败镜头的视频生成
+  /// [shotIndex] 分镜索引
+  /// [shot] 分镜信息
+  /// [characters] 角色列表（用于查找定妆照）
+  /// 返回新的 VideoSegment
+  Future<VideoSegment> retrySingleShot({
+    required int shotIndex,
+    required ShotItem shot,
+    required List<ToonCharacter> characters,
+    required String videoModel,
+    required String aspectRatio,
+    required String baseStyle,
+  }) async {
+    final apiKey = await _getAgnesApiKey();
+
+    // 构建角色名→定妆照URL映射
+    final portraitMap = <String, String>{};
+    for (final char in characters) {
+      if (char.portraitUrl.isNotEmpty) portraitMap[char.name] = char.portraitUrl;
+    }
+
+    // 查找该镜头对应的角色定妆照
+    String? imageRef;
+    if (shot.speaker.isNotEmpty && shot.speaker != '旁白') {
+      if (portraitMap.containsKey(shot.speaker)) {
+        imageRef = portraitMap[shot.speaker];
+      } else {
+        for (final entry in portraitMap.entries) {
+          if (shot.speaker.contains(entry.key) || entry.key.contains(shot.speaker)) {
+            imageRef = entry.value;
+            break;
+          }
+        }
+      }
+    }
+    if (imageRef == null && portraitMap.isNotEmpty) {
+      imageRef = portraitMap.values.first;
+    }
+
+    try {
+      final prompt = '${shot.scene_desc},$baseStyle';
+      final taskId = await _submitVideoTask(
+        prompt: prompt, apiKey: apiKey,
+        videoModel: videoModel, aspectRatio: aspectRatio,
+        duration: shot.durationInt, imageRef: imageRef,
+      );
+      final pollResult = await _pollVideoTask(taskId: taskId, apiKey: apiKey);
+      if (pollResult.status == 'success') {
+        return VideoSegment(index: shotIndex, videoUrl: pollResult.videoUrl, status: 'success');
+      } else {
+        return VideoSegment(index: shotIndex, videoUrl: '', status: 'failed', error: pollResult.error);
+      }
+    } catch (e) {
+      return VideoSegment(index: shotIndex, videoUrl: '', status: 'failed', error: e.toString());
+    }
+  }
+
   // ==================== JSON清洗工具 ====================
 
   /// 从文本中提取JSON字符串

@@ -37,6 +37,10 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   ToonFlowResult? _result;
   String? _error;
 
+  // 单角色/单镜头重生成状态
+  int? _regeneratingPortraitIdx; // 正在重新生成定妆照的角色索引
+  int? _retryingVideoIdx; // 正在重试的视频镜头索引
+
   // 视频模型选项
   static const List<Map<String, String>> _videoModelOptions = [
     {'value': 'Agnes-2.5-Flash', 'label': 'Agnes 2.5 Flash'},
@@ -262,6 +266,119 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           _error = e.toString();
           _isRunning = false;
         });
+      }
+    }
+  }
+
+  /// 重新生成单个角色的定妆照
+  Future<void> _regeneratePortrait(int idx) async {
+    if (_isRunning || idx < 0 || idx >= _characters.length) return;
+    final char = _characters[idx];
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.darkSurface,
+        title: const Text('重新生成定妆照', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('确定重新生成「${char.name}」的定妆照吗？',
+            style: const TextStyle(color: AppTheme.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消', style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('重新生成', style: TextStyle(color: Color(0xFF7C4DFF))),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() {
+      _regeneratingPortraitIdx = idx;
+    });
+
+    try {
+      final service = ref.read(toonFlowServiceProvider);
+      final newUrl = await service.regenerateSinglePortrait(
+        character: char,
+        baseStyle: _baseStyle,
+        aspectRatio: _aspectRatio,
+      );
+      if (mounted) {
+        setState(() {
+          _characters[idx].portraitUrl = newUrl;
+          _regeneratingPortraitIdx = null;
+          _portraitSuccessCount = _characters.where((c) => c.portraitUrl.isNotEmpty).length;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('「${char.name}」定妆照已更新'), duration: const Duration(seconds: 2)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() { _regeneratingPortraitIdx = null; });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('定妆照生成失败: ${e.toString().substring(0, e.toString().length > 60 ? 60 : e.toString().length)}'), duration: const Duration(seconds: 3)),
+        );
+      }
+    }
+  }
+
+  /// 重试单个失败镜头的视频生成
+  Future<void> _retrySingleVideo(int shotIdx) async {
+    if (_result == null || shotIdx < 0) return;
+    final shots = _result!.shots;
+    if (shotIdx >= shots.length) return;
+    final shot = shots[shotIdx];
+
+    setState(() {
+      _retryingVideoIdx = shotIdx;
+    });
+
+    try {
+      final service = ref.read(toonFlowServiceProvider);
+      final newVideo = await service.retrySingleShot(
+        shotIndex: shotIdx,
+        shot: shot,
+        characters: _result!.characters,
+        videoModel: _videoModel,
+        aspectRatio: _aspectRatio,
+        baseStyle: _baseStyle,
+      );
+      if (mounted) {
+        setState(() {
+          // 替换旧的视频片段
+          final newSegments = <VideoSegment>[];
+          for (final v in _result!.videoSegments) {
+            if (v.index == shotIdx) {
+              newSegments.add(newVideo);
+            } else {
+              newSegments.add(v);
+            }
+          }
+          _result = ToonFlowResult(
+            videoSegments: newSegments,
+            audioSegments: _result!.audioSegments,
+            endingHook: _result!.endingHook,
+            characters: _result!.characters,
+            outline: _result!.outline,
+            shots: _result!.shots,
+          );
+          _retryingVideoIdx = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('镜头${shotIdx + 1}${newVideo.status == 'success' ? '重试成功' : '重试失败'}'), duration: const Duration(seconds: 2)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() { _retryingVideoIdx = null; });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('重试失败: ${e.toString().substring(0, e.toString().length > 60 ? 60 : e.toString().length)}'), duration: const Duration(seconds: 3)),
+        );
       }
     }
   }
@@ -682,61 +799,86 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       ),
       child: Row(
         children: [
-          // 角色定妆照
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: char.portraitUrl.isNotEmpty
-                    ? const Color(0xFF7C4DFF).withOpacity(0.5)
-                    : const Color(0xFF2A2A4A).withOpacity(0.5),
-                width: 1,
+          // 角色定妆照（点击重新生成）
+          GestureDetector(
+            onTap: _isRunning || _regeneratingPortraitIdx == idx ? null : () => _regeneratePortrait(idx),
+            child: Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: char.portraitUrl.isNotEmpty
+                      ? const Color(0xFF7C4DFF).withOpacity(0.5)
+                      : const Color(0xFF2A2A4A).withOpacity(0.5),
+                  width: 1,
+                ),
               ),
-            ),
-            child: char.portraitUrl.isNotEmpty
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(7),
-                    child: Image.network(
-                      char.portraitUrl,
-                      fit: BoxFit.cover,
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) return child;
-                        return Container(
-                          color: const Color(0xFF2A2A4A),
-                          child: const Center(
-                            child: SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Color(0xFF7C4DFF),
-                              ),
-                            ),
+              child: Stack(
+                children: [
+                  char.portraitUrl.isNotEmpty
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(7),
+                          child: Image.network(
+                            char.portraitUrl,
+                            fit: BoxFit.cover,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Container(
+                                color: const Color(0xFF2A2A4A),
+                                child: const Center(
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Color(0xFF7C4DFF),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                color: const Color(0xFF2A2A4A),
+                                child: const Icon(
+                                  Icons.broken_image,
+                                  color: AppTheme.textHint,
+                                  size: 20,
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
+                        )
+                      : Container(
                           color: const Color(0xFF2A2A4A),
                           child: const Icon(
-                            Icons.broken_image,
+                            Icons.person_outline,
                             color: AppTheme.textHint,
-                            size: 20,
+                            size: 24,
                           ),
-                        );
-                      },
+                        ),
+                  // 重新生成中的加载遮罩
+                  if (_regeneratingPortraitIdx == idx)
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFF7C4DFF),
+                          ),
+                        ),
+                      ),
                     ),
-                  )
-                : Container(
-                    color: const Color(0xFF2A2A4A),
-                    child: const Icon(
-                      Icons.person_outline,
-                      color: AppTheme.textHint,
-                      size: 24,
-                    ),
-                  ),
+                ],
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           // 角色名和描述
@@ -1321,11 +1463,24 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                       ],
                     ),
                   ),
-                  // 状态图标
+                  // 状态图标/重试按钮
                   if (isSuccess)
                     const Icon(Icons.check_circle, size: 18, color: AppTheme.safeColor)
-                  else if (video?.status == 'failed')
-                    const Icon(Icons.error, size: 18, color: AppTheme.highRiskColor),
+                  else if (video?.status == 'failed') ...[
+                    if (_retryingVideoIdx == idx)
+                      const SizedBox(
+                        width: 18, height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9800)),
+                        ),
+                      )
+                    else
+                      GestureDetector(
+                        onTap: () => _retrySingleVideo(idx),
+                        child: const Icon(Icons.refresh, size: 18, color: Color(0xFFFF9800)),
+                      ),
+                  ],
                 ],
               ),
             );
@@ -1417,6 +1572,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   }
 
   Widget _buildVideoItem(VideoSegment v, bool isSuccess) {
+    final isRetrying = _retryingVideoIdx == v.index;
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: AppTheme.spacingMedium,
@@ -1425,9 +1581,9 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       child: Row(
         children: [
           Icon(
-            isSuccess ? Icons.play_circle_filled : Icons.error_outline,
+            isRetrying ? Icons.hourglass_empty : (isSuccess ? Icons.play_circle_filled : Icons.error_outline),
             size: 20,
-            color: isSuccess ? AppTheme.safeColor : AppTheme.highRiskColor,
+            color: isRetrying ? const Color(0xFFFF9800) : (isSuccess ? AppTheme.safeColor : AppTheme.highRiskColor),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1459,6 +1615,37 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
               ],
             ),
           ),
+          // 失败视频的重试按钮
+          if (!isSuccess) ...[
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 28,
+              child: isRetrying
+                  ? const SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9800)),
+                      ),
+                    )
+                  : ElevatedButton.icon(
+                      onPressed: () => _retrySingleVideo(v.index),
+                      icon: const Icon(Icons.refresh, size: 12),
+                      label: const Text('重试', style: TextStyle(fontSize: 11)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF9800),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ),
+            ),
+          ],
         ],
       ),
     );
