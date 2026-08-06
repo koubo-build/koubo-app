@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/api_config.dart';
+import '../models/task_log.dart';
 import '../utils/storage_util.dart';
 import 'api_client.dart';
 import 'tts_service.dart';
@@ -119,7 +120,7 @@ class ToonFlowService {
   // ==================== 节点1：LLM 导演Agent ====================
 
   static const String _directorSystemPrompt =
-      '你是专业短剧导演。\n输入：短剧原文剧本\n要求输出标准JSON，禁止多余解释、禁止markdown。\n任务：\n1.梳理完整分集大纲，单集3分钟，每集结尾预留悬念钩子；\n2.提取所有登场人物，为每个人物生成固定外貌描述（用于AI视频统一形象，杜绝变脸）；\nJSON固定结构：\n{\n  "outline": [\n    {"episode": "第1集","content": "剧情简述","hook":"结尾悬念"}\n  ],\n  "characters": [\n    {"name":"角色名","desc":"年龄、发型、穿搭、五官特征、气质，详细画面描述"}\n  ]\n}';
+      '你是专业短剧导演。\n输入：短剧原文剧本\n要求输出标准JSON，禁止多余解释、禁止markdown。\n任务：\n1.根据用户输入判断集数：如果用户输入的是单集内容/片段/单个故事，则只输出1集；如果用户明确要求多集或输入包含多集内容，则按实际集数输出。单集约3分钟，每集结尾预留悬念钩子；\n2.提取所有登场人物，为每个人物生成固定外貌描述（用于AI视频统一形象，杜绝变脸）；\nJSON固定结构：\n{\n  "outline": [\n    {"episode": "第1集","content": "剧情简述","hook":"结尾悬念"}\n  ],\n  "characters": [\n    {"name":"角色名","desc":"年龄、发型、穿搭、五官特征、气质，详细画面描述"}\n  ]\n}';
 
   /// 导演Agent：输入剧本，输出集纲+角色
   Future<DirectorResult> runDirectorAgent({
@@ -393,9 +394,44 @@ class ToonFlowService {
         char.portraitUrl = portraitUrl;
         successCount++;
         debugPrint('[ToonFlow] 角色 ${char.name} 定妆照生成成功: $portraitUrl');
+        // 保存定妆照生成成功的任务日志
+        try {
+          final portraitLog = TaskLog(
+            taskId: 'portrait_${char.name}',
+            taskType: 'image',
+            modelName: 'agnes-image-2.1-flash',
+            provider: 'agnes',
+            status: 'completed',
+            dramaTitle: char.name,
+            shotDescription: char.desc.length > 100
+                ? char.desc.substring(0, 100)
+                : char.desc,
+            resultUrl: portraitUrl,
+            createdAt: DateTime.now(),
+            completedAt: DateTime.now(),
+          );
+          await StorageUtil.saveTaskLog(portraitLog);
+        } catch (_) {}
       } catch (e) {
         debugPrint('[ToonFlow] 角色 ${char.name} 定妆照生成失败: $e');
-        // 不影响其他角色，继续
+        // 保存定妆照生成失败的任务日志
+        try {
+          final portraitFailLog = TaskLog(
+            taskId: 'portrait_${char.name}',
+            taskType: 'image',
+            modelName: 'agnes-image-2.1-flash',
+            provider: 'agnes',
+            status: 'failed',
+            dramaTitle: char.name,
+            shotDescription: char.desc.length > 100
+                ? char.desc.substring(0, 100)
+                : char.desc,
+            errorReason: e.toString(),
+            createdAt: DateTime.now(),
+            completedAt: DateTime.now(),
+          );
+          await StorageUtil.saveTaskLog(portraitFailLog);
+        } catch (_) {}
       }
     }
 
@@ -636,6 +672,23 @@ class ToonFlowService {
           status: 'failed',
           error: e.toString(),
         ));
+        // 保存视频提交失败的任务日志
+        try {
+          final failLog = TaskLog(
+            taskId: 'shot_${i + 1}',
+            taskType: 'video',
+            modelName: videoModel,
+            provider: 'agnes',
+            status: 'failed',
+            shotDescription: shot.scene_desc.length > 100
+                ? shot.scene_desc.substring(0, 100)
+                : shot.scene_desc,
+            errorReason: e.toString(),
+            createdAt: DateTime.now(),
+            completedAt: DateTime.now(),
+          );
+          await StorageUtil.saveTaskLog(failLog);
+        } catch (_) {}
         continue;
       }
 
@@ -650,7 +703,8 @@ class ToonFlowService {
         apiKey: apiKey,
       );
 
-      if (pollResult.status == 'success') {
+      final bool isSuccess = pollResult.status == 'success';
+      if (isSuccess) {
         videoList.add(VideoSegment(
           index: i,
           videoUrl: pollResult.videoUrl,
@@ -664,6 +718,28 @@ class ToonFlowService {
           status: 'failed',
           error: pollResult.error,
         ));
+      }
+
+      // 保存视频生成任务日志
+      try {
+        final taskLog = TaskLog(
+          taskId: taskId ?? 'shot_${i + 1}',
+          taskType: 'video',
+          modelName: videoModel,
+          provider: 'agnes',
+          status: isSuccess ? 'completed' : 'failed',
+          dramaTitle: null,
+          shotDescription: shot.scene_desc.length > 100
+              ? shot.scene_desc.substring(0, 100)
+              : shot.scene_desc,
+          errorReason: pollResult.error,
+          resultUrl: pollResult.videoUrl.isNotEmpty ? pollResult.videoUrl : null,
+          createdAt: DateTime.now(),
+          completedAt: DateTime.now(),
+        );
+        await StorageUtil.saveTaskLog(taskLog);
+      } catch (e) {
+        debugPrint('[ToonFlow] 保存视频任务日志失败: $e');
       }
 
       // 4-3: TTS配音（可选）- 根据角色分配不同音色
@@ -681,12 +757,34 @@ class ToonFlowService {
           voiceId: voiceId,
         );
 
+        final bool audioSuccess = audioPath != null;
         audioList.add(AudioSegment(
           index: i,
           audioPath: audioPath ?? '',
           audioText: shot.audio_text,
-          status: audioPath != null ? 'success' : 'failed',
+          status: audioSuccess ? 'success' : 'failed',
         ));
+
+        // 保存音频生成任务日志
+        try {
+          final audioLog = TaskLog(
+            taskId: 'audio_shot_${i + 1}',
+            taskType: 'audio',
+            modelName: voiceId,
+            provider: 'cosyvoice',
+            status: audioSuccess ? 'completed' : 'failed',
+            dramaTitle: null,
+            shotDescription: shot.audio_text.length > 100
+                ? shot.audio_text.substring(0, 100)
+                : shot.audio_text,
+            resultUrl: audioSuccess ? audioPath : null,
+            createdAt: DateTime.now(),
+            completedAt: DateTime.now(),
+          );
+          await StorageUtil.saveTaskLog(audioLog);
+        } catch (e) {
+          debugPrint('[ToonFlow] 保存音频任务日志失败: $e');
+        }
       }
     }
 

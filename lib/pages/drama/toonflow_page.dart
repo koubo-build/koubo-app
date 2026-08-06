@@ -1537,24 +1537,51 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                       ],
                     ),
                   ),
-                  // 状态图标/重试按钮
-                  if (isSuccess)
-                    const Icon(Icons.check_circle, size: 18, color: AppTheme.safeColor)
-                  else if (video?.status == 'failed') ...[
-                    if (_retryingVideoIdx == idx)
-                      const SizedBox(
-                        width: 18, height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9800)),
+                  // 状态图标与操作按钮区
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 状态图标
+                      if (isSuccess)
+                        const Icon(Icons.check_circle, size: 18, color: AppTheme.safeColor)
+                      else if (video?.status == 'failed')
+                        const Icon(Icons.error_outline, size: 18, color: AppTheme.highRiskColor)
+                      else
+                        const Icon(Icons.hourglass_empty, size: 18, color: AppTheme.textHint),
+                      const SizedBox(height: 4),
+                      // 生成/重新生成视频按钮（始终显示）
+                      if (_retryingVideoIdx == idx)
+                        const SizedBox(
+                          width: 24, height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9800)),
+                          ),
+                        )
+                      else
+                        GestureDetector(
+                          onTap: () => _retrySingleVideo(idx),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF9800).withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.videocam, size: 12, color: Color(0xFFFF9800)),
+                                const SizedBox(width: 2),
+                                Text(
+                                  isSuccess ? '重新生成' : '生成',
+                                  style: const TextStyle(fontSize: 10, color: Color(0xFFFF9800)),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      )
-                    else
-                      GestureDetector(
-                        onTap: () => _retrySingleVideo(idx),
-                        child: const Icon(Icons.refresh, size: 18, color: Color(0xFFFF9800)),
-                      ),
-                  ],
+                    ],
+                  ),
                 ],
               ),
               ), // 关闭GestureDetector
@@ -1662,65 +1689,107 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '镜头 ${v.index + 1}',
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (isSuccess && v.videoUrl.isNotEmpty)
+            child: GestureDetector(
+              // 点击视频URL区域可复制链接
+              onTap: isSuccess && v.videoUrl.isNotEmpty
+                  ? () {
+                      Clipboard.setData(ClipboardData(text: v.videoUrl));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('镜头${v.index + 1}视频链接已复制'), duration: const Duration(seconds: 2)),
+                      );
+                    }
+                  : null,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    v.videoUrl,
-                    style: const TextStyle(color: AppTheme.primaryColor, fontSize: 11),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    '镜头 ${v.index + 1}',
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                if (!isSuccess && v.error != null)
-                  Text(
-                    v.error!,
-                    style: const TextStyle(color: AppTheme.highRiskColor, fontSize: 11),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
+                  if (isSuccess && v.videoUrl.isNotEmpty)
+                    Text(
+                      v.videoUrl,
+                      style: const TextStyle(color: AppTheme.primaryColor, fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  if (!isSuccess && v.error != null)
+                    Text(
+                      v.error!,
+                      style: const TextStyle(color: AppTheme.highRiskColor, fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
             ),
           ),
-          // 失败视频的重试按钮
-          if (!isSuccess) ...[
-            const SizedBox(width: 8),
-            SizedBox(
-              height: 28,
-              child: isRetrying
-                  ? const SizedBox(
-                      width: 28,
-                      height: 28,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9800)),
-                      ),
-                    )
-                  : ElevatedButton.icon(
-                      onPressed: () => _retrySingleVideo(v.index),
-                      icon: const Icon(Icons.refresh, size: 12),
-                      label: const Text('重试', style: TextStyle(fontSize: 11)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF9800),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(4),
-                        ),
+          // 操作按钮区
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 成功视频：打开链接按钮（绿色）
+              if (isSuccess && v.videoUrl.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                SizedBox(
+                  height: 28,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      final uri = Uri.tryParse(v.videoUrl);
+                      if (uri != null) {
+                        launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    icon: const Icon(Icons.open_in_new, size: 12),
+                    label: const Text('打开', style: TextStyle(fontSize: 10)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4CAF50),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(4),
                       ),
                     ),
-            ),
-          ],
+                  ),
+                ),
+              ],
+              const SizedBox(width: 4),
+              // 所有视频：重新生成按钮（橙色），不管成功失败
+              SizedBox(
+                height: 28,
+                child: isRetrying
+                    ? const SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9800)),
+                        ),
+                      )
+                    : ElevatedButton.icon(
+                        onPressed: () => _retrySingleVideo(v.index),
+                        icon: const Icon(Icons.refresh, size: 12),
+                        label: Text(isSuccess ? '重新生成' : '重试', style: const TextStyle(fontSize: 11)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF9800),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -1796,42 +1865,60 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              '镜头 ${a.index + 1}',
-                              style: const TextStyle(
-                                color: AppTheme.textPrimary,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            if (voiceLabel.isNotEmpty) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF7C4DFF).withOpacity(0.12),
-                                  borderRadius: BorderRadius.circular(3),
+                    // 点击复制配音文本
+                    child: GestureDetector(
+                      onTap: a.audioText.isNotEmpty
+                          ? () {
+                              Clipboard.setData(ClipboardData(text: a.audioText));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('镜头${a.index + 1}配音文本已复制'),
+                                  duration: const Duration(seconds: 2),
                                 ),
-                                child: Text(
-                                  '🎤 $voiceLabel',
-                                  style: const TextStyle(fontSize: 9, color: Color(0xFF7C4DFF)),
+                              );
+                            }
+                          : null,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                '镜头 ${a.index + 1}',
+                                style: const TextStyle(
+                                  color: AppTheme.textPrimary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
+                              if (voiceLabel.isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF7C4DFF).withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                  child: Text(
+                                    '🎤 $voiceLabel',
+                                    style: const TextStyle(fontSize: 9, color: Color(0xFF7C4DFF)),
+                                  ),
+                                ),
+                              ],
+                              if (a.audioText.isNotEmpty) ...[
+                                const SizedBox(width: 4),
+                                const Icon(Icons.copy, size: 12, color: AppTheme.textHint),
+                              ],
                             ],
-                          ],
-                        ),
-                        Text(
-                          a.audioText,
-                          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                          ),
+                          Text(
+                            a.audioText,
+                            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
