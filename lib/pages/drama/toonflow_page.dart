@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../config/theme.dart';
 import '../../services/toonflow_service.dart';
 import '../../services/tts_service.dart';
+import '../../utils/storage_util.dart';
 
 /// ToonFlow短剧流水线页面
 /// 输入剧本 → 导演Agent识别角色 → 分配角色音色 → 分镜+视频+配音 → 展示结果
@@ -55,10 +57,74 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _loadSavedState();
+  }
+
+  @override
   void dispose() {
     _scriptController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  // ==================== 状态持久化 ====================
+
+  static const String _stateKey = 'toonflow_cache_v2';
+
+  /// 保存当前状态到本地缓存
+  void _saveState() {
+    try {
+      final state = <String, dynamic>{
+        'script': _scriptController.text,
+        'videoModel': _videoModel,
+        'aspectRatio': _aspectRatio,
+        'baseStyle': _baseStyle,
+        'enableTts': _enableTts,
+        'charactersReady': _charactersReady,
+        'portraitsReady': _portraitsReady,
+        'portraitSuccessCount': _portraitSuccessCount,
+        'characters': _characters.map((c) => c.toJson()).toList(),
+        if (_result != null) 'result': _result!.toJson(),
+      };
+      StorageUtil.setString(_stateKey, jsonEncode(state));
+    } catch (_) {}
+  }
+
+  /// 从本地缓存恢复状态
+  Future<void> _loadSavedState() async {
+    try {
+      final saved = StorageUtil.getString(_stateKey);
+      if (saved == null || saved.isEmpty) return;
+      final state = jsonDecode(saved) as Map<String, dynamic>;
+      if (!mounted) return;
+      setState(() {
+        _scriptController.text = state['script'] as String? ?? '';
+        _videoModel = state['videoModel'] as String? ?? ToonFlowService.defaultVideoModel;
+        _aspectRatio = state['aspectRatio'] as String? ?? ToonFlowService.defaultAspectRatio;
+        _baseStyle = state['baseStyle'] as String? ?? ToonFlowService.defaultBaseStyle;
+        _enableTts = state['enableTts'] as bool? ?? true;
+        _charactersReady = state['charactersReady'] as bool? ?? false;
+        _portraitsReady = state['portraitsReady'] as bool? ?? false;
+        _portraitSuccessCount = state['portraitSuccessCount'] as int? ?? 0;
+        if (state['characters'] != null) {
+          _characters = (state['characters'] as List)
+              .map((e) => ToonCharacter.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+        if (state['result'] != null) {
+          _result = ToonFlowResult.fromJson(state['result'] as Map<String, dynamic>);
+        }
+      });
+    } catch (_) {}
+  }
+
+  /// 清除缓存状态
+  void _clearSavedState() {
+    try {
+      StorageUtil.setString(_stateKey, '');
+    } catch (_) {}
   }
 
   /// 第一步：分析剧本，识别角色并生成定妆照
@@ -107,6 +173,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           _currentStage = '导演分析完成，正在生成角色定妆照...';
           _progress = 20;
         });
+        _saveState();
       }
 
       // 自动生成定妆照
@@ -200,6 +267,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           _currentStage = '完成！';
         });
       }
+        _saveState();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -259,6 +327,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           _progress = 100;
           _currentStage = '完成！';
         });
+        _saveState();
       }
     } catch (e) {
       if (mounted) {
@@ -314,6 +383,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           _portraitSuccessCount = _characters.where((c) => c.portraitUrl.isNotEmpty).length;
         });
         ScaffoldMessenger.of(context).showSnackBar(
+        _saveState();
           SnackBar(content: Text('「${char.name}」定妆照已更新'), duration: const Duration(seconds: 2)),
         );
       }
@@ -369,6 +439,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           );
           _retryingVideoIdx = null;
         });
+        _saveState();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('镜头${shotIdx + 1}${newVideo.status == 'success' ? '重试成功' : '重试失败'}'), duration: const Duration(seconds: 2)),
         );
@@ -430,6 +501,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
         });
       }
     } catch (e) {
+        _saveState();
       if (mounted) {
         setState(() {
           _error = e.toString();
@@ -617,9 +689,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
             label: '视频模型',
             value: _videoModel,
             items: _videoModelOptions,
-            onChanged: _isRunning
-                ? null
-                : (v) => setState(() => _videoModel = v!),
+            onChanged: (v) => setState(() { _videoModel = v!; _saveState(); }),
           ),
           const SizedBox(height: 12),
           // 画面比例
@@ -627,9 +697,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
             label: '画面比例',
             value: _aspectRatio,
             items: _ratioOptions,
-            onChanged: _isRunning
-                ? null
-                : (v) => setState(() => _aspectRatio = v!),
+            onChanged: (v) => setState(() { _aspectRatio = v!; _saveState(); }),
           ),
           const SizedBox(height: 12),
           // TTS开关
@@ -639,9 +707,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
               const Spacer(),
               Switch(
                 value: _enableTts,
-                onChanged: _isRunning
-                    ? null
-                    : (v) => setState(() => _enableTts = v),
+                onChanged: (v) => setState(() { _enableTts = v; _saveState(); }),
                 activeColor: const Color(0xFF7C4DFF),
               ),
             ],
@@ -801,7 +867,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
         children: [
           // 角色定妆照（点击重新生成）
           GestureDetector(
-            onTap: _isRunning || _regeneratingPortraitIdx == idx ? null : () => _regeneratePortrait(idx),
+            onTap: _regeneratingPortraitIdx == idx ? null : () => _showPortraitViewer(idx),
             child: Container(
               width: 56,
               height: 56,
@@ -881,51 +947,58 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
             ),
           ),
           const SizedBox(width: 12),
-          // 角色名和描述
+          // 角色名和描述（点击编辑）
           Expanded(
             flex: 2,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 20,
-                      height: 20,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFF6B9D).withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Center(
-                        child: Text(
-                          '${idx + 1}',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFFF6B9D),
+            child: GestureDetector(
+              onTap: () => _showCharacterEditDialog(idx),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF6B9D).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Center(
+                          child: Text(
+                            '${idx + 1}',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFFFF6B9D),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      char.name,
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          char.name,
+                          style: const TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  char.desc,
-                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+                      const Icon(Icons.edit, size: 12, color: AppTheme.textHint),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    char.desc,
+                    style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(width: 8),
@@ -951,12 +1024,11 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                         ),
                       ))
                   .toList(),
-              onChanged: _isRunning
-                  ? null
-                  : (v) {
+              onChanged: (v) {
                       if (v != null) {
                         setState(() {
                           _characters[idx].voiceId = v;
+                          _saveState();
                         });
                       }
                     },
@@ -1352,7 +1424,9 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   ),
                 ),
               ),
-              child: Row(
+              child: GestureDetector(
+                onTap: () => _showShotEditDialog(idx),
+                child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // 序号
@@ -1483,6 +1557,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   ],
                 ],
               ),
+              ), // 关闭GestureDetector
             );
           }),
         ],
@@ -1763,6 +1838,290 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
               ),
             );
           }),
+        ],
+      ),
+    );
+  }
+
+  // ==================== 对话框 ====================
+
+  /// 显示定妆照大图查看器
+  void _showPortraitViewer(int idx) {
+    if (idx < 0 || idx >= _characters.length) return;
+    final char = _characters[idx];
+    if (char.portraitUrl.isEmpty) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppTheme.darkSurface,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 标题栏
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Text(
+                      '「${char.name}」定妆照',
+                      style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w600),
+                    ),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        _regeneratePortrait(idx);
+                      },
+                      icon: const Icon(Icons.refresh, size: 14),
+                      label: const Text('重新生成', style: TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF7C4DFF),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: AppTheme.textHint, size: 20),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              // 大图
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  char.portraitUrl,
+                  fit: BoxFit.contain,
+                  width: double.infinity,
+                  constraints: const BoxConstraints(maxHeight: 500),
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return Container(
+                      height: 300,
+                      color: AppTheme.darkCard,
+                      child: const Center(
+                        child: CircularProgressIndicator(color: Color(0xFF7C4DFF)),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      height: 200,
+                      color: AppTheme.darkCard,
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.broken_image, color: AppTheme.textHint, size: 40),
+                            SizedBox(height: 8),
+                            Text('图片加载失败', style: TextStyle(color: AppTheme.textHint)),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              // 角色描述
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  char.desc,
+                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 角色编辑对话框
+  void _showCharacterEditDialog(int idx) {
+    if (idx < 0 || idx >= _characters.length) return;
+    final char = _characters[idx];
+    final nameCtrl = TextEditingController(text: char.name);
+    final descCtrl = TextEditingController(text: char.desc);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.darkSurface,
+        title: const Text('编辑角色', style: TextStyle(color: AppTheme.textPrimary)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                style: const TextStyle(color: AppTheme.textPrimary),
+                decoration: const InputDecoration(
+                  labelText: '角色名称',
+                  labelStyle: TextStyle(color: AppTheme.textSecondary),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2A2A4A))),
+                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF7C4DFF))),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: descCtrl,
+                maxLines: 3,
+                style: const TextStyle(color: AppTheme.textPrimary),
+                decoration: const InputDecoration(
+                  labelText: '角色描述',
+                  labelStyle: TextStyle(color: AppTheme.textSecondary),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2A2A4A))),
+                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF7C4DFF))),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消', style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _characters[idx] = ToonCharacter(
+                  name: nameCtrl.text.trim().isNotEmpty ? nameCtrl.text.trim() : char.name,
+                  desc: descCtrl.text.trim(),
+                  voiceId: char.voiceId,
+                  portraitUrl: char.portraitUrl,
+                );
+                _saveState();
+              });
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('保存', style: TextStyle(color: Color(0xFF7C4DFF))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 分镜编辑对话框
+  void _showShotEditDialog(int shotIdx) {
+    if (_result == null || shotIdx < 0 || shotIdx >= _result!.shots.length) return;
+    final shot = _result!.shots[shotIdx];
+    final descCtrl = TextEditingController(text: shot.scene_desc);
+    final cameraCtrl = TextEditingController(text: shot.camera);
+    final durationCtrl = TextEditingController(text: shot.duration);
+    final speakerCtrl = TextEditingController(text: shot.speaker);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.darkSurface,
+        title: Text('编辑镜头 ${shotIdx + 1}', style: const TextStyle(color: AppTheme.textPrimary)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: descCtrl,
+                maxLines: 3,
+                style: const TextStyle(color: AppTheme.textPrimary),
+                decoration: const InputDecoration(
+                  labelText: '画面描述',
+                  labelStyle: TextStyle(color: AppTheme.textSecondary),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2A2A4A))),
+                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF7C4DFF))),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: cameraCtrl,
+                      style: const TextStyle(color: AppTheme.textPrimary),
+                      decoration: const InputDecoration(
+                        labelText: '镜头类型',
+                        labelStyle: TextStyle(color: AppTheme.textSecondary),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2A2A4A))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF7C4DFF))),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: durationCtrl,
+                      style: const TextStyle(color: AppTheme.textPrimary),
+                      decoration: const InputDecoration(
+                        labelText: '时长(秒)',
+                        labelStyle: TextStyle(color: AppTheme.textSecondary),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2A2A4A))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF7C4DFF))),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: speakerCtrl,
+                style: const TextStyle(color: AppTheme.textPrimary),
+                decoration: const InputDecoration(
+                  labelText: '说话角色（留空=无台词）',
+                  labelStyle: TextStyle(color: AppTheme.textSecondary),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2A2A4A))),
+                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF7C4DFF))),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消', style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              final newShot = ShotItem(
+                scene_desc: descCtrl.text.trim().isNotEmpty ? descCtrl.text.trim() : shot.scene_desc,
+                camera: cameraCtrl.text.trim().isNotEmpty ? cameraCtrl.text.trim() : shot.camera,
+                audio_text: shot.audio_text,
+                duration: durationCtrl.text.trim().isNotEmpty ? durationCtrl.text.trim() : shot.duration,
+                speaker: speakerCtrl.text.trim(),
+              );
+              setState(() {
+                _result = ToonFlowResult(
+                  videoSegments: _result!.videoSegments,
+                  audioSegments: _result!.audioSegments,
+                  endingHook: _result!.endingHook,
+                  characters: _result!.characters,
+                  outline: _result!.outline,
+                  shots: _result!.shots.asMap().entries.map((e) {
+                    if (e.key == shotIdx) return newShot;
+                    return e.value;
+                  }).toList(),
+                );
+                _saveState();
+              });
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('分镜已更新，可点击重试按钮重新生成视频'), duration: Duration(seconds: 2)),
+              );
+            },
+            child: const Text('保存并更新', style: TextStyle(color: Color(0xFF7C4DFF))),
+          ),
         ],
       ),
     );

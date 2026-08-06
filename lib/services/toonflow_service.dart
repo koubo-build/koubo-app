@@ -220,7 +220,7 @@ class ToonFlowService {
 
   // ==================== 节点4：循环生成视频+配音 ====================
 
-  /// 提交Agnes文生视频任务
+  /// 提交Agnes文生视频任务（带重试机制）
   Future<String> _submitVideoTask({
     required String prompt,
     required String apiKey,
@@ -228,6 +228,7 @@ class ToonFlowService {
     required String aspectRatio,
     required int duration,
     String? imageRef,
+    int maxRetries = 3,
   }) async {
     final body = <String, dynamic>{
       'model': videoModel,
@@ -243,26 +244,53 @@ class ToonFlowService {
       body['image_ref'] = imageRef;
     }
 
-    final dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(minutes: 5),
-    ));
+    DioException? lastError;
+    for (int attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) {
+        // 指数退避：第1次重试等5秒，第2次等10秒，第3次等20秒
+        final waitSeconds = 5 * (1 << (attempt - 1));
+        debugPrint('[ToonFlow] 视频提交第${attempt}次重试，等待${waitSeconds}秒...');
+        await Future.delayed(Duration(seconds: waitSeconds));
+      }
 
-    final response = await dio.post(
-      '${ApiConfig.agnesBaseUrl}/video/generations',
-      data: jsonEncode(body),
-      options: Options(headers: {
-        'Authorization': 'Bearer $apiKey',
-        'Content-Type': 'application/json',
-      }),
-    );
+      try {
+        final dio = Dio(BaseOptions(
+          connectTimeout: const Duration(seconds: 60),
+          receiveTimeout: const Duration(minutes: 5),
+        ));
 
-    final data = response.data as Map<String, dynamic>;
-    final taskId = data['task_id'] as String?;
-    if (taskId == null || taskId.isEmpty) {
-      throw Exception('Agnes视频任务提交失败，未返回task_id');
+        final response = await dio.post(
+          '${ApiConfig.agnesBaseUrl}/video/generations',
+          data: jsonEncode(body),
+          options: Options(headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          }),
+        );
+
+        final data = response.data as Map<String, dynamic>;
+        final taskId = data['task_id'] as String?;
+        if (taskId == null || taskId.isEmpty) {
+          throw Exception('Agnes视频任务提交失败，未返回task_id');
+        }
+        if (attempt > 0) {
+          debugPrint('[ToonFlow] 视频提交重试成功');
+        }
+        return taskId;
+      } on DioException catch (e) {
+        lastError = e;
+        debugPrint('[ToonFlow] 视频提交第${attempt + 1}次失败: ${e.response?.statusCode} ${e.message}');
+        // 如果是4xx客户端错误（非429），不重试
+        if (e.response?.statusCode != null &&
+            e.response!.statusCode! >= 400 &&
+            e.response!.statusCode! < 500 &&
+            e.response!.statusCode != 429) {
+          break;
+        }
+      }
     }
-    return taskId;
+
+    throw Exception('视频提交失败（已重试${maxRetries}次）: ${lastError?.response?.statusCode ?? 'network'} - ${lastError?.message ?? '未知错误'}');
   }
 
   /// 轮询查询Agnes视频任务状态
@@ -270,12 +298,13 @@ class ToonFlowService {
   Future<VideoPollResult> _pollVideoTask({
     required String taskId,
     required String apiKey,
-    int maxPolls = 120, // 最多轮询120次（10分钟）
+    int maxPolls = 180, // 最多轮询180次（15分钟，给足时间）
   }) async {
     final dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 15),
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 30),
     ));
+    int consecutiveErrors = 0;
 
     for (int i = 0; i < maxPolls; i++) {
       await Future.delayed(const Duration(seconds: 5)); // 轮询间隔不低于5秒
@@ -288,6 +317,7 @@ class ToonFlowService {
           }),
         );
 
+        consecutiveErrors = 0; // 重置连续错误计数
         final data = response.data as Map<String, dynamic>;
         final status = data['status'] as String? ?? '';
 
@@ -300,12 +330,16 @@ class ToonFlowService {
         }
         // pending / running → 继续轮询
       } on DioException catch (e) {
-        // 网络错误，继续轮询
-        debugPrint('[ToonFlow] 轮询网络错误: ${e.message}');
+        consecutiveErrors++;
+        debugPrint('[ToonFlow] 轮询第${i + 1}次网络错误: ${e.message}（连续${consecutiveErrors}次）');
+        // 连续10次网络错误才放弃
+        if (consecutiveErrors >= 10) {
+          return VideoPollResult(status: 'failed', videoUrl: '', error: '轮询网络连续失败: ${e.message}');
+        }
       }
     }
 
-    return VideoPollResult(status: 'failed', videoUrl: '', error: '视频生成超时');
+    return VideoPollResult(status: 'failed', videoUrl: '', error: '视频生成超时（已等待${maxPolls * 5}秒）');
   }
 
   /// TTS配音：为单个镜头生成音频
@@ -1017,6 +1051,12 @@ class OutlineItem {
       hook: json['hook'] as String? ?? '',
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'episode': episode,
+    'content': content,
+    'hook': hook,
+  };
 }
 
 /// ToonFlow角色
@@ -1037,9 +1077,17 @@ class ToonCharacter {
     return ToonCharacter(
       name: json['name'] as String? ?? '',
       desc: json['desc'] as String? ?? '',
+      voiceId: json['voiceId'] as String? ?? '',
       portraitUrl: json['portraitUrl'] as String? ?? '',
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'desc': desc,
+    'voiceId': voiceId,
+    'portraitUrl': portraitUrl,
+  };
 }
 
 /// 分镜镜头项
@@ -1074,6 +1122,14 @@ class ShotItem {
       speaker: json['speaker'] as String? ?? '',
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'scene_desc': scene_desc,
+    'camera': camera,
+    'audio_text': audio_text,
+    'duration': duration,
+    'speaker': speaker,
+  };
 }
 
 /// 视频轮询结果
@@ -1102,6 +1158,22 @@ class VideoSegment {
     required this.status,
     this.error,
   });
+
+  Map<String, dynamic> toJson() => {
+    'index': index,
+    'videoUrl': videoUrl,
+    'status': status,
+    'error': error,
+  };
+
+  factory VideoSegment.fromJson(Map<String, dynamic> json) {
+    return VideoSegment(
+      index: json['index'] as int? ?? 0,
+      videoUrl: json['videoUrl'] as String? ?? '',
+      status: json['status'] as String? ?? 'failed',
+      error: json['error'] as String?,
+    );
+  }
 }
 
 /// 音频片段
@@ -1117,6 +1189,22 @@ class AudioSegment {
     required this.audioText,
     required this.status,
   });
+
+  Map<String, dynamic> toJson() => {
+    'index': index,
+    'audioPath': audioPath,
+    'audioText': audioText,
+    'status': status,
+  };
+
+  factory AudioSegment.fromJson(Map<String, dynamic> json) {
+    return AudioSegment(
+      index: json['index'] as int? ?? 0,
+      audioPath: json['audioPath'] as String? ?? '',
+      audioText: json['audioText'] as String? ?? '',
+      status: json['status'] as String? ?? 'failed',
+    );
+  }
 }
 
 /// ToonFlow完整输出结果
@@ -1146,6 +1234,38 @@ class ToonFlowResult {
 
   /// 是否全部成功
   bool get isAllSuccess => successCount == totalCount && totalCount > 0;
+
+  /// 序列化为JSON
+  Map<String, dynamic> toJson() => {
+    'videoSegments': videoSegments.map((v) => v.toJson()).toList(),
+    'audioSegments': audioSegments.map((a) => a.toJson()).toList(),
+    'endingHook': endingHook,
+    'characters': characters.map((c) => c.toJson()).toList(),
+    'outline': outline.map((o) => o.toJson()).toList(),
+    'shots': shots.map((s) => s.toJson()).toList(),
+  };
+
+  /// 从JSON反序列化
+  factory ToonFlowResult.fromJson(Map<String, dynamic> json) {
+    return ToonFlowResult(
+      videoSegments: (json['videoSegments'] as List? ?? [])
+          .map((e) => VideoSegment.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      audioSegments: (json['audioSegments'] as List? ?? [])
+          .map((e) => AudioSegment.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      endingHook: json['endingHook'] as String? ?? '',
+      characters: (json['characters'] as List? ?? [])
+          .map((e) => ToonCharacter.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      outline: (json['outline'] as List? ?? [])
+          .map((e) => OutlineItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      shots: (json['shots'] as List? ?? [])
+          .map((e) => ShotItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
 }
 
 /// ToonFlowService的Riverpod Provider
