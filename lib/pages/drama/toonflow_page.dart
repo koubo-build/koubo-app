@@ -1894,7 +1894,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                 ),
               ),
               // 大图
-              SizedBox(
+              ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 500),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
