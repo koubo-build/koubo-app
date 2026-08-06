@@ -266,8 +266,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           _progress = 100;
           _currentStage = '完成！';
         });
-      }
         _saveState();
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -382,8 +382,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           _regeneratingPortraitIdx = null;
           _portraitSuccessCount = _characters.where((c) => c.portraitUrl.isNotEmpty).length;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
         _saveState();
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('「${char.name}」定妆照已更新'), duration: const Duration(seconds: 2)),
         );
       }
@@ -1894,14 +1894,15 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                 ),
               ),
               // 大图
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  char.portraitUrl,
-                  fit: BoxFit.contain,
-                  width: double.infinity,
-                  constraints: const BoxConstraints(maxHeight: 500),
-                  loadingBuilder: (context, child, loadingProgress) {
+              SizedBox(
+                constraints: const BoxConstraints(maxHeight: 500),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    char.portraitUrl,
+                    fit: BoxFit.contain,
+                    width: double.infinity,
+                    loadingBuilder: (context, child, loadingProgress) {
                     if (loadingProgress == null) return child;
                     return Container(
                       height: 300,
@@ -1929,6 +1930,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   },
                 ),
               ),
+              ), // SizedBox
               // 角色描述
               Padding(
                 padding: const EdgeInsets.all(12),
