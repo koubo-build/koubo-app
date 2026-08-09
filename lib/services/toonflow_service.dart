@@ -125,6 +125,7 @@ class ToonFlowService {
   /// 导演Agent：输入剧本，输出集纲+角色
   Future<DirectorResult> runDirectorAgent({
     required String userInput,
+    String? textModel,
     void Function(String stage, int progress)? onProgress,
   }) async {
     onProgress?.call('导演Agent分析剧本...', 5);
@@ -136,6 +137,7 @@ class ToonFlowService {
       ],
       temperature: 0.4,
       maxTokens: 8192,
+      modelOverride: textModel,
     );
 
     onProgress?.call('解析导演输出...', 15);
@@ -174,6 +176,7 @@ class ToonFlowService {
   Future<List<ShotItem>> runStoryboardAgent({
     required DirectorResult scriptResult,
     required List<ToonCharacter> characters,
+    String? textModel,
     void Function(String stage, int progress)? onProgress,
   }) async {
     onProgress?.call('分镜Agent生成镜头...', 22);
@@ -197,6 +200,7 @@ class ToonFlowService {
       ],
       temperature: 0.3,
       maxTokens: 16384,
+      modelOverride: textModel,
     );
 
     onProgress?.call('解析分镜数据...', 30);
@@ -372,6 +376,7 @@ class ToonFlowService {
     required List<ToonCharacter> characters,
     required String baseStyle,
     required String aspectRatio,
+    String imageModel = 'agnes-image-2.1-flash',
     void Function(String stage, int progress)? onProgress,
   }) async {
     final apiKey = await _getAgnesApiKey();
@@ -390,6 +395,7 @@ class ToonFlowService {
           characterDesc: char.desc,
           baseStyle: baseStyle,
           aspectRatio: aspectRatio,
+          imageModel: imageModel,
         );
         char.portraitUrl = portraitUrl;
         successCount++;
@@ -399,7 +405,7 @@ class ToonFlowService {
           final portraitLog = TaskLog(
             taskId: 'portrait_${char.name}',
             taskType: 'image',
-            modelName: 'agnes-image-2.1-flash',
+            modelName: imageModel,
             provider: 'agnes',
             status: 'completed',
             dramaTitle: char.name,
@@ -419,7 +425,7 @@ class ToonFlowService {
           final portraitFailLog = TaskLog(
             taskId: 'portrait_${char.name}',
             taskType: 'image',
-            modelName: 'agnes-image-2.1-flash',
+            modelName: imageModel,
             provider: 'agnes',
             status: 'failed',
             dramaTitle: char.name,
@@ -446,6 +452,7 @@ class ToonFlowService {
     required String characterDesc,
     required String baseStyle,
     required String aspectRatio,
+    String imageModel = 'agnes-image-2.1-flash',
   }) async {
     // 构造角色定妆照专用prompt
     // 关键：角色肖像照，正面或3/4侧面，纯色背景，清晰展现角色外貌特征
@@ -468,7 +475,7 @@ class ToonFlowService {
     final response = await dio.post(
       '${ApiConfig.agnesBaseUrl}/images/generations',
       data: jsonEncode({
-        'model': 'agnes-image-2.1-flash',
+        'model': imageModel,
         'prompt': prompt,
         'size': size,
         'n': 1,
@@ -505,12 +512,14 @@ class ToonFlowService {
     required List<ToonCharacter> characters,
     required String baseStyle,
     required String aspectRatio,
+    String imageModel = 'agnes-image-2.1-flash',
     void Function(String stage, int progress)? onProgress,
   }) async {
     return generateCharacterPortraits(
       characters: characters,
       baseStyle: baseStyle,
       aspectRatio: aspectRatio,
+      imageModel: imageModel,
       onProgress: onProgress,
     );
   }
@@ -530,6 +539,8 @@ class ToonFlowService {
     Map<String, String>? characterVoiceMap,
     List<ToonCharacter>? existingCharacters,
     bool enableTts = true,
+    String? textModel,
+    String imageModel = 'agnes-image-2.1-flash',
     void Function(String stage, int progress)? onProgress,
   }) async {
     // 获取API Key
@@ -542,6 +553,7 @@ class ToonFlowService {
       // 合并：用existingCharacters的voiceId和portraitUrl覆盖freshResult的characters
       final freshResult = await runDirectorAgent(
         userInput: userInput,
+        textModel: textModel,
         onProgress: onProgress,
       );
 
@@ -563,6 +575,7 @@ class ToonFlowService {
       // ====== 节点1：导演Agent ======
       directorResult = await runDirectorAgent(
         userInput: userInput,
+        textModel: textModel,
         onProgress: onProgress,
       );
 
@@ -589,6 +602,7 @@ class ToonFlowService {
     final allShots = await runStoryboardAgent(
       scriptResult: directorResult,
       characters: directorResult.characters,
+      textModel: textModel,
       onProgress: onProgress,
     );
 
@@ -601,6 +615,7 @@ class ToonFlowService {
         characters: directorResult.characters,
         baseStyle: baseStyle,
         aspectRatio: aspectRatio,
+        imageModel: imageModel,
         onProgress: onProgress,
       );
     }
@@ -801,6 +816,172 @@ class ToonFlowService {
       characters: directorResult.characters,
       outline: directorResult.outline,
       shots: allShots,
+    );
+  }
+
+  // ==================== 仅生成视频+配音（基于已确认分镜） ====================
+
+  /// 仅生成视频和配音（不重新执行导演Agent和分镜Agent）
+  /// 用于分步流程：用户确认分镜后，直接基于已确认的分镜和角色生成视频+配音
+  Future<ToonFlowResult> generateVideosAndAudio({
+    required List<ShotItem> shots,
+    required List<ToonCharacter> characters,
+    required List<OutlineItem> outline,
+    String videoModel = defaultVideoModel,
+    String aspectRatio = defaultAspectRatio,
+    String baseStyle = defaultBaseStyle,
+    bool enableTts = true,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final apiKey = await _getAgnesApiKey();
+
+    // 构建角色名→定妆照URL映射
+    final characterPortraitMap = <String, String>{};
+    for (final char in characters) {
+      if (char.portraitUrl.isNotEmpty) {
+        characterPortraitMap[char.name] = char.portraitUrl;
+      }
+    }
+
+    final videoList = <VideoSegment>[];
+    final audioList = <AudioSegment>[];
+    final totalShots = shots.length;
+    int failedCount = 0;
+
+    for (int i = 0; i < totalShots; i++) {
+      final shot = shots[i];
+      final shotProgress = ((i / totalShots) * 90).round();
+      onProgress?.call('生成镜头 ${i + 1}/$totalShots: ${shot.camera}', shotProgress);
+
+      // 根据speaker查找对应角色的定妆照URL
+      String? shotImageRef;
+      if (shot.speaker.isNotEmpty && shot.speaker != '旁白') {
+        if (characterPortraitMap.containsKey(shot.speaker)) {
+          shotImageRef = characterPortraitMap[shot.speaker];
+        } else {
+          for (final entry in characterPortraitMap.entries) {
+            if (shot.speaker.contains(entry.key) || entry.key.contains(shot.speaker)) {
+              shotImageRef = entry.value;
+              break;
+            }
+          }
+        }
+      }
+      if (shotImageRef == null && characterPortraitMap.isNotEmpty) {
+        shotImageRef = characterPortraitMap.values.first;
+      }
+
+      // 提交视频任务
+      String? taskId;
+      try {
+        final prompt = '${shot.scene_desc},$baseStyle';
+        final duration = shot.durationInt;
+        taskId = await _submitVideoTask(
+          prompt: prompt,
+          apiKey: apiKey,
+          videoModel: videoModel,
+          aspectRatio: aspectRatio,
+          duration: duration,
+          imageRef: shotImageRef,
+        );
+      } catch (e) {
+        debugPrint('[ToonFlow] 镜头${i + 1}提交失败: $e');
+        failedCount++;
+        videoList.add(VideoSegment(index: i, videoUrl: '', status: 'failed', error: e.toString()));
+        try {
+          final failLog = TaskLog(
+            taskId: 'shot_${i + 1}',
+            taskType: 'video',
+            modelName: videoModel,
+            provider: 'agnes',
+            status: 'failed',
+            shotDescription: shot.scene_desc.length > 100 ? shot.scene_desc.substring(0, 100) : shot.scene_desc,
+            errorReason: e.toString(),
+            createdAt: DateTime.now(),
+            completedAt: DateTime.now(),
+          );
+          await StorageUtil.saveTaskLog(failLog);
+        } catch (_) {}
+        continue;
+      }
+
+      // 轮询视频状态
+      onProgress?.call('镜头 ${i + 1}/$totalShots 视频生成中...', shotProgress + 2);
+
+      final pollResult = await _pollVideoTask(
+        taskId: taskId,
+        apiKey: apiKey,
+      );
+
+      final bool isSuccess = pollResult.status == 'success';
+      if (isSuccess) {
+        videoList.add(VideoSegment(index: i, videoUrl: pollResult.videoUrl, status: 'success'));
+      } else {
+        failedCount++;
+        videoList.add(VideoSegment(index: i, videoUrl: '', status: 'failed', error: pollResult.error));
+      }
+
+      // 保存视频生成任务日志
+      try {
+        final taskLog = TaskLog(
+          taskId: taskId ?? 'shot_${i + 1}',
+          taskType: 'video',
+          modelName: videoModel,
+          provider: 'agnes',
+          status: isSuccess ? 'completed' : 'failed',
+          dramaTitle: null,
+          shotDescription: shot.scene_desc.length > 100 ? shot.scene_desc.substring(0, 100) : shot.scene_desc,
+          errorReason: pollResult.error,
+          resultUrl: pollResult.videoUrl.isNotEmpty ? pollResult.videoUrl : null,
+          createdAt: DateTime.now(),
+          completedAt: DateTime.now(),
+        );
+        await StorageUtil.saveTaskLog(taskLog);
+      } catch (e) {
+        debugPrint('[ToonFlow] 保存视频任务日志失败: $e');
+      }
+
+      // TTS配音
+      if (enableTts && shot.audio_text.isNotEmpty) {
+        onProgress?.call('镜头 ${i + 1}/$totalShots 生成配音...', shotProgress + 5);
+        final voiceId = _getVoiceForSpeaker(shot.speaker, characters);
+        final audioPath = await _generateAudioForShot(audioText: shot.audio_text, voiceId: voiceId);
+        final bool audioSuccess = audioPath != null;
+        audioList.add(AudioSegment(
+          index: i,
+          audioPath: audioPath ?? '',
+          audioText: shot.audio_text,
+          status: audioSuccess ? 'success' : 'failed',
+        ));
+        // 保存音频任务日志
+        try {
+          final audioLog = TaskLog(
+            taskId: 'audio_${i + 1}',
+            taskType: 'audio',
+            modelName: 'cosyvoice',
+            provider: 'alibaba',
+            status: audioSuccess ? 'completed' : 'failed',
+            shotDescription: shot.audio_text.length > 100 ? shot.audio_text.substring(0, 100) : shot.audio_text,
+            errorReason: audioSuccess ? null : 'TTS生成失败',
+            resultUrl: audioPath,
+            createdAt: DateTime.now(),
+            completedAt: DateTime.now(),
+          );
+          await StorageUtil.saveTaskLog(audioLog);
+        } catch (_) {}
+      }
+    }
+
+    final episodeHook = outline.isNotEmpty ? outline.last.hook : '';
+    onProgress?.call('生成完成！', 100);
+
+    return ToonFlowResult(
+      videoSegments: videoList,
+      audioSegments: audioList,
+      endingHook: episodeHook,
+      characters: characters,
+      outline: outline,
+      shots: shots,
     );
   }
 

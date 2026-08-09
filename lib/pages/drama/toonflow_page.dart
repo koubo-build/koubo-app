@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../config/theme.dart';
@@ -21,6 +22,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   final _scrollController = ScrollController();
 
   // 配置参数
+  String _textModel = '自动选择'; // 文案模型（导演/分镜Agent用）
+  String _imageModel = 'agnes-image-2.1-flash'; // 图片模型（定妆照用）
   String _videoModel = ToonFlowService.defaultVideoModel;
   String _aspectRatio = ToonFlowService.defaultAspectRatio;
   String _baseStyle = ToonFlowService.defaultBaseStyle;
@@ -42,6 +45,24 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   // 单角色/单镜头重生成状态
   int? _regeneratingPortraitIdx; // 正在重新生成定妆照的角色索引
   int? _retryingVideoIdx; // 正在重试的视频镜头索引
+
+  // 分步流程状态
+  List<ShotItem> _shots = []; // 已确认的分镜列表
+  bool _storyboardReady = false; // 分镜是否已就绪，可供用户确认
+
+  // 文案模型选项（导演/分镜Agent用）
+  static const List<Map<String, String>> _textModelOptions = [
+    {'value': '自动选择', 'label': '自动选择（智能路由）'},
+    {'value': 'qwen-plus', 'label': 'qwen-plus（阿里百炼）'},
+    {'value': 'glm-4.7-flash', 'label': 'GLM-4-Flash（智谱AI）'},
+    {'value': 'Qwen2.5-7B', 'label': 'Qwen2.5-7B（硅基流动）'},
+    {'value': 'agnes-2.0-flash', 'label': 'Agnes-2.0-Flash'},
+  ];
+
+  // 图片模型选项（定妆照用）
+  static const List<Map<String, String>> _imageModelOptions = [
+    {'value': 'agnes-image-2.1-flash', 'label': 'Agnes Image 2.1 Flash'},
+  ];
 
   // 视频模型选项
   static const List<Map<String, String>> _videoModelOptions = [
@@ -78,6 +99,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     try {
       final state = <String, dynamic>{
         'script': _scriptController.text,
+        'textModel': _textModel,
+        'imageModel': _imageModel,
         'videoModel': _videoModel,
         'aspectRatio': _aspectRatio,
         'baseStyle': _baseStyle,
@@ -86,6 +109,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
         'portraitsReady': _portraitsReady,
         'portraitSuccessCount': _portraitSuccessCount,
         'characters': _characters.map((c) => c.toJson()).toList(),
+        'storyboardReady': _storyboardReady,
+        'shots': _shots.map((s) => s.toJson()).toList(),
         if (_result != null) 'result': _result!.toJson(),
       };
       StorageUtil.setString(_stateKey, jsonEncode(state));
@@ -101,6 +126,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       if (!mounted) return;
       setState(() {
         _scriptController.text = state['script'] as String? ?? '';
+        _textModel = state['textModel'] as String? ?? '自动选择';
+        _imageModel = state['imageModel'] as String? ?? 'agnes-image-2.1-flash';
         _videoModel = state['videoModel'] as String? ?? ToonFlowService.defaultVideoModel;
         _aspectRatio = state['aspectRatio'] as String? ?? ToonFlowService.defaultAspectRatio;
         _baseStyle = state['baseStyle'] as String? ?? ToonFlowService.defaultBaseStyle;
@@ -115,6 +142,12 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
         }
         if (state['result'] != null) {
           _result = ToonFlowResult.fromJson(state['result'] as Map<String, dynamic>);
+        }
+        _storyboardReady = state['storyboardReady'] as bool? ?? false;
+        if (state['shots'] != null) {
+          _shots = (state['shots'] as List)
+              .map((e) => ShotItem.fromJson(e as Map<String, dynamic>))
+              .toList();
         }
       });
     } catch (_) {}
@@ -153,6 +186,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       final service = ref.read(toonFlowServiceProvider);
       final directorResult = await service.runDirectorAgent(
         userInput: script,
+        textModel: _textModel,
         onProgress: (stage, progress) {
           if (mounted) {
             setState(() {
@@ -181,6 +215,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
         characters: directorResult.characters,
         baseStyle: _baseStyle,
         aspectRatio: _aspectRatio,
+        imageModel: _imageModel,
         onProgress: (stage, progress) {
           if (mounted) {
             setState(() {
@@ -216,10 +251,72 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     }
   }
 
-  /// 第二步：开始生成视频+配音（复用已有角色含定妆照）
-  Future<void> _startGeneration() async {
+  /// 第二步：生成分镜（分析完角色后调用）
+  Future<void> _generateStoryboard() async {
     final script = _scriptController.text.trim();
     if (script.isEmpty || _characters.isEmpty) return;
+
+    setState(() {
+      _isRunning = true;
+      _error = null;
+      _progress = 0;
+      _currentStage = '分镜Agent生成镜头...';
+      _storyboardReady = false;
+      _shots = [];
+    });
+
+    try {
+      final service = ref.read(toonFlowServiceProvider);
+
+      // 构建临时DirectorResult用于分镜Agent
+      final directorResult = DirectorResult(
+        outline: [OutlineItem(episode: '第1集', content: script, hook: '')],
+        characters: _characters,
+      );
+
+      final shots = await service.runStoryboardAgent(
+        scriptResult: directorResult,
+        characters: _characters,
+        textModel: _textModel,
+        onProgress: (stage, progress) {
+          if (mounted) {
+            setState(() {
+              _currentStage = stage;
+              _progress = progress;
+            });
+          }
+        },
+      );
+
+      if (mounted) {
+        setState(() {
+          _shots = shots;
+          _storyboardReady = true;
+          _isRunning = false;
+          _progress = 60;
+          _currentStage = '分镜生成完成，请确认后开始生成视频';
+        });
+        _saveState();
+        // 滚动到分镜预览区
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeOut,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isRunning = false;
+        });
+      }
+    }
+  }
+
+  /// 第三步：基于已确认的分镜生成视频+配音
+  Future<void> _startGeneration() async {
+    if (_characters.isEmpty || _shots.isEmpty) return;
 
     setState(() {
       _isRunning = true;
@@ -232,22 +329,21 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     try {
       final service = ref.read(toonFlowServiceProvider);
 
-      // 构建角色音色映射
-      final voiceMap = <String, String>{};
-      for (final char in _characters) {
-        if (char.voiceId.isNotEmpty) {
-          voiceMap[char.name] = char.voiceId;
-        }
-      }
+      // 构建outline
+      final outline = [OutlineItem(
+        episode: '第1集',
+        content: _scriptController.text.trim(),
+        hook: '',
+      )];
 
-      // 传入已有的角色（含定妆照和已确认的音色），避免重复执行导演Agent
-      final result = await service.runFullPipeline(
-        userInput: script,
+      // 使用 generateVideosAndAudio，直接传入已确认的分镜和角色
+      final result = await service.generateVideosAndAudio(
+        shots: _shots,
+        characters: _characters,
+        outline: outline,
         videoModel: _videoModel,
         aspectRatio: _aspectRatio,
         baseStyle: _baseStyle,
-        characterVoiceMap: voiceMap,
-        existingCharacters: _characters,
         enableTts: _enableTts,
         onProgress: (stage, progress) {
           if (mounted) {
@@ -307,6 +403,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
         videoModel: _videoModel,
         aspectRatio: _aspectRatio,
         baseStyle: _baseStyle,
+        textModel: _textModel,
+        imageModel: _imageModel,
         enableTts: _enableTts,
         onProgress: (stage, progress) {
           if (mounted) {
@@ -562,6 +660,11 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                     _buildCharacterVoiceSection(),
                     const SizedBox(height: AppTheme.spacingMedium),
                   ],
+                  // 分镜预览区（分镜生成后、视频结果出来前显示）
+                  if (_storyboardReady && _result == null) ...[
+                    _buildStoryboardPreview(),
+                    const SizedBox(height: AppTheme.spacingMedium),
+                  ],
                   // 进度区
                   if (_isRunning || _result != null || _error != null)
                     _buildProgressSection(),
@@ -684,6 +787,22 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           ],
         ),
         children: [
+          // 文案模型（导演/分镜Agent用）
+          _buildConfigDropdown(
+            label: '文案模型',
+            value: _textModel,
+            items: _textModelOptions,
+            onChanged: (v) => setState(() { _textModel = v!; _saveState(); }),
+          ),
+          const SizedBox(height: 12),
+          // 图片模型（定妆照用）
+          _buildConfigDropdown(
+            label: '图片模型',
+            value: _imageModel,
+            items: _imageModelOptions,
+            onChanged: (v) => setState(() { _imageModel = v!; _saveState(); }),
+          ),
+          const SizedBox(height: 12),
           // 视频模型
           _buildConfigDropdown(
             label: '视频模型',
@@ -827,11 +946,11 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   ),
                 ),
                 const Spacer(),
-                // 开始生成按钮
+                // 生成分镜按钮
                 ElevatedButton.icon(
-                  onPressed: _isRunning ? null : _startGeneration,
-                  icon: const Icon(Icons.play_arrow, size: 16),
-                  label: const Text('开始生成', style: TextStyle(fontSize: 13)),
+                  onPressed: _isRunning ? null : _generateStoryboard,
+                  icon: const Icon(Icons.movie_filter, size: 16),
+                  label: const Text('生成分镜', style: TextStyle(fontSize: 13)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF7C4DFF),
                     foregroundColor: Colors.white,
@@ -1038,6 +1157,308 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
               icon: const Icon(Icons.arrow_drop_down, size: 18, color: Color(0xFF7C4DFF)),
               style: const TextStyle(fontSize: 11, color: Color(0xFF7C4DFF)),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== 分镜预览区 ====================
+
+  /// 分镜预览列表（确认后开始生成视频）
+  Widget _buildStoryboardPreview() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.darkCard,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        border: Border.all(
+          color: const Color(0xFF7C4DFF).withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 标题栏
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppTheme.spacingMedium,
+              vertical: AppTheme.spacingSmall,
+            ),
+            decoration: BoxDecoration(
+              color: const Color(0xFF7C4DFF).withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(AppTheme.radiusMedium),
+                topRight: Radius.circular(AppTheme.radiusMedium),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.movie_filter, size: 18, color: Color(0xFF7C4DFF)),
+                const SizedBox(width: 8),
+                Text(
+                  '分镜预览（${_shots.length}个镜头）',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF7C4DFF)),
+                ),
+                const Spacer(),
+                Text(
+                  '点击镜头可编辑',
+                  style: TextStyle(color: AppTheme.textHint.withOpacity(0.7), fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          // 分镜列表
+          ..._shots.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final shot = entry.value;
+            // 获取说话角色信息
+            String speakerVoiceName = '';
+            String speakerPortraitUrl = '';
+            if (shot.speaker.isNotEmpty) {
+              for (final char in _characters) {
+                if (char.name == shot.speaker) {
+                  speakerPortraitUrl = char.portraitUrl;
+                  if (char.voiceId.isNotEmpty) {
+                    final voiceInfo = ToonFlowService.voicePool.firstWhere(
+                      (v) => v['id'] == char.voiceId,
+                      orElse: () => {'name': ''},
+                    );
+                    speakerVoiceName = voiceInfo['name'] ?? '';
+                  }
+                  break;
+                }
+              }
+            }
+
+            return Container(
+              padding: const EdgeInsets.all(AppTheme.spacingMedium),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: const Color(0xFF2A2A4A).withOpacity(0.3), width: 0.5),
+                ),
+              ),
+              child: GestureDetector(
+                onTap: () => _editStoryboardShot(idx),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF7C4DFF).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Center(
+                        child: Text('${idx + 1}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF7C4DFF)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(shot.scene_desc,
+                            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13, height: 1.4),
+                            maxLines: 3, overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Wrap(spacing: 6, children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(color: AppTheme.darkSurface, borderRadius: BorderRadius.circular(4)),
+                              child: Text(shot.camera, style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(color: AppTheme.darkSurface, borderRadius: BorderRadius.circular(4)),
+                              child: Text('${shot.durationInt}s', style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+                            ),
+                            if (shot.speaker.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFF6B9D).withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (speakerPortraitUrl.isNotEmpty) ...[
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(3),
+                                        child: Image.network(speakerPortraitUrl, width: 14, height: 14, fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+                                      ),
+                                      const SizedBox(width: 3),
+                                    ],
+                                    Text(
+                                      speakerVoiceName.isNotEmpty ? '${shot.speaker}·$speakerVoiceName' : shot.speaker,
+                                      style: const TextStyle(fontSize: 10, color: Color(0xFFFF6B9D)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ]),
+                          if (shot.audio_text.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text('🎙 ${shot.audio_text}',
+                              style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontStyle: FontStyle.italic),
+                              maxLines: 2, overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.edit, size: 14, color: AppTheme.textHint),
+                  ],
+                ),
+              ),
+            );
+          }),
+          // 底部操作
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppTheme.spacingMedium, AppTheme.spacingSmall, AppTheme.spacingMedium, AppTheme.spacingMedium),
+            child: Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _isRunning ? null : _generateStoryboard,
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('重新生成分镜', style: TextStyle(fontSize: 12)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF7C4DFF),
+                    side: const BorderSide(color: Color(0xFF7C4DFF), width: 0.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusSmall)),
+                  ),
+                ),
+                const Spacer(),
+                ElevatedButton.icon(
+                  onPressed: _isRunning ? null : _startGeneration,
+                  icon: const Icon(Icons.videocam, size: 16),
+                  label: const Text('开始生成视频', style: TextStyle(fontSize: 13)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C4DFF),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMedium)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 编辑预览阶段的分镜
+  void _editStoryboardShot(int idx) {
+    if (idx < 0 || idx >= _shots.length) return;
+    final shot = _shots[idx];
+    final descCtrl = TextEditingController(text: shot.scene_desc);
+    final cameraCtrl = TextEditingController(text: shot.camera);
+    final durationCtrl = TextEditingController(text: shot.duration);
+    final speakerCtrl = TextEditingController(text: shot.speaker);
+    final audioCtrl = TextEditingController(text: shot.audio_text);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.darkSurface,
+        title: Text('编辑镜头 ${idx + 1}', style: const TextStyle(color: AppTheme.textPrimary)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: descCtrl, maxLines: 3,
+                  style: const TextStyle(color: AppTheme.textPrimary),
+                  decoration: const InputDecoration(
+                    labelText: '画面描述',
+                    labelStyle: TextStyle(color: AppTheme.textSecondary),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2A2A4A))),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF7C4DFF))),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(children: [
+                  Expanded(child: TextField(
+                    controller: cameraCtrl,
+                    style: const TextStyle(color: AppTheme.textPrimary),
+                    decoration: const InputDecoration(
+                      labelText: '镜头类型',
+                      labelStyle: TextStyle(color: AppTheme.textSecondary),
+                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2A2A4A))),
+                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF7C4DFF))),
+                    ),
+                  )),
+                  const SizedBox(width: 12),
+                  Expanded(child: TextField(
+                    controller: durationCtrl,
+                    style: const TextStyle(color: AppTheme.textPrimary),
+                    decoration: const InputDecoration(
+                      labelText: '时长(秒)',
+                      labelStyle: TextStyle(color: AppTheme.textSecondary),
+                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2A2A4A))),
+                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF7C4DFF))),
+                    ),
+                  )),
+                ]),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: speakerCtrl,
+                  style: const TextStyle(color: AppTheme.textPrimary),
+                  decoration: const InputDecoration(
+                    labelText: '说话角色（留空=无台词）',
+                    labelStyle: TextStyle(color: AppTheme.textSecondary),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2A2A4A))),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF7C4DFF))),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: audioCtrl, maxLines: 2,
+                  style: const TextStyle(color: AppTheme.textPrimary),
+                  decoration: const InputDecoration(
+                    labelText: '配音文本/台词',
+                    labelStyle: TextStyle(color: AppTheme.textSecondary),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2A2A4A))),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF7C4DFF))),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消', style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _shots[idx] = ShotItem(
+                  scene_desc: descCtrl.text.trim().isNotEmpty ? descCtrl.text.trim() : shot.scene_desc,
+                  camera: cameraCtrl.text.trim().isNotEmpty ? cameraCtrl.text.trim() : shot.camera,
+                  audio_text: audioCtrl.text.trim().isNotEmpty ? audioCtrl.text.trim() : shot.audio_text,
+                  duration: durationCtrl.text.trim().isNotEmpty ? durationCtrl.text.trim() : shot.duration,
+                  speaker: speakerCtrl.text.trim(),
+                );
+                _saveState();
+              });
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('分镜已更新，可点击"开始生成视频"执行'), duration: Duration(seconds: 2)),
+              );
+            },
+            child: const Text('保存', style: TextStyle(color: Color(0xFF7C4DFF))),
           ),
         ],
       ),
@@ -2352,8 +2773,8 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   style: const TextStyle(color: AppTheme.textHint, fontSize: 12),
                 ),
                 const Spacer(),
-                if (_charactersReady) ...[
-                  // 角色已就绪时显示"一键生成"
+                if (_charactersReady && !_storyboardReady) ...[
+                  // 角色就绪但分镜未生成时，显示"一键生成"
                   OutlinedButton.icon(
                     onPressed: _isRunning ? null : _quickGenerate,
                     icon: const Icon(Icons.flash_on, size: 16),
@@ -2369,23 +2790,27 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   ),
                   const SizedBox(width: 8),
                 ],
-                // 主按钮
+                // 主按钮：根据流程阶段显示不同操作
                 ElevatedButton.icon(
                   onPressed: _isRunning
                       ? null
-                      : (_charactersReady ? null : _analyzeScript),
+                      : (_storyboardReady ? _startGeneration :
+                         _charactersReady ? _generateStoryboard :
+                         _analyzeScript),
                   icon: _isRunning
                       ? const SizedBox(
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                         )
-                      : Icon(_charactersReady
-                          ? Icons.check_circle_outline
-                          : Icons.auto_awesome),
+                      : Icon(_storyboardReady ? Icons.videocam :
+                             _charactersReady ? Icons.movie_filter :
+                             Icons.auto_awesome),
                   label: Text(_isRunning
                       ? '生成中...'
-                      : (_charactersReady ? '角色已就绪' : '分析剧本')),
+                      : (_storyboardReady ? '生成视频' :
+                         _charactersReady ? '生成分镜' :
+                         '分析剧本')),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF7C4DFF),
                     foregroundColor: Colors.white,
