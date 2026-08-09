@@ -1,1 +1,31 @@
-[]
+{
+  "name": "短剧项目",
+  "version": "0.1.0",
+  "description": "短剧/短视频（Toonflow 风格）功能的顶层配置，用于 koubo-app 与 Toonflow 集成",
+  "scenes": [
+    {
+      "id": "scene-1",
+      "title": "示例场景",
+      "duration": 12,
+      "description": "场景描述：发生了什么",
+      "dialogues": [
+        {"character": "张三", "line": "这是第一句台词。"}
+      ],
+      "assets": [
+        {"type": "bg", "path": "assets/bg/room.png"}
+      ]
+    }
+  ],
+  "characters": [
+    {
+      "id": "char-zhangsan",
+      "name": "张三",
+      "persona": "男，25岁，乐观",
+      "visual": {"avatar": "assets/char/zhangsan.png"}
+    }
+  ],
+  "exportOptions": {
+    "video": {"fps": 24, "resolution": "1920x1080", "format": "mp4"},
+    "audio": {"ttsProvider": "placeholder", "language": "zh-CN"}
+  }
+}

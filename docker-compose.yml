@@ -1,0 +1,29 @@
+version: '3.8'
+services:
+  toonflow:
+    # 注意：如果有官方镜像可以替换 image 字段；否则请将 build 指向本地 clone 的 Toonflow 源码目录。
+    image: ghcr.io/hbai-ltd/toonflow-app:latest
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      # 外部模型 Key 由 adapter 注入或通过环境变量提供
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    ports:
+      - "3000:3000" # 根据 Toonflow 实际端口调整
+    volumes:
+      - ./integrations/toonflow/data:/app/data
+
+  adapter:
+    build: ./integrations/toonflow/adapter
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - TOONFLOW_URL=http://toonflow:3000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - toonflow
+
+# 说明：
+# - 如果官方没有预构建镜像，建议改为在部署前将 Toonflow repo 当作子目录并 build 镜像；或者在 CI 中先构建镜像并发布到私有 registry。
+# - adapter 提供统一且安全的前端接口（可做鉴权、限流、API Key 注入、简化调用）。
