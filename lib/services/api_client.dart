@@ -612,9 +612,9 @@ class ApiClient {
 
     // 自定义API Provider（OpenAI兼容格式）
     if (model == '自定义API') {
-      final customBaseUrl = await StorageUtil.get(ApiConfig.customTextBaseUrl);
+      final customBaseUrl = StorageUtil.getString(ApiConfig.customTextBaseUrl);
       final customApiKey = await StorageUtil.getSecure(ApiConfig.customTextApiKeyKey);
-      final customModel = await StorageUtil.get(ApiConfig.customTextModelName);
+      final customModel = StorageUtil.getString(ApiConfig.customTextModelName);
       if (customBaseUrl == null || customBaseUrl.isEmpty) {
         throw Exception('请先在设置页配置自定义API的Base URL');
       }
