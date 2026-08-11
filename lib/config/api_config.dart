@@ -103,6 +103,41 @@ class ApiConfig {
   // ==================== Agnes AI（全模态免费平台） ====================
   static const String agnesBaseUrl = 'https://apihub.agnes-ai.cn/v1';
   static const String agnesModelFlash = 'agnes-2.0-flash';
+  /// Agnes 2.5 Flash 文本模型（更强推理）
+  static const String agnesModel25Flash = 'agnes-2.5-flash';
+
+  // ==================== DeepSeek ====================
+  static const String deepseekBaseUrl = 'https://api.deepseek.com/v1';
+  static const String deepseekModelChat = 'deepseek-chat';
+  static const String deepseekModelReasoner = 'deepseek-reasoner';
+
+  // ==================== MiniMax(海螺AI) ====================
+  static const String minimaxBaseUrl = 'https://api.minimax.chat/v1';
+  static const String minimaxModelText = 'MiniMax-Text-01';
+
+  // ==================== 火山引擎(豆包) ====================
+  static const String doubaoBaseUrl = 'https://ark.cn-beijing.volces.com/api/v3';
+  static const String doubaoModelLite = 'doubao-pro-32k';
+
+  // ==================== 可灵AI（视频生成） ====================
+  static const String klingBaseUrl = 'https://api.klingai.com';
+
+  // ==================== Vidu 开放平台（视频生成） ====================
+  static const String viduBaseUrl = 'https://api.vidu.cn';
+
+  // ==================== 自定义API Provider ====================
+  /// 自定义文本API Base URL（OpenAI兼容格式）
+  static const String customTextBaseUrl = 'custom_text_base_url';
+  static const String customTextApiKeyKey = 'custom_text_api_key';
+  static const String customTextModelName = 'custom_text_model_name';
+  /// 自定义图片API配置
+  static const String customImageBaseUrl = 'custom_image_base_url';
+  static const String customImageApiKeyKey = 'custom_image_api_key';
+  static const String customImageModelName = 'custom_image_model_name';
+  /// 自定义视频API配置
+  static const String customVideoBaseUrl = 'custom_video_base_url';
+  static const String customVideoApiKeyKey = 'custom_video_api_key';
+  static const String customVideoModelName = 'custom_video_model_name';
 
   // ==================== API Key存储键名 ====================
   static const String zhipuApiKeyKey = 'zhipu_api_key';
@@ -111,6 +146,9 @@ class ApiConfig {
   static const String kuhuyunApiKeyKey = 'kuhuyun_api_key';
   static const String tikhubApiKeyKey = 'tikhub_api_key';
   static const String agnesApiKeyKey = 'agnes_api_key';
+  static const String deepseekApiKeyKey = 'deepseek_api_key';
+  static const String minimaxApiKeyKey = 'minimax_api_key';
+  static const String doubaoApiKeyKey = 'doubao_api_key';
 
   // ==================== 阿里百炼 Wanxiang 文生图 ====================
   /// Wanxiang文生图提交接口（异步）

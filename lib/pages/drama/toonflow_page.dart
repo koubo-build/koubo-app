@@ -53,21 +53,32 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   // 文案模型选项（导演/分镜Agent用）
   static const List<Map<String, String>> _textModelOptions = [
     {'value': '自动选择', 'label': '自动选择（智能路由）'},
+    {'value': 'agnes-2.5-flash', 'label': 'Agnes 2.5 Flash（更强推理）'},
+    {'value': 'agnes-2.0-flash', 'label': 'Agnes 2.0 Flash'},
     {'value': 'qwen-plus', 'label': 'qwen-plus（阿里百炼）'},
-    {'value': 'glm-4.7-flash', 'label': 'GLM-4-Flash（智谱AI）'},
-    {'value': 'Qwen2.5-7B', 'label': 'Qwen2.5-7B（硅基流动）'},
-    {'value': 'agnes-2.0-flash', 'label': 'Agnes-2.0-Flash'},
+    {'value': 'glm-4.7-flash', 'label': 'GLM-4-Flash（智谱AI，免费）'},
+    {'value': 'glm-4-plus', 'label': 'GLM-4-Plus（智谱AI）'},
+    {'value': 'Qwen2.5-7B', 'label': 'Qwen2.5-7B（硅基流动，免费）'},
+    {'value': 'deepseek-chat', 'label': 'DeepSeek-V3（深度求索）'},
+    {'value': 'deepseek-reasoner', 'label': 'DeepSeek-R1（深度求索·推理）'},
+    {'value': 'MiniMax-Text-01', 'label': 'MiniMax-Text-01（海螺AI）'},
+    {'value': 'doubao-pro-32k', 'label': '豆包Pro-32K（火山引擎）'},
+    {'value': '自定义API', 'label': '自定义API（在设置中配置）'},
   ];
 
   // 图片模型选项（定妆照用）
   static const List<Map<String, String>> _imageModelOptions = [
-    {'value': 'agnes-image-2.1-flash', 'label': 'Agnes Image 2.1 Flash'},
+    {'value': 'agnes-image-2.1-flash', 'label': 'Agnes Image 2.1 Flash（推荐）'},
+    {'value': 'agnes-image-2.0-flash', 'label': 'Agnes Image 2.0 Flash'},
+    {'value': '自定义API', 'label': '自定义API（在设置中配置）'},
   ];
 
   // 视频模型选项
   static const List<Map<String, String>> _videoModelOptions = [
-    {'value': 'Agnes-2.5-Flash', 'label': 'Agnes 2.5 Flash'},
+    {'value': 'Agnes-2.5-Flash', 'label': 'Agnes 2.5 Flash（推荐）'},
     {'value': 'Agnes-2.0-Flash', 'label': 'Agnes 2.0 Flash'},
+    {'value': 'agnes-video-v2.0', 'label': 'Agnes Video V2.0'},
+    {'value': '自定义API', 'label': '自定义API（在设置中配置）'},
   ];
 
   // 画面比例选项
@@ -469,20 +480,22 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
 
     try {
       final service = ref.read(toonFlowServiceProvider);
-      final newUrl = await service.regenerateSinglePortrait(
+      final newUrls = await service.regenerateSinglePortrait(
         character: char,
         baseStyle: _baseStyle,
         aspectRatio: _aspectRatio,
+        imageModel: _imageModel,
       );
       if (mounted) {
         setState(() {
-          _characters[idx].portraitUrl = newUrl;
+          _characters[idx].portraitUrls = newUrls;
           _regeneratingPortraitIdx = null;
-          _portraitSuccessCount = _characters.where((c) => c.portraitUrl.isNotEmpty).length;
+          _portraitSuccessCount = _characters.where((c) => c.portraitCount > 0).length;
         });
         _saveState();
+        final successCount = newUrls.where((u) => u.isNotEmpty).length;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('「${char.name}」定妆照已更新'), duration: const Duration(seconds: 2)),
+          SnackBar(content: Text('「${char.name}」定妆照已更新（${successCount}/4张成功）'), duration: const Duration(seconds: 2)),
         );
       }
     } catch (e) {
@@ -909,7 +922,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   ),
                 ),
                 Text(
-                  '${_characters.length}个角色, $_portraitSuccessCount张定妆照',
+                  '${_characters.length}个角色, ${_characters.fold<int>(0, (sum, c) => sum + c.portraitCount)}张定妆照(四视图)',
                   style: TextStyle(color: AppTheme.textHint.withOpacity(0.7), fontSize: 12),
                 ),
               ],
@@ -984,16 +997,16 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       ),
       child: Row(
         children: [
-          // 角色定妆照（点击重新生成）
+          // 角色四视图定妆照（点击查看详情）
           GestureDetector(
             onTap: _regeneratingPortraitIdx == idx ? null : () => _showPortraitViewer(idx),
             child: Container(
-              width: 56,
+              width: 80,
               height: 56,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: char.portraitUrl.isNotEmpty
+                  color: char.portraitCount > 0
                       ? const Color(0xFF7C4DFF).withOpacity(0.5)
                       : const Color(0xFF2A2A4A).withOpacity(0.5),
                   width: 1,
@@ -1001,53 +1014,67 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
               ),
               child: Stack(
                 children: [
-                  char.portraitUrl.isNotEmpty
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(7),
-                          child: Image.network(
-                            char.portraitUrl,
-                            fit: BoxFit.cover,
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Container(
-                                color: const Color(0xFF2A2A4A),
-                                child: const Center(
-                                  child: SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Color(0xFF7C4DFF),
+                  // 2x2网格展示四视图
+                  Padding(
+                    padding: const EdgeInsets.all(2),
+                    child: GridView.count(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 2,
+                      crossAxisSpacing: 2,
+                      physics: const NeverScrollableScrollPhysics(),
+                      children: List.generate(4, (angleIdx) {
+                        final url = char.getPortraitAt(angleIdx);
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2A2A4A),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: url.isNotEmpty
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(3),
+                                  child: Image.network(
+                                    url,
+                                    fit: BoxFit.cover,
+                                    loadingBuilder: (context, child, loadingProgress) {
+                                      if (loadingProgress == null) return child;
+                                      return const Center(
+                                        child: SizedBox(
+                                          width: 10,
+                                          height: 10,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 1.5,
+                                            color: Color(0xFF7C4DFF),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return const Icon(
+                                        Icons.broken_image,
+                                        color: AppTheme.textHint,
+                                        size: 12,
+                                      );
+                                    },
+                                  ),
+                                )
+                              : Center(
+                                  child: Text(
+                                    ToonCharacter.angleLabels[angleIdx],
+                                    style: const TextStyle(
+                                      color: AppTheme.textHint,
+                                      fontSize: 7,
                                     ),
                                   ),
                                 ),
-                              );
-                            },
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                color: const Color(0xFF2A2A4A),
-                                child: const Icon(
-                                  Icons.broken_image,
-                                  color: AppTheme.textHint,
-                                  size: 20,
-                                ),
-                              );
-                            },
-                          ),
-                        )
-                      : Container(
-                          color: const Color(0xFF2A2A4A),
-                          child: const Icon(
-                            Icons.person_outline,
-                            color: AppTheme.textHint,
-                            size: 24,
-                          ),
-                        ),
+                        );
+                      }),
+                    ),
+                  ),
                   // 重新生成中的加载遮罩
                   if (_regeneratingPortraitIdx == idx)
                     Container(
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.5),
+                        color: Colors.black.withOpacity(0.6),
                         borderRadius: BorderRadius.circular(7),
                       ),
                       child: const Center(
@@ -2353,11 +2380,11 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
 
   // ==================== 对话框 ====================
 
-  /// 显示定妆照大图查看器
+  /// 显示定妆照四视图大图查看器
   void _showPortraitViewer(int idx) {
     if (idx < 0 || idx >= _characters.length) return;
     final char = _characters[idx];
-    if (char.portraitUrl.isEmpty) return;
+    if (char.portraitCount == 0) return;
 
     showDialog(
       context: context,
@@ -2378,7 +2405,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                 child: Row(
                   children: [
                     Text(
-                      '「${char.name}」定妆照',
+                      '「${char.name}」定妆照（${char.portraitCount}/4）',
                       style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w600),
                     ),
                     const Spacer(),
@@ -2401,54 +2428,100 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   ],
                 ),
               ),
-              // 大图
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 500),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    char.portraitUrl,
-                    fit: BoxFit.contain,
-                    width: double.infinity,
-                    loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    return Container(
-                      height: 300,
-                      color: AppTheme.darkCard,
-                      child: const Center(
-                        child: CircularProgressIndicator(color: Color(0xFF7C4DFF)),
-                      ),
-                    );
-                  },
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      height: 200,
-                      color: AppTheme.darkCard,
-                      child: const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.broken_image, color: AppTheme.textHint, size: 40),
-                            SizedBox(height: 8),
-                            Text('图片加载失败', style: TextStyle(color: AppTheme.textHint)),
-                          ],
+              // 四视图2x2网格
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: 0.65,
+                  children: List.generate(4, (angleIdx) {
+                    final url = char.getPortraitAt(angleIdx);
+                    final label = ToonCharacter.angleLabels[angleIdx];
+                    return Column(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: AppTheme.darkCard,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: url.isNotEmpty
+                                    ? const Color(0xFF7C4DFF).withOpacity(0.4)
+                                    : const Color(0xFF2A2A4A).withOpacity(0.5),
+                                width: 1,
+                              ),
+                            ),
+                            child: url.isNotEmpty
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(7),
+                                    child: Image.network(
+                                      url,
+                                      fit: BoxFit.cover,
+                                      width: double.infinity,
+                                      loadingBuilder: (context, child, loadingProgress) {
+                                        if (loadingProgress == null) return child;
+                                        return const Center(
+                                          child: CircularProgressIndicator(
+                                            color: Color(0xFF7C4DFF),
+                                            strokeWidth: 2,
+                                          ),
+                                        );
+                                      },
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return const Center(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.broken_image, color: AppTheme.textHint, size: 30),
+                                              SizedBox(height: 4),
+                                              Text('加载失败', style: TextStyle(color: AppTheme.textHint, fontSize: 10)),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  )
+                                : Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.person_outline, color: AppTheme.textHint, size: 30),
+                                        const SizedBox(height: 4),
+                                        Text('未生成', style: TextStyle(color: AppTheme.textHint, fontSize: 10)),
+                                      ],
+                                    ),
+                                  ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 4),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            color: url.isNotEmpty ? const Color(0xFF7C4DFF) : AppTheme.textHint,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     );
-                  },
+                  }),
                 ),
               ),
-              ), // SizedBox
+              const SizedBox(height: 12),
               // 角色描述
               Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
                   char.desc,
                   style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                   textAlign: TextAlign.center,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
             ],
           ),
         ),
@@ -2510,7 +2583,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   name: nameCtrl.text.trim().isNotEmpty ? nameCtrl.text.trim() : char.name,
                   desc: descCtrl.text.trim(),
                   voiceId: char.voiceId,
-                  portraitUrl: char.portraitUrl,
+                  portraitUrls: List<String>.from(char.portraitUrls),
                 );
                 _saveState();
               });

@@ -520,6 +520,117 @@ class ApiClient {
       );
     }
 
+    if (model == 'agnes-2.5-flash') {
+      final apiKey = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey);
+      if (apiKey == null || apiKey.isEmpty) {
+        throw Exception('请先配置Agnes AI API Key');
+      }
+      return chatCompletion(
+        baseUrl: ApiConfig.agnesBaseUrl,
+        apiKey: apiKey,
+        model: ApiConfig.agnesModel25Flash,
+        messages: messages,
+        temperature: temperature,
+        maxTokens: maxTokens,
+      );
+    }
+
+    if (model == 'glm-4-plus') {
+      final apiKey = await StorageUtil.getSecure(ApiConfig.zhipuApiKeyKey);
+      if (apiKey == null || apiKey.isEmpty) {
+        throw Exception('请先配置智谱AI API Key');
+      }
+      return chatCompletion(
+        baseUrl: ApiConfig.zhipuBaseUrl,
+        apiKey: apiKey,
+        model: ApiConfig.zhipuModel4,
+        messages: messages,
+        temperature: temperature,
+        maxTokens: maxTokens,
+      );
+    }
+
+    if (model == 'deepseek-chat') {
+      final apiKey = await StorageUtil.getSecure(ApiConfig.deepseekApiKeyKey);
+      if (apiKey == null || apiKey.isEmpty) {
+        throw Exception('请先配置DeepSeek API Key（设置页→DeepSeek）');
+      }
+      return chatCompletion(
+        baseUrl: ApiConfig.deepseekBaseUrl,
+        apiKey: apiKey,
+        model: ApiConfig.deepseekModelChat,
+        messages: messages,
+        temperature: temperature,
+        maxTokens: maxTokens,
+      );
+    }
+
+    if (model == 'deepseek-reasoner') {
+      final apiKey = await StorageUtil.getSecure(ApiConfig.deepseekApiKeyKey);
+      if (apiKey == null || apiKey.isEmpty) {
+        throw Exception('请先配置DeepSeek API Key（设置页→DeepSeek）');
+      }
+      return chatCompletion(
+        baseUrl: ApiConfig.deepseekBaseUrl,
+        apiKey: apiKey,
+        model: ApiConfig.deepseekModelReasoner,
+        messages: messages,
+        temperature: temperature,
+        maxTokens: maxTokens,
+      );
+    }
+
+    if (model == 'MiniMax-Text-01') {
+      final apiKey = await StorageUtil.getSecure(ApiConfig.minimaxApiKeyKey);
+      if (apiKey == null || apiKey.isEmpty) {
+        throw Exception('请先配置MiniMax(海螺AI) API Key（设置页→MiniMax）');
+      }
+      return chatCompletion(
+        baseUrl: ApiConfig.minimaxBaseUrl,
+        apiKey: apiKey,
+        model: ApiConfig.minimaxModelText,
+        messages: messages,
+        temperature: temperature,
+        maxTokens: maxTokens,
+      );
+    }
+
+    if (model == 'doubao-pro-32k') {
+      final apiKey = await StorageUtil.getSecure(ApiConfig.doubaoApiKeyKey);
+      if (apiKey == null || apiKey.isEmpty) {
+        throw Exception('请先配置火山引擎(豆包) API Key（设置页→豆包）');
+      }
+      return chatCompletion(
+        baseUrl: ApiConfig.doubaoBaseUrl,
+        apiKey: apiKey,
+        model: ApiConfig.doubaoModelLite,
+        messages: messages,
+        temperature: temperature,
+        maxTokens: maxTokens,
+      );
+    }
+
+    // 自定义API Provider（OpenAI兼容格式）
+    if (model == '自定义API') {
+      final customBaseUrl = await StorageUtil.get(ApiConfig.customTextBaseUrl);
+      final customApiKey = await StorageUtil.getSecure(ApiConfig.customTextApiKeyKey);
+      final customModel = await StorageUtil.get(ApiConfig.customTextModelName);
+      if (customBaseUrl == null || customBaseUrl.isEmpty) {
+        throw Exception('请先在设置页配置自定义API的Base URL');
+      }
+      if (customApiKey == null || customApiKey.isEmpty) {
+        throw Exception('请先在设置页配置自定义API的API Key');
+      }
+      return chatCompletion(
+        baseUrl: customBaseUrl,
+        apiKey: customApiKey,
+        model: customModel ?? 'default',
+        messages: messages,
+        temperature: temperature,
+        maxTokens: maxTokens,
+      );
+    }
+
     throw Exception('不支持的模型：$model');
   }
 }

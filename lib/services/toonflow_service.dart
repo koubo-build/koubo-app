@@ -369,9 +369,9 @@ class ToonFlowService {
 
   // ==================== 角色定妆照生成 ====================
 
-  /// 为所有角色生成定妆照（角色参考图）
-  /// 使用 Agnes AI 图像生成 API，生成统一风格的角色肖像
-  /// 返回成功生成的角色数
+  /// 为所有角色生成四视图定妆照（正面/左侧/右侧/背面）
+  /// 每个角色生成4张不同角度的参考图，确保后续视频生成时人物形象一致
+  /// 返回成功生成定妆照的角色数（至少1张成功即计入）
   Future<int> generateCharacterPortraits({
     required List<ToonCharacter> characters,
     required String baseStyle,
@@ -381,71 +381,89 @@ class ToonFlowService {
   }) async {
     final apiKey = await _getAgnesApiKey();
     int successCount = 0;
+    const angles = [0, 1, 2, 3]; // 正面、左侧、右侧、背面
+    const totalImages = 4; // 每个角色4张
 
     for (int i = 0; i < characters.length; i++) {
       final char = characters[i];
-      // 进度映射：30%~45%之间分配
-      final progressVal = 30 + ((i / characters.length) * 15).round();
-      onProgress?.call('生成角色定妆照 ${i + 1}/${characters.length}: ${char.name}', progressVal);
+      // 初始化四视图列表
+      char.portraitUrls = List<String>.filled(totalImages, '');
+      int charSuccessCount = 0;
 
-      try {
-        final portraitUrl = await _generatePortrait(
-          apiKey: apiKey,
-          characterName: char.name,
-          characterDesc: char.desc,
-          baseStyle: baseStyle,
-          aspectRatio: aspectRatio,
-          imageModel: imageModel,
+      for (final angle in angles) {
+        final angleLabel = ToonCharacter.angleLabels[angle];
+        // 进度映射：30%~45%之间分配
+        final totalSteps = characters.length * totalImages;
+        final currentStep = i * totalImages + angle;
+        final progressVal = 30 + ((currentStep / totalSteps) * 15).round();
+        onProgress?.call(
+          '角色${char.name} · $angleLabel定妆照 (${angle + 1}/$totalImages)',
+          progressVal,
         );
-        char.portraitUrl = portraitUrl;
-        successCount++;
-        debugPrint('[ToonFlow] 角色 ${char.name} 定妆照生成成功: $portraitUrl');
-        // 保存定妆照生成成功的任务日志
+
         try {
-          final portraitLog = TaskLog(
-            taskId: 'portrait_${char.name}',
-            taskType: 'image',
-            modelName: imageModel,
-            provider: 'agnes',
-            status: 'completed',
-            dramaTitle: char.name,
-            shotDescription: char.desc.length > 100
-                ? char.desc.substring(0, 100)
-                : char.desc,
-            resultUrl: portraitUrl,
-            createdAt: DateTime.now(),
-            completedAt: DateTime.now(),
+          final portraitUrl = await _generatePortrait(
+            apiKey: apiKey,
+            characterName: char.name,
+            characterDesc: char.desc,
+            baseStyle: baseStyle,
+            aspectRatio: aspectRatio,
+            imageModel: imageModel,
+            viewAngle: angle,
           );
-          await StorageUtil.saveTaskLog(portraitLog);
-        } catch (_) {}
-      } catch (e) {
-        debugPrint('[ToonFlow] 角色 ${char.name} 定妆照生成失败: $e');
-        // 保存定妆照生成失败的任务日志
-        try {
-          final portraitFailLog = TaskLog(
-            taskId: 'portrait_${char.name}',
-            taskType: 'image',
-            modelName: imageModel,
-            provider: 'agnes',
-            status: 'failed',
-            dramaTitle: char.name,
-            shotDescription: char.desc.length > 100
-                ? char.desc.substring(0, 100)
-                : char.desc,
-            errorReason: e.toString(),
-            createdAt: DateTime.now(),
-            completedAt: DateTime.now(),
-          );
-          await StorageUtil.saveTaskLog(portraitFailLog);
-        } catch (_) {}
+          char.portraitUrls[angle] = portraitUrl;
+          charSuccessCount++;
+          debugPrint('[ToonFlow] 角色 ${char.name} $angleLabel 定妆照成功: $portraitUrl');
+
+          // 保存任务日志
+          try {
+            final portraitLog = TaskLog(
+              taskId: 'portrait_${char.name}_$angleLabel',
+              taskType: 'image',
+              modelName: imageModel,
+              provider: 'agnes',
+              status: 'completed',
+              dramaTitle: '${char.name}·$angleLabel',
+              shotDescription: char.desc.length > 100
+                  ? char.desc.substring(0, 100)
+                  : char.desc,
+              resultUrl: portraitUrl,
+              createdAt: DateTime.now(),
+              completedAt: DateTime.now(),
+            );
+            await StorageUtil.saveTaskLog(portraitLog);
+          } catch (_) {}
+        } catch (e) {
+          debugPrint('[ToonFlow] 角色 ${char.name} $angleLabel 定妆照失败: $e');
+          try {
+            final portraitFailLog = TaskLog(
+              taskId: 'portrait_${char.name}_$angleLabel',
+              taskType: 'image',
+              modelName: imageModel,
+              provider: 'agnes',
+              status: 'failed',
+              dramaTitle: '${char.name}·$angleLabel',
+              shotDescription: char.desc.length > 100
+                  ? char.desc.substring(0, 100)
+                  : char.desc,
+              errorReason: e.toString(),
+              createdAt: DateTime.now(),
+              completedAt: DateTime.now(),
+            );
+            await StorageUtil.saveTaskLog(portraitFailLog);
+          } catch (_) {}
+        }
       }
+
+      if (charSuccessCount > 0) successCount++;
     }
 
-    onProgress?.call('定妆照生成完成，成功$successCount/${characters.length}', 45);
+    onProgress?.call('定妆照生成完成，成功$successCount/${characters.length}个角色', 45);
     return successCount;
   }
 
-  /// 生成单个角色的定妆照
+  /// 生成单个角色单个角度的定妆照
+  /// [viewAngle] 视角：0=正面, 1=左侧, 2=右侧, 3=背面
   Future<String> _generatePortrait({
     required String apiKey,
     required String characterName,
@@ -453,17 +471,21 @@ class ToonFlowService {
     required String baseStyle,
     required String aspectRatio,
     String imageModel = 'agnes-image-2.1-flash',
+    int viewAngle = 0,
   }) async {
-    // 构造角色定妆照专用prompt
-    // 关键：角色肖像照，正面或3/4侧面，纯色背景，清晰展现角色外貌特征
-    final prompt = '角色设定照，$characterName，$characterDesc，正面或微侧面半身像，中性灰色纯色背景，柔和均匀灯光，$baseStyle，高清细节，角色一致性参考图';
+    // 根据角度构造不同的prompt
+    final angleDescs = [
+      '正面全身站姿，面朝镜头',
+      '左侧面全身站姿，面朝右方，展示角色左侧轮廓',
+      '右侧面全身站姿，面朝左方，展示角色右侧轮廓',
+      '背面全身站姿，背朝镜头，展示角色背部造型',
+    ];
+    final angleLabel = ToonCharacter.angleLabels[viewAngle];
+    final prompt = '角色设定参考图，$angleLabel视角，$characterName，$characterDesc，${angleDescs[viewAngle]}，中性灰色纯色背景，柔和均匀灯光，$baseStyle，高清细节，角色一致性参考图，全身照';
 
-    // 确定图片尺寸
-    // aspectRatio 9:16 -> 1024x1792, 16:9 -> 1792x1024, 1:1 -> 1024x1024
+    // 确定图片尺寸（定妆照统一用竖屏比例，适合全身照）
     String size = '1024x1792'; // 默认竖屏
-    if (aspectRatio == '16:9') {
-      size = '1792x1024';
-    } else if (aspectRatio == '1:1') {
+    if (aspectRatio == '1:1') {
       size = '1024x1024';
     }
 
@@ -494,10 +516,8 @@ class ToonFlowService {
 
     final imageUrl = imageData[0]['url'] as String?;
     if (imageUrl == null || imageUrl.isEmpty) {
-      // 尝试b64_json
       final b64 = imageData[0]['b64_json'] as String?;
       if (b64 != null && b64.isNotEmpty) {
-        // base64 无法直接作为 image_ref，需要URL
         throw Exception('定妆照返回base64格式，无法用作参考图');
       }
       throw Exception('定妆照生成失败：未返回图片URL');
@@ -561,7 +581,7 @@ class ToonFlowService {
         for (final freshChar in freshResult.characters) {
           if (freshChar.name == existingChar.name) {
             freshChar.voiceId = existingChar.voiceId;
-            freshChar.portraitUrl = existingChar.portraitUrl;
+            freshChar.portraitUrls = List<String>.from(existingChar.portraitUrls);
             break;
           }
         }
@@ -607,8 +627,8 @@ class ToonFlowService {
     );
 
     // ====== 新增：角色定妆照生成 ======
-    // 仅在角色还没有定妆照时生成
-    final needsPortraits = directorResult.characters.any((c) => c.portraitUrl.isEmpty);
+    // 仅在角色还没有完整四视图定妆照时生成
+    final needsPortraits = directorResult.characters.any((c) => !c.hasAllPortraits);
     if (needsPortraits) {
       onProgress?.call('生成角色定妆照...', 30);
       await generateCharacterPortraits(
@@ -1163,21 +1183,36 @@ class ToonFlowService {
 
   // ==================== 单角色/单镜头重生成 ====================
 
-  /// 为单个角色重新生成定妆照
-  /// 返回新的 portraitUrl
-  Future<String> regenerateSinglePortrait({
+  /// 为单个角色重新生成四视图定妆照
+  /// 返回新的 portraitUrls 列表
+  Future<List<String>> regenerateSinglePortrait({
     required ToonCharacter character,
     required String baseStyle,
     required String aspectRatio,
+    String imageModel = 'agnes-image-2.1-flash',
   }) async {
     final apiKey = await _getAgnesApiKey();
-    return _generatePortrait(
-      apiKey: apiKey,
-      characterName: character.name,
-      characterDesc: character.desc,
-      baseStyle: baseStyle,
-      aspectRatio: aspectRatio,
-    );
+    final urls = <String>[];
+
+    for (int angle = 0; angle < 4; angle++) {
+      try {
+        final url = await _generatePortrait(
+          apiKey: apiKey,
+          characterName: character.name,
+          characterDesc: character.desc,
+          baseStyle: baseStyle,
+          aspectRatio: aspectRatio,
+          imageModel: imageModel,
+          viewAngle: angle,
+        );
+        urls.add(url);
+      } catch (e) {
+        debugPrint('[ToonFlow] 重新生成${character.name} ${ToonCharacter.angleLabels[angle]}定妆照失败: $e');
+        urls.add(''); // 失败的位置填空字符串
+      }
+    }
+
+    return urls;
   }
 
   /// 重试单个失败镜头的视频生成
@@ -1343,21 +1378,58 @@ class ToonCharacter {
   final String name;
   final String desc;
   String voiceId; // 分配给该角色的TTS音色ID
-  String portraitUrl; // 角色定妆照URL（用于视频生成时的角色参考）
+  /// 四视图定妆照：[正面, 左侧, 右侧, 背面]
+  /// 用于视频生成时保持角色形象一致性
+  List<String> portraitUrls;
+
+  /// 角度标签，与portraitUrls一一对应
+  static const List<String> angleLabels = ['正面', '左侧', '右侧', '背面'];
 
   ToonCharacter({
     required this.name,
     required this.desc,
     this.voiceId = '',
-    this.portraitUrl = '',
-  });
+    List<String>? portraitUrls,
+  }) : portraitUrls = portraitUrls ?? [];
+
+  /// 兼容旧代码：获取正面定妆照（第一张）
+  String get portraitUrl => portraitUrls.isNotEmpty ? portraitUrls[0] : '';
+
+  /// 兼容旧代码：设置正面定妆照
+  set portraitUrl(String url) {
+    while (portraitUrls.length < 4) {
+      portraitUrls.add('');
+    }
+    portraitUrls[0] = url;
+  }
+
+  /// 获取指定角度的定妆照URL（0=正面, 1=左侧, 2=右侧, 3=背面）
+  String getPortraitAt(int angleIndex) {
+    if (angleIndex < portraitUrls.length) return portraitUrls[angleIndex];
+    return '';
+  }
+
+  /// 四视图是否全部生成完成
+  bool get hasAllPortraits => portraitUrls.length >= 4 && portraitUrls.every((u) => u.isNotEmpty);
+
+  /// 已生成的定妆照数量
+  int get portraitCount => portraitUrls.where((u) => u.isNotEmpty).length;
 
   factory ToonCharacter.fromJson(Map<String, dynamic> json) {
+    // 兼容旧格式：优先读portraitUrls，回退到portraitUrl
+    List<String> urls = [];
+    if (json['portraitUrls'] != null) {
+      urls = (json['portraitUrls'] as List)
+          .map((e) => e.toString())
+          .toList();
+    } else if (json['portraitUrl'] != null && (json['portraitUrl'] as String).isNotEmpty) {
+      urls = [json['portraitUrl'] as String];
+    }
     return ToonCharacter(
       name: json['name'] as String? ?? '',
       desc: json['desc'] as String? ?? '',
       voiceId: json['voiceId'] as String? ?? '',
-      portraitUrl: json['portraitUrl'] as String? ?? '',
+      portraitUrls: urls,
     );
   }
 
@@ -1365,7 +1437,7 @@ class ToonCharacter {
     'name': name,
     'desc': desc,
     'voiceId': voiceId,
-    'portraitUrl': portraitUrl,
+    'portraitUrls': portraitUrls,
   };
 }
 
