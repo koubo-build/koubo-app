@@ -26,7 +26,20 @@ class _SettingsPageState extends State<SettingsPage> {
   final _aliBailianKeyController = TextEditingController();
   final _tikhubKeyController = TextEditingController();
   final _agnesKeyController = TextEditingController();
+  final _deepseekKeyController = TextEditingController();
+  final _minimaxKeyController = TextEditingController();
+  final _doubaoKeyController = TextEditingController();
 
+  // 自定义API Provider控制器
+  final _customTextBaseUrlController = TextEditingController();
+  final _customTextApiKeyController = TextEditingController();
+  final _customTextModelController = TextEditingController();
+  final _customImageBaseUrlController = TextEditingController();
+  final _customImageApiKeyController = TextEditingController();
+  final _customImageModelController = TextEditingController();
+  final _customVideoBaseUrlController = TextEditingController();
+  final _customVideoApiKeyController = TextEditingController();
+  final _customVideoModelController = TextEditingController();
 
   // API Key显示/隐藏状态
   bool _zhipuKeyVisible = false;
@@ -34,7 +47,14 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _aliBailianKeyVisible = false;
   bool _tikhubKeyVisible = false;
   bool _agnesKeyVisible = false;
+  bool _deepseekKeyVisible = false;
+  bool _minimaxKeyVisible = false;
+  bool _doubaoKeyVisible = false;
 
+  // 自定义API Key显示/隐藏
+  bool _customTextKeyVisible = false;
+  bool _customImageKeyVisible = false;
+  bool _customVideoKeyVisible = false;
 
   // API Key有效性检测状态：null=未检测, 'valid'=有效, 'invalid'=无效
   String? _zhipuKeyStatus;
@@ -42,7 +62,9 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _aliBailianKeyStatus;
   String? _tikhubKeyStatus;
   String? _agnesKeyStatus;
-
+  String? _deepseekKeyStatus;
+  String? _minimaxKeyStatus;
+  String? _doubaoKeyStatus;
 
   // 正在检测的Key标识
   String? _testingKey;
@@ -85,6 +107,18 @@ class _SettingsPageState extends State<SettingsPage> {
     _aliBailianKeyController.dispose();
     _tikhubKeyController.dispose();
     _agnesKeyController.dispose();
+    _deepseekKeyController.dispose();
+    _minimaxKeyController.dispose();
+    _doubaoKeyController.dispose();
+    _customTextBaseUrlController.dispose();
+    _customTextApiKeyController.dispose();
+    _customTextModelController.dispose();
+    _customImageBaseUrlController.dispose();
+    _customImageApiKeyController.dispose();
+    _customImageModelController.dispose();
+    _customVideoBaseUrlController.dispose();
+    _customVideoApiKeyController.dispose();
+    _customVideoModelController.dispose();
 
     _customWordController.dispose();
     super.dispose();
@@ -98,7 +132,20 @@ class _SettingsPageState extends State<SettingsPage> {
     _aliBailianKeyController.text = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey) ?? '';
     _tikhubKeyController.text = await StorageUtil.getSecure(ApiConfig.tikhubApiKeyKey) ?? '';
     _agnesKeyController.text = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey) ?? '';
+    _deepseekKeyController.text = await StorageUtil.getSecure(ApiConfig.deepseekApiKeyKey) ?? '';
+    _minimaxKeyController.text = await StorageUtil.getSecure(ApiConfig.minimaxApiKeyKey) ?? '';
+    _doubaoKeyController.text = await StorageUtil.getSecure(ApiConfig.doubaoApiKeyKey) ?? '';
 
+    // 加载自定义API配置
+    _customTextBaseUrlController.text = StorageUtil.getString(ApiConfig.customTextBaseUrl) ?? '';
+    _customTextApiKeyController.text = await StorageUtil.getSecure(ApiConfig.customTextApiKeyKey) ?? '';
+    _customTextModelController.text = StorageUtil.getString(ApiConfig.customTextModelName) ?? '';
+    _customImageBaseUrlController.text = StorageUtil.getString(ApiConfig.customImageBaseUrl) ?? '';
+    _customImageApiKeyController.text = await StorageUtil.getSecure(ApiConfig.customImageApiKeyKey) ?? '';
+    _customImageModelController.text = StorageUtil.getString(ApiConfig.customImageModelName) ?? '';
+    _customVideoBaseUrlController.text = StorageUtil.getString(ApiConfig.customVideoBaseUrl) ?? '';
+    _customVideoApiKeyController.text = await StorageUtil.getSecure(ApiConfig.customVideoApiKeyKey) ?? '';
+    _customVideoModelController.text = StorageUtil.getString(ApiConfig.customVideoModelName) ?? '';
 
     // 加载模型偏好
     _rewriteModel = StorageUtil.getRewriteModel();
@@ -249,6 +296,112 @@ class _SettingsPageState extends State<SettingsPage> {
               onTest: () => _testApiKey('agnes'),
               onClear: () => _clearApiKey('agnes'),
               isFree: true,
+            ),
+
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // DeepSeek
+            _buildApiKeyCard(
+              platformName: 'DeepSeek',
+              platformDesc: 'deepseek-chat / deepseek-reasoner',
+              icon: Icons.psychology_outlined,
+              iconColor: const Color(0xFF5C6BC0),
+              controller: _deepseekKeyController,
+              hintText: '输入 DeepSeek API Key',
+              isVisible: _deepseekKeyVisible,
+              onToggleVisibility: () => setState(() => _deepseekKeyVisible = !_deepseekKeyVisible),
+              status: _deepseekKeyStatus,
+              isTesting: _testingKey == 'deepseek',
+              onTest: () => _testApiKey('deepseek'),
+              onClear: () => _clearApiKey('deepseek'),
+            ),
+
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // MiniMax（海螺AI）
+            _buildApiKeyCard(
+              platformName: 'MiniMax（海螺AI）',
+              platformDesc: 'MiniMax-Text-01 大模型',
+              icon: Icons.forum_outlined,
+              iconColor: const Color(0xFF26A69A),
+              controller: _minimaxKeyController,
+              hintText: '输入 MiniMax API Key',
+              isVisible: _minimaxKeyVisible,
+              onToggleVisibility: () => setState(() => _minimaxKeyVisible = !_minimaxKeyVisible),
+              status: _minimaxKeyStatus,
+              isTesting: _testingKey == 'minimax',
+              onTest: () => _testApiKey('minimax'),
+              onClear: () => _clearApiKey('minimax'),
+            ),
+
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // 火山引擎（豆包）
+            _buildApiKeyCard(
+              platformName: '火山引擎（豆包）',
+              platformDesc: 'doubao-pro-32k 大模型',
+              icon: Icons.local_fire_department_outlined,
+              iconColor: const Color(0xFFFF7043),
+              controller: _doubaoKeyController,
+              hintText: '输入火山引擎 API Key',
+              isVisible: _doubaoKeyVisible,
+              onToggleVisibility: () => setState(() => _doubaoKeyVisible = !_doubaoKeyVisible),
+              status: _doubaoKeyStatus,
+              isTesting: _testingKey == 'doubao',
+              onTest: () => _testApiKey('doubao'),
+              onClear: () => _clearApiKey('doubao'),
+            ),
+
+            const SizedBox(height: AppTheme.spacingMedium),
+
+            // ========== 自定义API Provider ==========
+            _buildSectionTitle(Icons.api, '自定义 API Provider', '支持 OpenAI 兼容格式的自定义文本/图片/视频接口'),
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // 自定义文本API
+            _buildCustomApiCard(
+              title: '自定义文本API',
+              icon: Icons.text_fields,
+              iconColor: const Color(0xFF7C4DFF),
+              baseUrlController: _customTextBaseUrlController,
+              apiKeyController: _customTextApiKeyController,
+              modelController: _customTextModelController,
+              isKeyVisible: _customTextKeyVisible,
+              onToggleKeyVisibility: () => setState(() => _customTextKeyVisible = !_customTextKeyVisible),
+              baseUrlHint: 'https://api.example.com/v1',
+              modelHint: '模型名称，如 gpt-4o-mini',
+            ),
+
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // 自定义图片API
+            _buildCustomApiCard(
+              title: '自定义图片API',
+              icon: Icons.image_outlined,
+              iconColor: const Color(0xFFFF6B9D),
+              baseUrlController: _customImageBaseUrlController,
+              apiKeyController: _customImageApiKeyController,
+              modelController: _customImageModelController,
+              isKeyVisible: _customImageKeyVisible,
+              onToggleKeyVisibility: () => setState(() => _customImageKeyVisible = !_customImageKeyVisible),
+              baseUrlHint: 'https://api.example.com/v1',
+              modelHint: '模型名称，如 dall-e-3',
+            ),
+
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // 自定义视频API
+            _buildCustomApiCard(
+              title: '自定义视频API',
+              icon: Icons.video_camera_front_outlined,
+              iconColor: const Color(0xFF00BCD4),
+              baseUrlController: _customVideoBaseUrlController,
+              apiKeyController: _customVideoApiKeyController,
+              modelController: _customVideoModelController,
+              isKeyVisible: _customVideoKeyVisible,
+              onToggleKeyVisibility: () => setState(() => _customVideoKeyVisible = !_customVideoKeyVisible),
+              baseUrlHint: 'https://api.example.com/v1',
+              modelHint: '模型名称，如 kling-v1',
             ),
 
             const SizedBox(height: AppTheme.spacingMedium),
@@ -729,6 +882,88 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// 自定义API Provider配置卡片
+  Widget _buildCustomApiCard({
+    required String title,
+    required IconData icon,
+    required Color iconColor,
+    required TextEditingController baseUrlController,
+    required TextEditingController apiKeyController,
+    required TextEditingController modelController,
+    required bool isKeyVisible,
+    required VoidCallback onToggleKeyVisibility,
+    required String baseUrlHint,
+    required String modelHint,
+  }) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 标题行
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                ),
+                child: Icon(icon, color: iconColor, size: 20),
+              ),
+              const SizedBox(width: AppTheme.spacingSmall),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    const Text('OpenAI 兼容格式', style: TextStyle(fontSize: 12, color: AppTheme.textHint)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppTheme.spacingSmall),
+
+          // Base URL
+          const Text('Base URL', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 4),
+          AppInput(
+            controller: baseUrlController,
+            hintText: baseUrlHint,
+          ),
+          const SizedBox(height: AppTheme.spacingSmall),
+
+          // API Key
+          const Text('API Key', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 4),
+          AppInput(
+            controller: apiKeyController,
+            hintText: '输入 API Key',
+            obscureText: !isKeyVisible,
+            suffixIcon: IconButton(
+              onPressed: onToggleKeyVisibility,
+              icon: Icon(
+                isKeyVisible ? Icons.visibility : Icons.visibility_off,
+                size: 18,
+                color: AppTheme.textHint,
+              ),
+            ),
+          ),
+          const SizedBox(height: AppTheme.spacingSmall),
+
+          // Model Name
+          const Text('模型名称', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 4),
+          AppInput(
+            controller: modelController,
+            hintText: modelHint,
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 模型选择器
   Widget _buildModelSelector({
     required String label,
@@ -857,7 +1092,21 @@ class _SettingsPageState extends State<SettingsPage> {
         ApiConfig.aliBailianApiKeyKey: _aliBailianKeyController.text.trim(),
         ApiConfig.tikhubApiKeyKey: _tikhubKeyController.text.trim(),
         ApiConfig.agnesApiKeyKey: _agnesKeyController.text.trim(),
+        ApiConfig.deepseekApiKeyKey: _deepseekKeyController.text.trim(),
+        ApiConfig.minimaxApiKeyKey: _minimaxKeyController.text.trim(),
+        ApiConfig.doubaoApiKeyKey: _doubaoKeyController.text.trim(),
+        ApiConfig.customTextApiKeyKey: _customTextApiKeyController.text.trim(),
+        ApiConfig.customImageApiKeyKey: _customImageApiKeyController.text.trim(),
+        ApiConfig.customVideoApiKeyKey: _customVideoApiKeyController.text.trim(),
       });
+
+      // 保存自定义API的Base URL和Model Name
+      await StorageUtil.setString(ApiConfig.customTextBaseUrl, _customTextBaseUrlController.text.trim());
+      await StorageUtil.setString(ApiConfig.customTextModelName, _customTextModelController.text.trim());
+      await StorageUtil.setString(ApiConfig.customImageBaseUrl, _customImageBaseUrlController.text.trim());
+      await StorageUtil.setString(ApiConfig.customImageModelName, _customImageModelController.text.trim());
+      await StorageUtil.setString(ApiConfig.customVideoBaseUrl, _customVideoBaseUrlController.text.trim());
+      await StorageUtil.setString(ApiConfig.customVideoModelName, _customVideoModelController.text.trim());
 
       // 保存模型偏好到SharedPreferences
       await StorageUtil.setRewriteModel(_rewriteModel);
@@ -909,6 +1158,21 @@ class _SettingsPageState extends State<SettingsPage> {
           apiKey = _agnesKeyController.text.trim();
           testUrl = '${ApiConfig.agnesBaseUrl}/chat/completions';
           model = ApiConfig.agnesModelFlash;
+          break;
+        case 'deepseek':
+          apiKey = _deepseekKeyController.text.trim();
+          testUrl = '${ApiConfig.deepseekBaseUrl}/chat/completions';
+          model = ApiConfig.deepseekModelChat;
+          break;
+        case 'minimax':
+          apiKey = _minimaxKeyController.text.trim();
+          testUrl = '${ApiConfig.minimaxBaseUrl}/chat/completions';
+          model = ApiConfig.minimaxModelText;
+          break;
+        case 'doubao':
+          apiKey = _doubaoKeyController.text.trim();
+          testUrl = '${ApiConfig.doubaoBaseUrl}/chat/completions';
+          model = ApiConfig.doubaoModelLite;
           break;
         default:
           return;
@@ -985,6 +1249,9 @@ class _SettingsPageState extends State<SettingsPage> {
           case 'alibailian': _aliBailianKeyStatus = isValid ? 'valid' : 'invalid'; break;
           case 'tikhub': _tikhubKeyStatus = isValid ? 'valid' : 'invalid'; break;
             case 'agnes': _agnesKeyStatus = isValid ? 'valid' : 'invalid'; break;
+            case 'deepseek': _deepseekKeyStatus = isValid ? 'valid' : 'invalid'; break;
+            case 'minimax': _minimaxKeyStatus = isValid ? 'valid' : 'invalid'; break;
+            case 'doubao': _doubaoKeyStatus = isValid ? 'valid' : 'invalid'; break;
         }
       });
 
@@ -1006,6 +1273,9 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
             case 'tikhub': _tikhubKeyStatus = 'invalid'; break;
             case 'agnes': _agnesKeyStatus = 'invalid'; break;
+            case 'deepseek': _deepseekKeyStatus = 'invalid'; break;
+            case 'minimax': _minimaxKeyStatus = 'invalid'; break;
+            case 'doubao': _doubaoKeyStatus = 'invalid'; break;
           }
         });
       } else if (e.response?.statusCode == 429) {
@@ -1044,6 +1314,9 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
             case 'tikhub': _tikhubKeyStatus = 'invalid'; break;
             case 'agnes': _agnesKeyStatus = 'invalid'; break;
+            case 'deepseek': _deepseekKeyStatus = 'invalid'; break;
+            case 'minimax': _minimaxKeyStatus = 'invalid'; break;
+            case 'doubao': _doubaoKeyStatus = 'invalid'; break;
           }
         });
       }
@@ -1056,6 +1329,9 @@ class _SettingsPageState extends State<SettingsPage> {
           case 'alibailian': _aliBailianKeyStatus = 'invalid'; break;
           case 'tikhub': _tikhubKeyStatus = 'invalid'; break;
           case 'agnes': _agnesKeyStatus = 'invalid'; break;
+          case 'deepseek': _deepseekKeyStatus = 'invalid'; break;
+          case 'minimax': _minimaxKeyStatus = 'invalid'; break;
+          case 'doubao': _doubaoKeyStatus = 'invalid'; break;
         }
       });
       _showSnackBar('✗ 检测失败，请稍后重试');
@@ -1092,6 +1368,21 @@ class _SettingsPageState extends State<SettingsPage> {
         storageKey = ApiConfig.agnesApiKeyKey;
         _agnesKeyController.clear();
         _agnesKeyStatus = null;
+        break;
+      case 'deepseek':
+        storageKey = ApiConfig.deepseekApiKeyKey;
+        _deepseekKeyController.clear();
+        _deepseekKeyStatus = null;
+        break;
+      case 'minimax':
+        storageKey = ApiConfig.minimaxApiKeyKey;
+        _minimaxKeyController.clear();
+        _minimaxKeyStatus = null;
+        break;
+      case 'doubao':
+        storageKey = ApiConfig.doubaoApiKeyKey;
+        _doubaoKeyController.clear();
+        _doubaoKeyStatus = null;
         break;
       default:
         return;
