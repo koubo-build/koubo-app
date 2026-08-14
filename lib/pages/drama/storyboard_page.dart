@@ -1117,7 +1117,12 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     String? prompt,
     void Function(String stage, int progress)? onProgress,
   }) async {
-    final apiKey = await _getWanxApiKey();
+    // 获取百炼API Key
+    var apiKey = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey);
+    apiKey = apiKey?.trim() ?? '';
+    if (apiKey.isEmpty) {
+      throw Exception('请先配置阿里百炼API Key（设置页面）');
+    }
 
     onProgress?.call('上传图片中...', 5);
     // 读取图片并转为base64
