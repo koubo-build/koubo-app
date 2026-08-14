@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/api_config.dart';
 import '../utils/storage_util.dart';
+import '../utils/retry_util.dart';
 
 /// 统一网络请求客户端 - 基于Dio封装
 /// 支持拦截器（token注入、错误处理）、流式请求（SSE）
@@ -30,24 +31,24 @@ class ApiClient {
     ]);
   }
 
-  // ==================== 基础请求方法 ====================
+  // ==================== 基础请求方法（内置弱网自动重试） ====================
 
-  /// GET请求
+  /// GET请求（弱网自动重试3次）
   Future<Response<T>> get<T>(
     String url, {
     Map<String, dynamic>? queryParameters,
     Options? options,
     CancelToken? cancelToken,
   }) async {
-    return _dio.get<T>(
+    return retryOnNetworkError(() => _dio.get<T>(
       url,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
-    );
+    ));
   }
 
-  /// POST请求
+  /// POST请求（弱网自动重试3次）
   Future<Response<T>> post<T>(
     String url, {
     dynamic data,
@@ -55,16 +56,16 @@ class ApiClient {
     Options? options,
     CancelToken? cancelToken,
   }) async {
-    return _dio.post<T>(
+    return retryOnNetworkError(() => _dio.post<T>(
       url,
       data: data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
-    );
+    ));
   }
 
-  /// DELETE请求
+  /// DELETE请求（弱网自动重试3次）
   Future<Response<T>> delete<T>(
     String url, {
     dynamic data,
@@ -72,16 +73,16 @@ class ApiClient {
     Options? options,
     CancelToken? cancelToken,
   }) async {
-    return _dio.delete<T>(
+    return retryOnNetworkError(() => _dio.delete<T>(
       url,
       data: data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
-    );
+    ));
   }
 
-  /// PUT请求
+  /// PUT请求（弱网自动重试3次）
   Future<Response<T>> put<T>(
     String url, {
     dynamic data,
@@ -89,13 +90,13 @@ class ApiClient {
     Options? options,
     CancelToken? cancelToken,
   }) async {
-    return _dio.put<T>(
+    return retryOnNetworkError(() => _dio.put<T>(
       url,
       data: data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
-    );
+    ));
   }
 
   /// 文件上传
@@ -113,13 +114,13 @@ class ApiClient {
       if (extraFields != null) ...extraFields,
     });
 
-    return _dio.post<T>(
+    return retryOnNetworkError(() => _dio.post<T>(
       url,
       data: formData,
       options: options ?? Options(contentType: 'multipart/form-data'),
       onSendProgress: onSendProgress,
       cancelToken: cancelToken,
-    );
+    ));
   }
 
   // ==================== 大模型聊天接口（OpenAI兼容格式） ====================
@@ -149,7 +150,7 @@ class ApiClient {
     if (enableSearch && (baseUrl.contains('dashscope') || baseUrl.contains('ali'))) {
       body['enable_search'] = true;
     }
-    final response = await _dio.post(
+    final response = await retryOnNetworkError(() => _dio.post(
       '$baseUrl/chat/completions',
       data: body,
       options: Options(
@@ -158,7 +159,7 @@ class ApiClient {
           'Content-Type': 'application/json',
         },
       ),
-    );
+    ));
 
     // 解析OpenAI兼容格式的响应
     final data = response.data as Map<String, dynamic>;
@@ -184,7 +185,7 @@ class ApiClient {
 
     try {
       // 使用Dio发送SSE请求
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         '$baseUrl/chat/completions',
         data: {
           'model': model,
@@ -201,7 +202,7 @@ class ApiClient {
           },
           responseType: ResponseType.stream,
         ),
-      );
+      ));
 
       final stream = response.data as ResponseBody;
       String buffer = '';
@@ -800,3 +801,5 @@ class _ErrorInterceptor extends Interceptor {
     ));
   }
 }
+
+

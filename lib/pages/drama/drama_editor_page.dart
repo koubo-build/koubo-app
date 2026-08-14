@@ -110,6 +110,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
 
   static const _imageModels = [
     {'value': 'wanx', 'label': '万相 (Wanx)'},
+    {'value': 'wan27-image', 'label': '万相 2.7 Image (百炼)'},
+    {'value': 'seedream', 'label': 'Seedream 4.0 (豆包)'},
     {'value': 'siliconflow', 'label': '硅基流动 FLUX (免费)'},
     {'value': 'agnes-image', 'label': 'Agnes Image (免费)'},
     {'value': 'local_sd', 'label': '本地 SD'},
@@ -119,6 +121,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   static const _videoModels = [
     {'value': 'happyhorse', 'label': 'HappyHorse'},
     {'value': 'wanx-s2v', 'label': '万相 S2V'},
+    {'value': 'seedance', 'label': 'Seedance 1.0 Pro (豆包)'},
+    {'value': 'wan27-i2v', 'label': '万相 2.7 图生视频 (百炼)'},
     {'value': 'agnes-video', 'label': 'Agnes Video (免费)'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
@@ -1111,6 +1115,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       case 'deepseek-v4-pro':
         return 'https://api.deepseek.com';
       case 'doubao-pro':
+      case 'seedream':
+      case 'seedance':
         return 'https://ark.cn-beijing.volces.com/api/v3';
       default:
         return '';

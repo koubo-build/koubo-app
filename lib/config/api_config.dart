@@ -150,6 +150,34 @@ class ApiConfig {
   static const String minimaxApiKeyKey = 'minimax_api_key';
   static const String doubaoApiKeyKey = 'doubao_api_key';
 
+  // ==================== 火山引擎 豆包 Seedream 4.0 文生图 ====================
+  /// Seedream 4.0 文生图接口（OpenAI兼容格式）
+  static const String seedreamImageEndpoint = 'https://ark.cn-beijing.volces.com/api/v3/images/generations';
+  /// Seedream 4.0 模型名
+  static const String seedreamModel = 'doubao-seedream-4-0-250828';
+
+  // ==================== 阿里百炼 Wan2.7-Image 文生图 ====================
+  /// Wan2.7-Image 文生图接口（与Wanxiang共用路径，通过model字段区分）
+  static const String wan27ImageSubmitUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis';
+  /// Wan2.7-Image 模型名
+  static const String wan27ImageModel = 'wan2.7-image';
+
+  // ==================== 火山引擎 豆包 Seedance 1.0 Pro 图生视频 ====================
+  /// Seedance 视频生成提交接口
+  static const String seedanceVideoSubmitUrl = 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks';
+  /// Seedance 任务状态查询接口
+  static const String seedanceTaskQueryUrl = 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/';
+  /// Seedance 1.0 Pro 模型名
+  static const String seedanceModel = 'doubao-seedance-1-0-pro-250528';
+
+  // ==================== 阿里百炼 Wan2.7 图生视频 ====================
+  /// Wan2.7-i2v 图生视频提交接口
+  static const String wan27I2VSubmitUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/image2video/video-synthesis';
+  /// Wan2.7-i2v 任务状态查询接口（与wanx共用）
+  static const String wan27I2VTaskQueryUrl = 'https://dashscope.aliyuncs.com/api/v1/tasks/';
+  /// Wan2.7-i2v 模型名
+  static const String wan27I2VModel = 'wan2.7-i2v';
+
   // ==================== 阿里百炼 Wanxiang 文生图 ====================
   /// Wanxiang文生图提交接口（异步）
   static const String wanxT2ISubmitUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis';

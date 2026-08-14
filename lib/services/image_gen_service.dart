@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import '../config/api_config.dart';
 import '../utils/storage_util.dart';
+import '../utils/retry_util.dart';
 import '../models/task_log.dart';
 import 'dart:math';
 
@@ -42,8 +43,10 @@ class ImageGenService {
     final startTime = DateTime.now();
     String provider = 'local_sd';
     if (model == 'wanx') provider = 'bailian';
+    else if (model == 'wan27-image') provider = 'bailian';
     else if (model == 'siliconflow') provider = 'siliconflow';
     else if (model == 'agnes-image') provider = 'agnes';
+    else if (model == 'seedream') provider = 'doubao';
     else if (model == 'custom') provider = 'custom';
     
     int? logId;
@@ -59,7 +62,33 @@ class ImageGenService {
     } catch (_) { /* 日志记录失败不影响主流程 */ }
 
     try {
-    if (model == 'custom' && customApiKey != null && customApiKey.isNotEmpty) {
+    if (model == 'seedream') {
+      // 使用火山引擎 Seedream 4.0 文生图
+      var doubaoKey = (customApiKey?.isNotEmpty ?? false) ? customApiKey! : '';
+      if (doubaoKey.isEmpty) {
+        doubaoKey = await StorageUtil.getSecure(ApiConfig.doubaoApiKeyKey) ?? '';
+      }
+      if (doubaoKey.isEmpty) {
+        throw Exception('请先配置火山引擎(豆包)API Key（设置页面）');
+      }
+      return _generateWithSeedream(
+        prompt: prompt,
+        negativePrompt: negativePrompt,
+        width: width,
+        height: height,
+        apiKey: doubaoKey,
+        onProgress: onProgress,
+      );
+    } else if (model == 'wan27-image') {
+      // 使用阿里百炼 Wan2.7-Image 文生图
+      return _generateWithWan27Image(
+        prompt: prompt,
+        negativePrompt: negativePrompt,
+        width: width,
+        height: height,
+        onProgress: onProgress,
+      );
+    } else if (model == 'custom' && customApiKey != null && customApiKey.isNotEmpty) {
       // 使用自定义配置（兼容OpenAI格式的文生图API）
       return _generateWithCustom(
         prompt: prompt,
@@ -265,7 +294,7 @@ class ImageGenService {
     }
 
     try {
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         ApiConfig.siliconFlowImageEndpoint,
         data: jsonEncode({
           'model': ApiConfig.siliconFlowFluxSchnellModel,
@@ -280,7 +309,7 @@ class ImageGenService {
           },
           receiveTimeout: const Duration(minutes: 3),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final imageData = data['data'] as List<dynamic>?;
@@ -360,7 +389,7 @@ class ImageGenService {
     };
 
     try {
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         ApiConfig.wanxT2ISubmitUrl,
         data: jsonEncode(requestBody),
         options: Options(
@@ -371,7 +400,7 @@ class ImageGenService {
           },
           receiveTimeout: const Duration(minutes: 5),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final taskId = data['output']?['task_id'] as String?;
@@ -432,7 +461,7 @@ class ImageGenService {
 
     for (int i = 0; i < maxRetries; i++) {
       try {
-        final response = await _dio.get(
+        final response = await retryOnNetworkError(() => _dio.get(
           '${ApiConfig.wanxT2ITaskQueryUrl}$taskId',
           options: Options(
             headers: {
@@ -440,7 +469,7 @@ class ImageGenService {
             },
             receiveTimeout: const Duration(seconds: 30),
           ),
-        );
+        ));
 
         final data = response.data as Map<String, dynamic>;
         final output = data['output'] as Map<String, dynamic>?;
@@ -478,6 +507,191 @@ class ImageGenService {
     }
 
     throw Exception('图片生成超时（${maxRetries * 10}秒）');
+  }
+
+  // ==================== 火山引擎 Seedream 4.0 文生图 ====================
+
+  /// 使用火山引擎 Seedream 4.0 生成图片（OpenAI兼容格式）
+  Future<String> _generateWithSeedream({
+    required String prompt,
+    required String negativePrompt,
+    required int width,
+    required int height,
+    required String apiKey,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    onProgress?.call('提交Seedream文生图任务...', 10);
+
+    // Seedream 支持的尺寸：1024x1024, 864x1184, 1184x864, 1536x1024, 1024x1536, 1440x720, 720x1440, 1920x1080, 1080x1920
+    final supportedSizes = [
+      [1024, 1024],
+      [864, 1184],
+      [1184, 864],
+      [1536, 1024],
+      [1024, 1536],
+      [1440, 720],
+      [720, 1440],
+      [1920, 1080],
+      [1080, 1920],
+    ];
+    final targetRatio = width / height;
+    List<int> bestSize = [1024, 1024];
+    double bestDiff = double.infinity;
+    for (final s in supportedSizes) {
+      final diff = (s[0] / s[1] - targetRatio).abs();
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestSize = s;
+      }
+    }
+
+    try {
+      final response = await retryOnNetworkError(() => _dio.post(
+        ApiConfig.seedreamImageEndpoint,
+        data: jsonEncode({
+          'model': ApiConfig.seedreamModel,
+          'prompt': prompt,
+          'size': '${bestSize[0]}x${bestSize[1]}',
+          'response_format': 'url',
+          'n': 1,
+          'watermark': false,
+        }),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+          receiveTimeout: const Duration(minutes: 5),
+        ),
+      ));
+
+      final data = response.data as Map<String, dynamic>;
+      final imageData = data['data'] as List<dynamic>?;
+
+      if (imageData == null || imageData.isEmpty) {
+        throw Exception('Seedream未返回图片数据');
+      }
+
+      final imageUrl = imageData[0]['url'] as String?;
+      if (imageUrl != null && imageUrl.isNotEmpty) {
+        onProgress?.call('下载图片...', 80);
+        final localPath = await _downloadImage(imageUrl, 'seedream');
+        onProgress?.call('完成！', 100);
+        return localPath;
+      }
+
+      // 备用：b64_json格式
+      final b64 = imageData[0]['b64_json'] as String?;
+      if (b64 != null && b64.isNotEmpty) {
+        onProgress?.call('保存图片...', 80);
+        final localPath = await _saveBase64Image(b64, 'seedream');
+        onProgress?.call('完成！', 100);
+        return localPath;
+      }
+
+      throw Exception('Seedream返回数据异常：既无url也无b64_json');
+
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final msg = e.response?.data?.toString() ?? e.message ?? '';
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('火山引擎API鉴权失败：请检查API Key。$msg');
+      }
+      if (statusCode == 429) {
+        throw Exception('火山引擎请求过于频繁，请稍后重试。$msg');
+      }
+      throw Exception('Seedream图像生成失败($statusCode)：$msg');
+    }
+  }
+
+  // ==================== 阿里百炼 Wan2.7-Image 文生图 ====================
+
+  /// 使用阿里百炼 Wan2.7-Image 生成图片
+  Future<String> _generateWithWan27Image({
+    required String prompt,
+    required String negativePrompt,
+    required int width,
+    required int height,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final apiKey = await _getWanxApiKey();
+
+    onProgress?.call('提交Wan2.7文生图任务...', 10);
+
+    // Wan2.7-Image 支持的尺寸格式：宽*高
+    // 支持 1K、2K 级别分辨率
+    final requestBody = {
+      'model': ApiConfig.wan27ImageModel,
+      'input': {
+        'prompt': prompt,
+        'negative_prompt': negativePrompt,
+      },
+      'parameters': {
+        'size': '${width}*${height}',
+        'n': 1,
+      },
+    };
+
+    try {
+      final response = await retryOnNetworkError(() => _dio.post(
+        ApiConfig.wan27ImageSubmitUrl,
+        data: jsonEncode(requestBody),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+            'X-DashScope-Async': 'enable',
+          },
+          receiveTimeout: const Duration(minutes: 5),
+        ),
+      ));
+
+      final data = response.data as Map<String, dynamic>;
+      final taskId = data['output']?['task_id'] as String?;
+
+      if (taskId == null || taskId.isEmpty) {
+        final msg = data['message'] ?? data['output']?['message'] ?? '未返回task_id';
+        throw Exception('提交任务失败：$msg');
+      }
+
+      onProgress?.call('等待Wan2.7图片生成...', 30);
+
+      // 轮询任务状态（复用wanx的轮询逻辑）
+      final imageUrl = await _pollWanxTask(
+        taskId,
+        apiKey,
+        onProgress: onProgress,
+      );
+
+      onProgress?.call('下载图片...', 90);
+
+      // 下载图片
+      final localPath = await _downloadImage(imageUrl, 'wan27');
+
+      onProgress?.call('完成！', 100);
+      return localPath;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final responseBody = e.response?.data;
+      String detail = '';
+      if (responseBody is Map) {
+        detail = responseBody['message']?.toString() ?? '';
+      } else if (responseBody is String) {
+        detail = responseBody;
+      }
+
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('鉴权失败($statusCode)：请检查阿里百炼API Key是否正确，并确认已开通Wan2.7-Image服务。$detail');
+      }
+      if (statusCode == 400) {
+        throw Exception('请求参数错误：$detail');
+      }
+      if (statusCode == 402) {
+        throw Exception('账户余额不足：请前往阿里云百炼控制台充值。$detail');
+      }
+
+      throw Exception('Wan2.7图像生成失败($statusCode)：$detail');
+    }
   }
 
   // ==================== 本地 Stable Diffusion ====================
@@ -522,7 +736,7 @@ class ImageGenService {
     try {
       onProgress?.call('正在生成...', 30);
 
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         '$sdUrl${ApiConfig.localSdTxt2ImgEndpoint}',
         data: jsonEncode(requestBody),
         options: Options(
@@ -531,7 +745,7 @@ class ImageGenService {
           },
           receiveTimeout: const Duration(minutes: 10),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
 
@@ -626,7 +840,7 @@ class ImageGenService {
       final finalWidth = normalized['width']!;
       final finalHeight = normalized['height']!;
 
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         '$normalizedBaseUrl/images/generations',
         data: jsonEncode({
           'model': modelName,
@@ -641,7 +855,7 @@ class ImageGenService {
           },
           receiveTimeout: const Duration(minutes: 10),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final imageData = data['data'] as List<dynamic>?;
@@ -686,13 +900,13 @@ class ImageGenService {
     final filePath = '$imageDir/$fileName';
 
     try {
-      final response = await _dio.get(
+      final response = await retryOnNetworkError(() => _dio.get(
         imageUrl,
         options: Options(
           responseType: ResponseType.bytes,
           receiveTimeout: const Duration(minutes: 5),
         ),
-      );
+      ));
 
       final file = File(filePath);
       await file.writeAsBytes(response.data as List<int>);

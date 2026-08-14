@@ -13,6 +13,7 @@ import '../../services/drama_service.dart';
 import '../../services/drama_task_service.dart';
 import '../../services/image_gen_service.dart';
 import '../../services/tts_service.dart';
+import '../../utils/retry_util.dart';
 import '../../services/api_client.dart';
 import '../../utils/storage_util.dart';
 
@@ -53,6 +54,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
 
   static const _imageModels = [
     {'value': 'wanx', 'label': '万相 (Wanx)'},
+    {'value': 'wan27-image', 'label': '万相 2.7 Image (百炼)'},
+    {'value': 'seedream', 'label': 'Seedream 4.0 (豆包)'},
     {'value': 'siliconflow', 'label': '硅基流动 FLUX (免费)'},
     {'value': 'agnes-image', 'label': 'Agnes Image (免费)'},
     {'value': 'local_sd', 'label': '本地 SD'},
@@ -62,8 +65,28 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   static const _videoModels = [
     {'value': 'happyhorse', 'label': 'HappyHorse'},
     {'value': 'wanx-s2v', 'label': '万相 S2V'},
+    {'value': 'seedance', 'label': 'Seedance 1.0 Pro (豆包)'},
+    {'value': 'wan27-i2v', 'label': '万相 2.7 图生视频 (百炼)'},
     {'value': 'agnes-video', 'label': 'Agnes Video (免费)'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
+  ];
+
+  // 模型组合预设
+  static const _modelPresets = [
+    {
+      'name': '现代都市豪门',
+      'icon': '🏙️',
+      'desc': '适合现代都市、豪门、职场类短剧',
+      'image': 'seedream',
+      'video': 'seedance',
+    },
+    {
+      'name': '古风穿越玄幻',
+      'icon': '🏯',
+      'desc': '适合古风、穿越、仙侠、玄幻类短剧',
+      'image': 'wan27-image',
+      'video': 'wan27-i2v',
+    },
   ];
 
   int _currentProcessingIndex = -1;
@@ -424,8 +447,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           await StorageUtil.saveTaskLog(TaskLog(
             taskId: vidTaskId,
             taskType: 'video',
-            modelName: config.videoModel == 'agnes-video' ? 'agnes-video-v2.0' : (config.videoModel == 'wanx-s2v' ? 'wan2.2-s2v' : (config.videoModel == 'happyhorse' ? 'happyhorse-1.0' : config.videoModel)),
-            provider: config.videoModel == 'agnes-video' ? 'agnes-ai' : (config.videoModel == 'custom' ? 'custom' : 'bailian'),
+            modelName: _getVideoModelName(config.videoModel),
+            provider: _getVideoModelProvider(config.videoModel),
             status: 'running',
             dramaTitle: drama.title,
             shotDescription: (shot.visualDescription.length > 100) ? shot.visualDescription.substring(0, 100) : shot.visualDescription,
@@ -533,7 +556,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     final fileName = localFilePath.split('/').last;
 
     final apiKey = await _getApiKey();
-    final policyResponse = await _dio.get(
+    final policyResponse = await retryOnNetworkError(() => _dio.get(
       '${ApiConfig.bailianUploadUrl}?action=getPolicy&model=$modelName',
       options: Options(
         headers: {
@@ -541,7 +564,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           'Content-Type': 'application/json',
         },
       ),
-    );
+    ));
 
     final policyData = policyResponse.data as Map<String, dynamic>;
     final result = policyData['data'] as Map<String, dynamic>? ?? policyData;
@@ -561,14 +584,14 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       'file': await MultipartFile.fromFile(localFilePath, filename: fileName),
     });
 
-    await _dio.post(
+    await retryOnNetworkError(() => _dio.post(
       uploadHost,
       data: formData,
       options: Options(
         headers: {'Content-Type': 'multipart/form-data'},
         sendTimeout: const Duration(minutes: 5),
       ),
-    );
+    ));
 
     return 'oss://$ossKey';
   }
@@ -580,13 +603,13 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     final filePath = '$videoDir/$fileName';
 
     try {
-      final response = await _dio.get(
+      final response = await retryOnNetworkError(() => _dio.get(
         videoUrl,
         options: Options(
           responseType: ResponseType.bytes,
           receiveTimeout: const Duration(minutes: 15),
         ),
-      );
+      ));
 
       final file = File(filePath);
       await file.writeAsBytes(response.data as List<int>);
@@ -601,7 +624,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     final apiKey = await _getApiKey();
 
     try {
-      final response = await _dio.get(
+      final response = await retryOnNetworkError(() => _dio.get(
         '${ApiConfig.wanxTaskQueryUrl}$taskId',
         options: Options(
           headers: {
@@ -609,7 +632,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           },
           receiveTimeout: const Duration(seconds: 30),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final output = data['output'] as Map<String, dynamic>?;
@@ -689,7 +712,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     };
 
     try {
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         ApiConfig.happyHorseVideoSubmitUrl,
         data: jsonEncode(requestBody),
         options: Options(
@@ -701,7 +724,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           },
           receiveTimeout: const Duration(minutes: 5),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final taskId = data['output']?['task_id'] as String?;
@@ -753,7 +776,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     };
 
     try {
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         ApiConfig.wanxVideoSubmitUrl,
         data: jsonEncode(requestBody),
         options: Options(
@@ -765,7 +788,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           },
           receiveTimeout: const Duration(minutes: 5),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final taskId = data['output']?['task_id'] as String?;
@@ -819,6 +842,18 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
         }
       case 'happyhorse':
         return _generateHappyHorseVideo(
+          imagePath: imagePath,
+          prompt: prompt,
+          onProgress: onProgress,
+        );
+      case 'seedance':
+        return _generateSeedanceVideo(
+          imagePath: imagePath,
+          prompt: prompt,
+          onProgress: onProgress,
+        );
+      case 'wan27-i2v':
+        return _generateWan27I2VVideo(
           imagePath: imagePath,
           prompt: prompt,
           onProgress: onProgress,
@@ -889,7 +924,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     };
 
     try {
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         '${ApiConfig.agnesBaseUrl}/chat/completions',
         data: jsonEncode(requestBody),
         options: Options(
@@ -899,7 +934,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           },
           receiveTimeout: const Duration(minutes: 10),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final choices = data['choices'] as List<dynamic>?;
@@ -939,6 +974,284 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     }
   }
 
+  /// 火山引擎 Seedance 1.0 Pro 图生视频
+  Future<String> _generateSeedanceVideo({
+    required String imagePath,
+    String? prompt,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    var apiKey = await StorageUtil.getSecure(ApiConfig.doubaoApiKeyKey);
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('请先配置火山引擎(豆包)API Key（设置页面）');
+    }
+
+    onProgress?.call('上传图片中...', 5);
+    // 读取图片并转为base64
+    final imageFile = File(imagePath);
+    final imageBytes = await imageFile.readAsBytes();
+    final base64Image = base64Encode(imageBytes);
+    final ext = imagePath.split('.').last.toLowerCase();
+    final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
+
+    onProgress?.call('提交Seedance视频任务...', 25);
+    
+    // 根据图片宽高比确定视频比例
+    final ratio = '16:9'; // 默认16:9，可根据图片实际比例调整
+
+    final requestBody = {
+      'model': ApiConfig.seedanceModel,
+      'content': [
+        {
+          'type': 'text',
+          'text': prompt ?? '图片动态化，自然流畅',
+        },
+        {
+          'type': 'image_url',
+          'image_url': {
+            'url': 'data:$mimeType;base64,$base64Image',
+          },
+          'role': 'first_frame',
+        },
+      ],
+      'ratio': ratio,
+      'duration': 5,
+      'watermark': false,
+    };
+
+    try {
+      final response = await retryOnNetworkError(() => _dio.post(
+        ApiConfig.seedanceVideoSubmitUrl,
+        data: jsonEncode(requestBody),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+          receiveTimeout: const Duration(minutes: 5),
+        ),
+      ));
+
+      final data = response.data as Map<String, dynamic>;
+      final taskId = data['id'] as String?;
+
+      if (taskId == null || taskId.isEmpty) {
+        throw Exception('提交Seedance任务失败：未返回任务ID');
+      }
+
+      onProgress?.call('等待Seedance视频生成...', 40);
+
+      // 轮询任务状态
+      final videoUrl = await _pollSeedanceTask(taskId, apiKey, onProgress: onProgress);
+
+      onProgress?.call('下载视频中...', 90);
+      final localPath = await _downloadVideo(videoUrl);
+      return localPath;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final responseBody = e.response?.data;
+      String detail = '';
+      if (responseBody is Map) {
+        detail = responseBody['error']?['message']?.toString() ??
+                 responseBody['message']?.toString() ?? '';
+      }
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('火山引擎鉴权失败：请检查API Key。$detail');
+      }
+      throw Exception('Seedance视频生成失败($statusCode)：$detail');
+    }
+  }
+
+  /// 轮询 Seedance 任务状态
+  Future<String> _pollSeedanceTask(
+    String taskId,
+    String apiKey, {
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    const maxRetries = 60; // 最多等待10分钟
+    const pollInterval = Duration(seconds: 10);
+
+    for (int i = 0; i < maxRetries; i++) {
+      try {
+        final response = await retryOnNetworkError(() => _dio.get(
+          '${ApiConfig.seedanceTaskQueryUrl}$taskId',
+          options: Options(
+            headers: {
+              'Authorization': 'Bearer $apiKey',
+            },
+            receiveTimeout: const Duration(seconds: 30),
+          ),
+        ));
+
+        final data = response.data as Map<String, dynamic>;
+        final status = data['status'] as String? ?? 'UNKNOWN';
+
+        if (status == 'succeeded') {
+          final videoUrl = data['video_url'] as String?;
+          if (videoUrl != null && videoUrl.isNotEmpty) {
+            return videoUrl;
+          }
+          throw Exception('视频生成完成但未返回URL');
+        } else if (status == 'failed' || status == 'expired') {
+          throw Exception('Seedance视频生成失败：$status');
+        }
+
+        // 更新进度
+        final progress = 40 + ((i + 1) * 50 / maxRetries).round();
+        onProgress?.call('生成中（${i + 1}/$maxRetries）...', progress.clamp(40, 90));
+
+        await Future.delayed(pollInterval);
+      } on DioException catch (e) {
+        if (i == maxRetries - 1) {
+          throw Exception('查询任务状态失败：${e.message}');
+        }
+        await Future.delayed(pollInterval);
+      }
+    }
+
+    throw Exception('视频生成超时（${maxRetries * 10}秒）');
+  }
+
+  /// 阿里百炼 Wan2.7-i2v 图生视频
+  Future<String> _generateWan27I2VVideo({
+    required String imagePath,
+    String? prompt,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final apiKey = await _getWanxApiKey();
+
+    onProgress?.call('上传图片中...', 5);
+    // 读取图片并转为base64
+    final imageFile = File(imagePath);
+    final imageBytes = await imageFile.readAsBytes();
+    final base64Image = base64Encode(imageBytes);
+    final ext = imagePath.split('.').last.toLowerCase();
+    final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
+
+    onProgress?.call('提交Wan2.7图生视频任务...', 25);
+
+    final requestBody = {
+      'model': ApiConfig.wan27I2VModel,
+      'input': {
+        'prompt': prompt ?? '',
+        'img_url': 'data:$mimeType;base64,$base64Image',
+      },
+      'parameters': {
+        'resolution': '720P',
+        'duration': 5,
+      },
+    };
+
+    try {
+      final response = await retryOnNetworkError(() => _dio.post(
+        ApiConfig.wan27I2VSubmitUrl,
+        data: jsonEncode(requestBody),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+            'X-DashScope-Async': 'enable',
+          },
+          receiveTimeout: const Duration(minutes: 5),
+        ),
+      ));
+
+      final data = response.data as Map<String, dynamic>;
+      final taskId = data['output']?['task_id'] as String?;
+
+      if (taskId == null || taskId.isEmpty) {
+        final msg = data['message'] ?? data['output']?['message'] ?? '未返回task_id';
+        throw Exception('提交任务失败：$msg');
+      }
+
+      onProgress?.call('等待Wan2.7视频生成...', 40);
+
+      // 轮询任务状态（复用wanx的轮询逻辑，但需要解析视频URL）
+      final videoUrl = await _pollWan27I2VTask(taskId, apiKey, onProgress: onProgress);
+
+      onProgress?.call('下载视频中...', 90);
+      final localPath = await _downloadVideo(videoUrl);
+      return localPath;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final responseBody = e.response?.data;
+      String detail = '';
+      if (responseBody is Map) {
+        detail = responseBody['message']?.toString() ?? '';
+      } else if (responseBody is String) {
+        detail = responseBody;
+      }
+
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('鉴权失败($statusCode)：请检查阿里百炼API Key是否正确，并确认已开通Wan2.7-i2v服务。$detail');
+      }
+      if (statusCode == 400) {
+        throw Exception('请求参数错误：$detail');
+      }
+      if (statusCode == 402) {
+        throw Exception('账户余额不足：请前往阿里云百炼控制台充值。$detail');
+      }
+
+      throw Exception('Wan2.7视频生成失败($statusCode)：$detail');
+    }
+  }
+
+  /// 轮询 Wan2.7-i2v 任务状态
+  Future<String> _pollWan27I2VTask(
+    String taskId,
+    String apiKey, {
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    const maxRetries = 90; // 视频生成可能需要更长时间，最多等待15分钟
+    const pollInterval = Duration(seconds: 10);
+
+    for (int i = 0; i < maxRetries; i++) {
+      try {
+        final response = await retryOnNetworkError(() => _dio.get(
+          '${ApiConfig.wan27I2VTaskQueryUrl}$taskId',
+          options: Options(
+            headers: {
+              'Authorization': 'Bearer $apiKey',
+            },
+            receiveTimeout: const Duration(seconds: 30),
+          ),
+        ));
+
+        final data = response.data as Map<String, dynamic>;
+        final output = data['output'] as Map<String, dynamic>?;
+        final status = output?['task_status'] as String? ?? 'UNKNOWN';
+
+        if (status == 'SUCCEEDED') {
+          // 视频结果在 results 数组中
+          final results = output?['results'] as List<dynamic>?;
+          if (results != null && results.isNotEmpty) {
+            final videoResult = results.first as Map<String, dynamic>;
+            final videoUrl = videoResult['url'] as String?;
+            if (videoUrl != null && videoUrl.isNotEmpty) {
+              return videoUrl;
+            }
+          }
+          throw Exception('视频生成完成但未返回URL');
+        } else if (status == 'FAILED') {
+          final msg = output?['message'] as String? ?? output?['code'] as String? ?? '生成失败';
+          throw Exception('视频生成失败：$msg');
+        }
+
+        // 更新进度
+        final progress = 40 + ((i + 1) * 50 / maxRetries).round();
+        onProgress?.call('生成中（${i + 1}/$maxRetries）...', progress.clamp(40, 90));
+
+        await Future.delayed(pollInterval);
+      } on DioException catch (e) {
+        if (i == maxRetries - 1) {
+          throw Exception('查询任务状态失败：${e.message}');
+        }
+        await Future.delayed(pollInterval);
+      }
+    }
+
+    throw Exception('视频生成超时（${maxRetries * 10}秒）');
+  }
+
   /// 自定义视频模型（OpenAI兼容接口）
   Future<String> _generateCustomVideo({
     required String imagePath,
@@ -973,7 +1286,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     };
 
     try {
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         '$baseUrl/chat/completions',
         data: jsonEncode(requestBody),
         options: Options(
@@ -983,7 +1296,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           },
           receiveTimeout: const Duration(minutes: 10),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final choices = data['choices'] as List<dynamic>?;
@@ -1182,8 +1495,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
                 await StorageUtil.saveTaskLog(TaskLog(
                   taskId: batchVidTaskId,
                   taskType: 'video',
-                  modelName: (_drama?.parsedModelConfig.videoModel == 'agnes-video') ? 'agnes-video-v2.0' : (_drama?.parsedModelConfig.videoModel ?? 'unknown'),
-                  provider: (_drama?.parsedModelConfig.videoModel == 'agnes-video') ? 'agnes-ai' : 'bailian',
+                  modelName: _getVideoModelName(_drama?.parsedModelConfig.videoModel ?? 'unknown'),
+                  provider: _getVideoModelProvider(_drama?.parsedModelConfig.videoModel ?? 'unknown'),
                   status: 'completed',
                   dramaTitle: _drama?.title,
                   shotDescription: shot.visualDescription.length > 100 ? shot.visualDescription.substring(0, 100) : shot.visualDescription,
@@ -1529,8 +1842,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           await StorageUtil.saveTaskLog(TaskLog(
             taskId: singleVidTaskId,
             taskType: 'video',
-            modelName: (_drama?.parsedModelConfig.videoModel == 'agnes-video') ? 'agnes-video-v2.0' : (_drama?.parsedModelConfig.videoModel ?? 'unknown'),
-            provider: (_drama?.parsedModelConfig.videoModel == 'agnes-video') ? 'agnes-ai' : 'bailian',
+            modelName: _getVideoModelName(_drama?.parsedModelConfig.videoModel ?? 'unknown'),
+            provider: _getVideoModelProvider(_drama?.parsedModelConfig.videoModel ?? 'unknown'),
             status: 'completed',
             dramaTitle: _drama?.title,
             shotDescription: shot.visualDescription.length > 100 ? shot.visualDescription.substring(0, 100) : shot.visualDescription,
@@ -1766,6 +2079,28 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
 
   // ==================== 模型设置 ====================
 
+  /// 获取视频模型的实际模型名称（用于TaskLog）
+  static String _getVideoModelName(String videoModel) {
+    switch (videoModel) {
+      case 'agnes-video': return 'agnes-video-v2.0';
+      case 'wanx-s2v': return 'wan2.2-s2v';
+      case 'happyhorse': return 'happyhorse-1.0';
+      case 'seedance': return ApiConfig.seedanceModel;
+      case 'wan27-i2v': return ApiConfig.wan27I2VModel;
+      default: return videoModel;
+    }
+  }
+
+  /// 获取视频模型的provider名称（用于TaskLog）
+  static String _getVideoModelProvider(String videoModel) {
+    switch (videoModel) {
+      case 'agnes-video': return 'agnes-ai';
+      case 'seedance': return 'doubao';
+      case 'custom': return 'custom';
+      default: return 'bailian'; // wanx-s2v, happyhorse, wan27-i2v
+    }
+  }
+
   void _showModelSettings() {
     final config = _drama?.parsedModelConfig ?? DramaModelConfig();
     String selectedText = config.textModel;
@@ -1800,6 +2135,47 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
                     const Text(
                       '切换模型可解决持续生成失败的问题',
                       style: TextStyle(fontSize: 12, color: AppTheme.textHint),
+                    ),
+                    const SizedBox(height: 12),
+                    // 模型组合预设
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _modelPresets.map((preset) {
+                        return GestureDetector(
+                          onTap: () {
+                            setSheetState(() {
+                              selectedImage = preset['image'] as String;
+                              selectedVideo = preset['video'] as String;
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('已选择「${preset['name']}」组合：${_getModelLabel(preset['image'] as String)} + ${_getModelLabel(preset['video'] as String)}'),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF7C4DFF), Color(0xFFFF6B9D)],
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('${preset['icon']} ', style: const TextStyle(fontSize: 14)),
+                                Text(
+                                  preset['name'] as String,
+                                  style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
                     const SizedBox(height: 16),
                     // 文本模型

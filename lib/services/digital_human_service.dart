@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../config/api_config.dart';
 import '../utils/storage_util.dart';
+import '../utils/retry_util.dart';
 import 'api_client.dart';
 import 'tts_service.dart';
 
@@ -134,13 +135,13 @@ class DigitalHumanService {
     final filePath = '$videoDir/$fileName';
 
     try {
-      final response = await _dio.get(
+      final response = await retryOnNetworkError(() => _dio.get(
         videoUrl,
         options: Options(
           responseType: ResponseType.bytes,
           receiveTimeout: const Duration(minutes: 15),
         ),
-      );
+      ));
 
       final file = File(filePath);
       await file.writeAsBytes(response.data as List<int>);
@@ -183,7 +184,7 @@ class DigitalHumanService {
   Future<Map<String, dynamic>> _getOssUploadPolicy(String modelName) async {
     final apiKey = await _getApiKey();
 
-    final response = await _dio.get(
+    final response = await retryOnNetworkError(() => _dio.get(
       '${ApiConfig.bailianUploadUrl}?action=getPolicy&model=$modelName',
       options: Options(
         headers: {
@@ -191,7 +192,7 @@ class DigitalHumanService {
           'Content-Type': 'application/json',
         },
       ),
-    );
+    ));
 
     final data = response.data as Map<String, dynamic>;
     final result = data['data'] as Map<String, dynamic>? ?? data;
@@ -234,14 +235,14 @@ class DigitalHumanService {
       'file': await MultipartFile.fromFile(localFilePath, filename: fileName),
     });
 
-    await _dio.post(
+    await retryOnNetworkError(() => _dio.post(
       policy['upload_host'] as String,
       data: formData,
       options: Options(
         headers: {'Content-Type': 'multipart/form-data'},
         sendTimeout: const Duration(minutes: 5),
       ),
-    );
+    ));
 
     // 返回 oss:// 格式的URL，百炼API内部可解析访问
     return 'oss://$ossKey';
@@ -264,7 +265,7 @@ class DigitalHumanService {
     };
 
     try {
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         ApiConfig.wanxDetectUrl,
         data: jsonEncode(requestBody),
         options: Options(
@@ -275,7 +276,7 @@ class DigitalHumanService {
           },
           receiveTimeout: const Duration(seconds: 30),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final output = data['output'] as Map<String, dynamic>?;
@@ -325,7 +326,7 @@ class DigitalHumanService {
     };
 
     try {
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         ApiConfig.wanxVideoSubmitUrl,
         data: jsonEncode(requestBody),
         options: Options(
@@ -337,7 +338,7 @@ class DigitalHumanService {
           },
           receiveTimeout: const Duration(minutes: 5),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final taskId = data['output']?['task_id'] as String?;
@@ -380,7 +381,7 @@ class DigitalHumanService {
     final apiKey = await _getApiKey();
 
     try {
-      final response = await _dio.get(
+      final response = await retryOnNetworkError(() => _dio.get(
         '${ApiConfig.wanxTaskQueryUrl}$taskId',
         options: Options(
           headers: {
@@ -388,7 +389,7 @@ class DigitalHumanService {
           },
           receiveTimeout: const Duration(seconds: 30),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final output = data['output'] as Map<String, dynamic>?;
@@ -721,7 +722,7 @@ class DigitalHumanService {
     };
 
     try {
-      final response = await _dio.post(
+      final response = await retryOnNetworkError(() => _dio.post(
         ApiConfig.happyHorseVideoSubmitUrl,
         data: jsonEncode(requestBody),
         options: Options(
@@ -733,7 +734,7 @@ class DigitalHumanService {
           },
           receiveTimeout: const Duration(minutes: 5),
         ),
-      );
+      ));
 
       final data = response.data as Map<String, dynamic>;
       final taskId = data['output']?['task_id'] as String?;
