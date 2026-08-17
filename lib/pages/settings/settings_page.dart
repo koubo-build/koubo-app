@@ -54,6 +54,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _deepseekKeyVisible = false;
   bool _minimaxKeyVisible = false;
   bool _doubaoKeyVisible = false;
+  bool _feiyingKeyVisible = false;
 
   // 自定义API Key显示/隐藏
   bool _customTextKeyVisible = false;
