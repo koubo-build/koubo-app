@@ -15,6 +15,8 @@ import '../../services/image_gen_service.dart';
 import '../../services/tts_service.dart';
 import '../../utils/retry_util.dart';
 import '../../services/api_client.dart';
+import '../../services/feiying_service.dart';
+import '../../services/digital_human_service.dart';
 import '../../utils/storage_util.dart';
 
 /// 分镜工作台页面
@@ -67,6 +69,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     {'value': 'wanx-s2v', 'label': '万相 S2V'},
     {'value': 'seedance', 'label': 'Seedance 1.0 Pro (豆包)'},
     {'value': 'wan27-i2v', 'label': '万相 2.7 图生视频 (百炼)'},
+    {'value': 'feiying', 'label': '飞影数字人'},
     {'value': 'agnes-video', 'label': 'Agnes Video (免费)'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
@@ -858,6 +861,20 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           prompt: prompt,
           onProgress: onProgress,
         );
+      case 'feiying':
+        // 飞影数字人：音频驱动，需要audioPath
+        if (audioPath == null || audioPath.isEmpty) {
+          // 无音频时回退到HappyHorse
+          return _generateHappyHorseVideo(
+            imagePath: imagePath,
+            prompt: prompt,
+            onProgress: onProgress,
+          );
+        }
+        return _generateFeiyingVideo(
+          audioPath: audioPath,
+          onProgress: onProgress,
+        );
       case 'agnes-video':
         return _generateAgnesVideo(
           imagePath: imagePath,
@@ -883,6 +900,25 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           onProgress: onProgress,
         );
     }
+  }
+
+  /// 飞影数字人视频生成（音频驱动，无需图片）
+  Future<String> _generateFeiyingVideo({
+    required String audioPath,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final avatarId = StorageUtil.getFeiyingAvatarId();
+    if (avatarId == null || avatarId.isEmpty) {
+      throw Exception('请先配置飞影数字人Avatar ID（设置页面）');
+    }
+
+    final feiyingService = FeiyingService();
+    return feiyingService.generateVideoByAudio(
+      audioFilePath: audioPath,
+      avatarId: avatarId,
+      title: '短剧片段',
+      onProgress: onProgress,
+    );
   }
 
   /// Agnes AI 图生视频（免费）
@@ -2092,6 +2128,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       case 'happyhorse': return 'happyhorse-1.0';
       case 'seedance': return ApiConfig.seedanceModel;
       case 'wan27-i2v': return ApiConfig.wan27I2VModel;
+      case 'feiying': return 'feiying-avatar';
       default: return videoModel;
     }
   }
@@ -2101,6 +2138,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     switch (videoModel) {
       case 'agnes-video': return 'agnes-ai';
       case 'seedance': return 'doubao';
+      case 'feiying': return 'feiying';
       case 'custom': return 'custom';
       default: return 'bailian'; // wanx-s2v, happyhorse, wan27-i2v
     }

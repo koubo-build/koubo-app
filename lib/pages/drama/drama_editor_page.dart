@@ -123,6 +123,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     {'value': 'wanx-s2v', 'label': '万相 S2V'},
     {'value': 'seedance', 'label': 'Seedance 1.0 Pro (豆包)'},
     {'value': 'wan27-i2v', 'label': '万相 2.7 图生视频 (百炼)'},
+    {'value': 'feiying', 'label': '飞影数字人'},
     {'value': 'agnes-video', 'label': 'Agnes Video (免费)'},
     {'value': 'custom', 'label': '自定义 (Custom)'},
   ];
@@ -1118,6 +1119,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       case 'seedream':
       case 'seedance':
         return 'https://ark.cn-beijing.volces.com/api/v3';
+      case 'feiying':
+        return 'https://hfw-api.hifly.cc';
       default:
         return '';
     }

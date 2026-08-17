@@ -45,6 +45,17 @@ class StorageUtil {
     );
   }
 
+  /// 首次安装时自动填充内置默认API Key
+  /// 只有当某个Key尚未配置时才会填充，不会覆盖用户已有的设置
+  static Future<void> initDefaultApiKeys() async {
+    for (final entry in ApiConfig.defaultApiKeys.entries) {
+      final existing = await getSecure(entry.key);
+      if (existing == null || existing.trim().isEmpty) {
+        await setSecure(entry.key, entry.value);
+      }
+    }
+  }
+
   /// 获取数据库实例
   static Database get _ensureDb {
     if (_database == null) {
@@ -645,6 +656,17 @@ class StorageUtil {
       return _ensurePrefs.remove('dh_tts_voice_id');
     }
     return setString('dh_tts_voice_id', voiceId);
+  }
+
+  /// 获取飞影数字人标识（avatar ID）
+  static String? getFeiyingAvatarId() {
+    return getString('feiying_avatar_id');
+  }
+  static Future<bool> setFeiyingAvatarId(String? avatarId) {
+    if (avatarId == null || avatarId.isEmpty) {
+      return _ensurePrefs.remove('feiying_avatar_id');
+    }
+    return setString('feiying_avatar_id', avatarId);
   }
 
   /// 清除数字人页面所有草稿

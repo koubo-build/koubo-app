@@ -8,6 +8,7 @@ import '../utils/storage_util.dart';
 import '../utils/retry_util.dart';
 import 'api_client.dart';
 import 'tts_service.dart';
+import 'feiying_service.dart';
 
 /// 多段视频生成结果
 /// 包含每段的文案、本地视频路径、段序号
@@ -564,6 +565,15 @@ class DigitalHumanService {
             },
           );
           break;
+        case 'feiying':
+          localVideoPath = await _generateWithFeiying(
+            audioPath: audioPath,
+            onProgress: (stage, progress) {
+              final actualProgress = ((i + progress / 100) / totalSegments * 100).round();
+              onProgress?.call('第$segIdx/$totalSegments段：$stage', actualProgress, segIdx, totalSegments);
+            },
+          );
+          break;
         case 'wan2.2-s2v':
         default:
           localVideoPath = await _generateWithWanx(
@@ -610,6 +620,11 @@ class DigitalHumanService {
           outputResolution: outputResolution,
           onProgress: onProgress,
         );
+      case 'feiying':
+        return _generateWithFeiying(
+          audioPath: audioPath,
+          onProgress: onProgress,
+        );
       case 'wan2.2-s2v':
       default:
         return _generateWithWanx(
@@ -620,6 +635,25 @@ class DigitalHumanService {
           onProgress: onProgress,
         );
     }
+  }
+
+  /// 飞影数字人视频生成（音频驱动，无需图片）
+  Future<String> _generateWithFeiying({
+    required String audioPath,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final avatarId = StorageUtil.getFeiyingAvatarId();
+    if (avatarId == null || avatarId.isEmpty) {
+      throw Exception('请先在设置页配置飞影数字人Avatar ID');
+    }
+
+    final feiyingService = FeiyingService();
+    return feiyingService.generateVideoByAudio(
+      audioFilePath: audioPath,
+      avatarId: avatarId,
+      title: '口播视频',
+      onProgress: onProgress,
+    );
   }
 
   /// 万相wan2.2-s2v完整流程：上传图片+音频 → 检测图片 → 生成视频 → 下载

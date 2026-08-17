@@ -29,6 +29,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _deepseekKeyController = TextEditingController();
   final _minimaxKeyController = TextEditingController();
   final _doubaoKeyController = TextEditingController();
+  final _feiyingKeyController = TextEditingController();
 
   // 自定义API Provider控制器
   final _customTextBaseUrlController = TextEditingController();
@@ -40,6 +41,9 @@ class _SettingsPageState extends State<SettingsPage> {
   final _customVideoBaseUrlController = TextEditingController();
   final _customVideoApiKeyController = TextEditingController();
   final _customVideoModelController = TextEditingController();
+
+  // 飞影数字人Avatar ID
+  final _feiyingAvatarController = TextEditingController();
 
   // API Key显示/隐藏状态
   bool _zhipuKeyVisible = false;
@@ -65,6 +69,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _deepseekKeyStatus;
   String? _minimaxKeyStatus;
   String? _doubaoKeyStatus;
+  String? _feiyingKeyStatus;
 
   // 正在检测的Key标识
   String? _testingKey;
@@ -110,6 +115,8 @@ class _SettingsPageState extends State<SettingsPage> {
     _deepseekKeyController.dispose();
     _minimaxKeyController.dispose();
     _doubaoKeyController.dispose();
+    _feiyingKeyController.dispose();
+    _feiyingAvatarController.dispose();
     _customTextBaseUrlController.dispose();
     _customTextApiKeyController.dispose();
     _customTextModelController.dispose();
@@ -135,6 +142,8 @@ class _SettingsPageState extends State<SettingsPage> {
     _deepseekKeyController.text = await StorageUtil.getSecure(ApiConfig.deepseekApiKeyKey) ?? '';
     _minimaxKeyController.text = await StorageUtil.getSecure(ApiConfig.minimaxApiKeyKey) ?? '';
     _doubaoKeyController.text = await StorageUtil.getSecure(ApiConfig.doubaoApiKeyKey) ?? '';
+    _feiyingKeyController.text = await StorageUtil.getSecure(ApiConfig.feiyingApiKeyKey) ?? '';
+    _feiyingAvatarController.text = StorageUtil.getFeiyingAvatarId() ?? '';
 
     // 加载自定义API配置
     _customTextBaseUrlController.text = StorageUtil.getString(ApiConfig.customTextBaseUrl) ?? '';
@@ -350,6 +359,60 @@ class _SettingsPageState extends State<SettingsPage> {
               isTesting: _testingKey == 'doubao',
               onTest: () => _testApiKey('doubao'),
               onClear: () => _clearApiKey('doubao'),
+            ),
+
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // 飞影数字人
+            _buildApiKeyCard(
+              platformName: '飞影数字人',
+              platformDesc: 'AI数字人视频生成平台',
+              icon: Icons.person_pin_outlined,
+              iconColor: const Color(0xFF26C6DA),
+              controller: _feiyingKeyController,
+              hintText: '输入飞影数字人 API Token',
+              isVisible: _feiyingKeyVisible,
+              onToggleVisibility: () => setState(() => _feiyingKeyVisible = !_feiyingKeyVisible),
+              status: _feiyingKeyStatus,
+              isTesting: _testingKey == 'feiying',
+              onTest: () => _testApiKey('feiying'),
+              onClear: () => _clearApiKey('feiying'),
+            ),
+
+            // 飞影数字人 Avatar ID 配置
+            const SizedBox(height: AppTheme.spacingSmall),
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.badge_outlined, color: Color(0xFF26C6DA), size: 18),
+                      SizedBox(width: 8),
+                      Text('飞影数字人 Avatar ID', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Text('在飞影平台创建数字人后获取的标识，用于驱动视频生成', style: TextStyle(fontSize: 11, color: AppTheme.textHint)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _feiyingAvatarController,
+                    style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary),
+                    decoration: InputDecoration(
+                      hintText: '如 av_abc123xyz',
+                      hintStyle: const TextStyle(color: AppTheme.textHint, fontSize: 14),
+                      filled: true,
+                      fillColor: const Color(0xFF1A1A2E),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ),
             ),
 
             const SizedBox(height: AppTheme.spacingMedium),
@@ -1095,6 +1158,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ApiConfig.deepseekApiKeyKey: _deepseekKeyController.text.trim(),
         ApiConfig.minimaxApiKeyKey: _minimaxKeyController.text.trim(),
         ApiConfig.doubaoApiKeyKey: _doubaoKeyController.text.trim(),
+        ApiConfig.feiyingApiKeyKey: _feiyingKeyController.text.trim(),
         ApiConfig.customTextApiKeyKey: _customTextApiKeyController.text.trim(),
         ApiConfig.customImageApiKeyKey: _customImageApiKeyController.text.trim(),
         ApiConfig.customVideoApiKeyKey: _customVideoApiKeyController.text.trim(),
@@ -1107,6 +1171,9 @@ class _SettingsPageState extends State<SettingsPage> {
       await StorageUtil.setString(ApiConfig.customImageModelName, _customImageModelController.text.trim());
       await StorageUtil.setString(ApiConfig.customVideoBaseUrl, _customVideoBaseUrlController.text.trim());
       await StorageUtil.setString(ApiConfig.customVideoModelName, _customVideoModelController.text.trim());
+
+      // 保存飞影 Avatar ID
+      await StorageUtil.setFeiyingAvatarId(_feiyingAvatarController.text.trim());
 
       // 保存模型偏好到SharedPreferences
       await StorageUtil.setRewriteModel(_rewriteModel);
@@ -1174,6 +1241,11 @@ class _SettingsPageState extends State<SettingsPage> {
           testUrl = '${ApiConfig.doubaoBaseUrl}/chat/completions';
           model = ApiConfig.doubaoModelLite;
           break;
+        case 'feiying':
+          apiKey = _feiyingKeyController.text.trim();
+          testUrl = '${ApiConfig.feiyingBaseUrl}${ApiConfig.feiyingAccountCredit}';
+          model = ''; // 飞影用GET请求，不需要model
+          break;
         default:
           return;
       }
@@ -1224,6 +1296,21 @@ class _SettingsPageState extends State<SettingsPage> {
           }),
         );
         isValid = response.statusCode == 200;
+      } else if (platform == 'feiying') {
+        // 飞影数字人用GET请求查询积分验证Key
+        try {
+          await dio.get(
+            testUrl,
+            options: Options(headers: {
+              'Authorization': 'Bearer $apiKey',
+              'Accept': 'application/json',
+            }),
+          );
+          isValid = true;
+        } on DioException catch (e) {
+          final status = e.response?.statusCode ?? 0;
+          isValid = status != 401 && status != 403;
+        }
       } else {
         // 大模型平台用chat接口测试
         final response = await dio.post(
@@ -1252,6 +1339,7 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'deepseek': _deepseekKeyStatus = isValid ? 'valid' : 'invalid'; break;
             case 'minimax': _minimaxKeyStatus = isValid ? 'valid' : 'invalid'; break;
             case 'doubao': _doubaoKeyStatus = isValid ? 'valid' : 'invalid'; break;
+            case 'feiying': _feiyingKeyStatus = isValid ? 'valid' : 'invalid'; break;
         }
       });
 
@@ -1276,6 +1364,7 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'deepseek': _deepseekKeyStatus = 'invalid'; break;
             case 'minimax': _minimaxKeyStatus = 'invalid'; break;
             case 'doubao': _doubaoKeyStatus = 'invalid'; break;
+            case 'feiying': _feiyingKeyStatus = 'invalid'; break;
           }
         });
       } else if (e.response?.statusCode == 429) {
@@ -1317,6 +1406,7 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'deepseek': _deepseekKeyStatus = 'invalid'; break;
             case 'minimax': _minimaxKeyStatus = 'invalid'; break;
             case 'doubao': _doubaoKeyStatus = 'invalid'; break;
+            case 'feiying': _feiyingKeyStatus = 'invalid'; break;
           }
         });
       }
@@ -1332,6 +1422,7 @@ class _SettingsPageState extends State<SettingsPage> {
           case 'deepseek': _deepseekKeyStatus = 'invalid'; break;
           case 'minimax': _minimaxKeyStatus = 'invalid'; break;
           case 'doubao': _doubaoKeyStatus = 'invalid'; break;
+          case 'feiying': _feiyingKeyStatus = 'invalid'; break;
         }
       });
       _showSnackBar('✗ 检测失败，请稍后重试');
@@ -1383,6 +1474,13 @@ class _SettingsPageState extends State<SettingsPage> {
         storageKey = ApiConfig.doubaoApiKeyKey;
         _doubaoKeyController.clear();
         _doubaoKeyStatus = null;
+        break;
+      case 'feiying':
+        storageKey = ApiConfig.feiyingApiKeyKey;
+        _feiyingKeyController.clear();
+        _feiyingKeyStatus = null;
+        _feiyingAvatarController.clear();
+        await StorageUtil.setFeiyingAvatarId('');
         break;
       default:
         return;

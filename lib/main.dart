@@ -26,6 +26,13 @@ Future<void> _initAndRun() async {
     debugPrint(errorMsg);
   }
 
+  // 首次安装时自动填充内置API Key（不覆盖已有配置）
+  try {
+    await StorageUtil.initDefaultApiKeys();
+  } catch (e) {
+    debugPrint('默认API Key初始化失败: $e');
+  }
+
   // 无论是否初始化成功，都启动App
   runApp(ProviderScope(
     child: KouboApp(initError: errorMsg),

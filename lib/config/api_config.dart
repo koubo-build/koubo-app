@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 /// API地址配置 - 各平台API地址常量
 class ApiConfig {
   ApiConfig._();
@@ -70,6 +72,7 @@ class ApiConfig {
   static const List<Map<String, String>> videoModelOptions = [
     {'value': 'wan2.2-s2v', 'label': '万相数字人', 'desc': '照片+音频→口型视频(百炼)'},
     {'value': 'happyhorse-1.0-i2v', 'label': 'HappyHorse图生视频', 'desc': '照片→动作视频(百炼)'},
+    {'value': 'feiying', 'label': '飞影数字人', 'desc': '音频驱动数字人视频(飞影)'},
   ];
   /// TTS引擎可选
   static const List<Map<String, String>> ttsEngineOptions = [
@@ -149,6 +152,63 @@ class ApiConfig {
   static const String deepseekApiKeyKey = 'deepseek_api_key';
   static const String minimaxApiKeyKey = 'minimax_api_key';
   static const String doubaoApiKeyKey = 'doubao_api_key';
+  static const String feiyingApiKeyKey = 'feiying_api_key';
+
+  // ==================== 内置默认API Key（首次安装自动填充） ====================
+  /// 用户首次安装App时，自动填充以下API Key，免去手动配置的麻烦
+  /// 用户仍可在设置页修改为自己的Key
+  /// 注意：值为base64编码，运行时通过decodeDefaultKey解码
+  static const Map<String, String> _defaultApiKeysEncoded = {
+    zhipuApiKeyKey: 'ZjNkZWQ4NmVlZGRjNDI0OWE2ZTE1MGQ4YjY1NGQ4ZDIuSXdhaUVxNDZGYU9YOW01Ng==',
+    siliconFlowApiKeyKey: 'c2stYmJqdHduZ2R1d3pjZWNqZ2NrdXVhaWxyaXljbnF3aWxoaGl0ZGdlbnd2cXd2dHd6',
+    aliBailianApiKeyKey: 'c2stOTVlODI2NzE5ODIxNGU5NzkzYzEzY2ZmNTZjM2VkNzI=',
+    deepseekApiKeyKey: 'c2stZGNlMGI3ZmNkMWY0NGI4MDliZWE1YmExMTI1OGYzMzQ=',
+    feiyingApiKeyKey: 'dXU0YWl3V2xIbVEtaG4zREJocVhhQVdYQnJjTmh5ZEdRcHRNRG5mUUg2NA==',
+    agnesApiKeyKey: 'c2stUmNiN0Z6aVdTeVBxM2NaUEVjckh4NFhoNE1PdGUxRGxVanVFZzZ3MFRCVnZoaXVi',
+  };
+
+  /// 获取解码后的默认API Key Map
+  static Map<String, String> get defaultApiKeys {
+    return _defaultApiKeysEncoded.map((key, encoded) => MapEntry(key, _decodeKey(encoded)));
+  }
+
+  /// base64解码辅助方法
+  static String _decodeKey(String encoded) {
+    try {
+      final bytes = base64.decode(encoded);
+      return String.fromCharCodes(bytes);
+    } catch (_) {
+      return encoded; // 解码失败时返回原值
+    }
+  }
+
+  // ==================== 飞影数字人（AI数字人视频生成平台） ====================
+  /// 飞影数字人 API Base URL
+  static const String feiyingBaseUrl = 'https://hfw-api.hifly.cc';
+  /// 创建视频数字人（通过视频URL）
+  static const String feiyingCreateAvatarByVideo = '/api/v2/hifly/avatar/create_by_video';
+  /// 创建图片数字人
+  static const String feiyingCreateAvatarByImage = '/api/v2/hifly/avatar/create_by_image';
+  /// 查询数字人克隆任务状态
+  static const String feiyingAvatarTaskQuery = '/api/v2/hifly/avatar/task';
+  /// 查询公共数字人列表
+  static const String feiyingAvatarList = '/api/v2/hifly/avatar/list';
+  /// 创建声音克隆
+  static const String feiyingVoiceCreate = '/api/v2/hifly/voice/create';
+  /// 查询声音列表
+  static const String feiyingVoiceList = '/api/v2/hifly/voice/list';
+  /// 查询声音克隆任务状态
+  static const String feiyingVoiceTaskQuery = '/api/v2/hifly/voice/task';
+  /// 视频创作（音频驱动）
+  static const String feiyingVideoCreateByAudio = '/api/v2/hifly/video/create_by_audio';
+  /// 视频创作（文本驱动TTS）
+  static const String feiyingVideoCreateByTts = '/api/v2/hifly/video/create_by_tts';
+  /// 查询创作任务状态
+  static const String feiyingVideoTaskQuery = '/api/v2/hifly/video/task';
+  /// 上传文件获取上传地址
+  static const String feiyingCreateUploadUrl = '/api/v2/hifly/tool/create_upload_url';
+  /// 查询账户积分
+  static const String feiyingAccountCredit = '/api/v2/hifly/account/credit';
 
   // ==================== 火山引擎 豆包 Seedream 4.0 文生图 ====================
   /// Seedream 4.0 文生图接口（OpenAI兼容格式）
