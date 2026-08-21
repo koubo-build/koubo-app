@@ -44,34 +44,43 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   String _generateProgress = '';
   bool _hasInterruptedTasks = false;
   static const _textModels = [
-    {'value': 'auto', 'label': '智能路由 (auto)'},
-    {'value': 'qwen-plus', 'label': '通义千问 Plus'},
-    {'value': 'glm-4.7-flash', 'label': '智谱 GLM-4.7 Flash'},
-    {'value': 'agnes-2.0-flash', 'label': 'Agnes 2.0 Flash (免费)'},
-    {'value': 'deepseek-v4-flash', 'label': 'DeepSeek V4 Flash'},
-    {'value': 'deepseek-v4-pro', 'label': 'DeepSeek V4 Pro'},
+    {'value': 'auto', 'label': '🧠 智能路由 (auto)'},
+    {'value': 'qwen-max', 'label': '通义千问 Max (旗舰)'},
+    {'value': 'qwen-plus', 'label': '通义千问 Plus (均衡)'},
+    {'value': 'qwen-turbo', 'label': '通义千问 Turbo (快速)'},
+    {'value': 'glm-4-plus', 'label': '智谱 GLM-4 Plus (旗舰)'},
+    {'value': 'glm-4.7-flash', 'label': '智谱 GLM-4.7 Flash (免费)'},
+    {'value': 'deepseek-v4-pro', 'label': 'DeepSeek V4 Pro (旗舰)'},
+    {'value': 'deepseek-v4-flash', 'label': 'DeepSeek V4 Flash (快速)'},
+    {'value': 'deepseek-chat', 'label': 'DeepSeek Chat (标准)'},
     {'value': 'doubao-pro', 'label': '豆包 Pro (火山引擎)'},
-    {'value': 'custom', 'label': '自定义 (Custom)'},
+    {'value': 'agnes-2.0-flash', 'label': 'Agnes 2.0 Flash (免费)'},
+    {'value': 'custom', 'label': '⚙️ 自定义 (Custom)'},
   ];
 
   static const _imageModels = [
-    {'value': 'wanx', 'label': '万相 (Wanx)'},
-    {'value': 'wan27-image', 'label': '万相 2.7 Image (百炼)'},
-    {'value': 'seedream', 'label': 'Seedream 4.0 (豆包)'},
-    {'value': 'siliconflow', 'label': '硅基流动 FLUX (免费)'},
+    {'value': 'seedream', 'label': 'Seedream 4.0 (豆包·高质量)'},
+    {'value': 'wan27-image', 'label': '万相 2.7 Image (百炼·最新)'},
+    {'value': 'wanx', 'label': '万相 Wanx (百炼·经典)'},
+    {'value': 'wanx-style', 'label': '万相风格化 (百炼·艺术)'},
+    {'value': 'siliconflow-flux-dev', 'label': 'FLUX.1 Dev (硅基流动)'},
+    {'value': 'siliconflow-sd3', 'label': 'Stable Diffusion 3 (硅基流动)'},
+    {'value': 'siliconflow', 'label': '硅基流动 FLUX Schnell (免费)'},
     {'value': 'agnes-image', 'label': 'Agnes Image (免费)'},
-    {'value': 'local_sd', 'label': '本地 SD'},
-    {'value': 'custom', 'label': '自定义 (Custom)'},
+    {'value': 'local_sd', 'label': '本地 SD (8G显存)'},
+    {'value': 'custom', 'label': '⚙️ 自定义 (Custom)'},
   ];
 
   static const _videoModels = [
-    {'value': 'happyhorse', 'label': 'HappyHorse'},
-    {'value': 'wanx-s2v', 'label': '万相 S2V'},
-    {'value': 'seedance', 'label': 'Seedance 1.0 Pro (豆包)'},
-    {'value': 'wan27-i2v', 'label': '万相 2.7 图生视频 (百炼)'},
-    {'value': 'feiying', 'label': '飞影数字人'},
+    {'value': 'seedance', 'label': 'Seedance 1.0 Pro (豆包·高质量)'},
+    {'value': 'wan27-i2v', 'label': '万相 2.7 图生视频 (百炼·最新)'},
+    {'value': 'wan21-i2v', 'label': '万相 2.1 图生视频 (百炼·经典)'},
+    {'value': 'wanx-s2v', 'label': '万相 S2V 口型同步 (百炼)'},
+    {'value': 'happyhorse', 'label': 'HappyHorse 1.1 (百炼·快速)'},
+    {'value': 'cogvideox', 'label': 'CogVideoX (智谱)'},
+    {'value': 'feiying', 'label': '飞影数字人 (音频驱动)'},
     {'value': 'agnes-video', 'label': 'Agnes Video (免费)'},
-    {'value': 'custom', 'label': '自定义 (Custom)'},
+    {'value': 'custom', 'label': '⚙️ 自定义 (Custom)'},
   ];
 
   // 模型组合预设
@@ -861,6 +870,18 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           prompt: prompt,
           onProgress: onProgress,
         );
+      case 'wan21-i2v':
+        return _generateWan21I2VVideo(
+          imagePath: imagePath,
+          prompt: prompt,
+          onProgress: onProgress,
+        );
+      case 'cogvideox':
+        return _generateCogVideoX(
+          imagePath: imagePath,
+          prompt: prompt,
+          onProgress: onProgress,
+        );
       case 'feiying':
         // 飞影数字人：音频驱动，需要audioPath
         if (audioPath == null || audioPath.isEmpty) {
@@ -1291,6 +1312,229 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     }
 
     throw Exception('视频生成超时（${maxRetries * 10}秒）');
+  }
+
+  /// 阿里百炼 Wan2.1-i2v 图生视频（经典版）
+  Future<String> _generateWan21I2VVideo({
+    required String imagePath,
+    String? prompt,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    // 获取百炼API Key
+    var apiKey = await StorageUtil.getSecure(ApiConfig.aliBailianApiKeyKey);
+    apiKey = apiKey?.trim() ?? '';
+    if (apiKey.isEmpty) {
+      throw Exception('请先配置阿里百炼API Key（设置页面）');
+    }
+
+    onProgress?.call('上传图片中...', 5);
+    // 读取图片并转为base64
+    final imageFile = File(imagePath);
+    final imageBytes = await imageFile.readAsBytes();
+    final base64Image = base64Encode(imageBytes);
+    final ext = imagePath.split('.').last.toLowerCase();
+    final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
+
+    onProgress?.call('提交Wan2.1图生视频任务...', 25);
+
+    final requestBody = {
+      'model': ApiConfig.wan21I2VModel,
+      'input': {
+        'prompt': prompt ?? '',
+        'img_url': 'data:$mimeType;base64,$base64Image',
+      },
+      'parameters': {
+        'resolution': '720P',
+        'duration': 5,
+      },
+    };
+
+    try {
+      final response = await retryOnNetworkError(() => _dio.post(
+        ApiConfig.wan21I2VSubmitUrl,
+        data: jsonEncode(requestBody),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+            'X-DashScope-Async': 'enable',
+          },
+          receiveTimeout: const Duration(minutes: 5),
+        ),
+      ));
+
+      final data = response.data as Map<String, dynamic>;
+      final taskId = data['output']?['task_id'] as String?;
+
+      if (taskId == null || taskId.isEmpty) {
+        final msg = data['message'] ?? data['output']?['message'] ?? '未返回task_id';
+        throw Exception('提交任务失败：$msg');
+      }
+
+      onProgress?.call('等待Wan2.1视频生成...', 40);
+
+      // 轮询任务状态（复用wan27的轮询逻辑）
+      final videoUrl = await _pollWan27I2VTask(taskId, apiKey, onProgress: onProgress);
+
+      onProgress?.call('下载视频中...', 90);
+      final localPath = await _downloadVideo(videoUrl);
+      return localPath;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final responseBody = e.response?.data;
+      String detail = '';
+      if (responseBody is Map) {
+        detail = responseBody['message']?.toString() ?? '';
+      } else if (responseBody is String) {
+        detail = responseBody;
+      }
+
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('鉴权失败($statusCode)：请检查阿里百炼API Key是否正确，并确认已开通Wan2.1-i2v服务。$detail');
+      }
+      if (statusCode == 400) {
+        throw Exception('请求参数错误：$detail');
+      }
+      if (statusCode == 402) {
+        throw Exception('账户余额不足：请前往阿里云百炼控制台充值。$detail');
+      }
+
+      throw Exception('Wan2.1视频生成失败($statusCode)：$detail');
+    }
+  }
+
+  /// 智谱 CogVideoX 图生视频
+  Future<String> _generateCogVideoX({
+    required String imagePath,
+    String? prompt,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    // 获取智谱API Key
+    var apiKey = await StorageUtil.getSecure(ApiConfig.zhipuApiKeyKey);
+    apiKey = apiKey?.trim() ?? '';
+    if (apiKey.isEmpty) {
+      throw Exception('请先配置智谱API Key（设置页面）');
+    }
+
+    onProgress?.call('上传图片中...', 5);
+    // 读取图片并转为base64
+    final imageFile = File(imagePath);
+    final imageBytes = await imageFile.readAsBytes();
+    final base64Image = base64Encode(imageBytes);
+
+    onProgress?.call('提交CogVideoX任务...', 25);
+
+    final requestBody = {
+      'model': ApiConfig.cogVideoXModel,
+      'prompt': prompt ?? '图片动态化，自然流畅',
+      'image': 'data:image/png;base64,$base64Image',
+    };
+
+    try {
+      final response = await retryOnNetworkError(() => _dio.post(
+        ApiConfig.cogVideoXSubmitUrl,
+        data: jsonEncode(requestBody),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+          receiveTimeout: const Duration(minutes: 5),
+        ),
+      ));
+
+      final data = response.data as Map<String, dynamic>;
+      final taskId = data['id'] as String?;
+
+      if (taskId == null || taskId.isEmpty) {
+        final msg = data['error']?['message'] ?? '未返回任务ID';
+        throw Exception('提交CogVideoX任务失败：$msg');
+      }
+
+      onProgress?.call('等待CogVideoX视频生成...', 40);
+
+      // 轮询任务状态
+      final videoUrl = await _pollCogVideoXTask(taskId, apiKey, onProgress: onProgress);
+
+      onProgress?.call('下载视频中...', 90);
+      final localPath = await _downloadVideo(videoUrl);
+      return localPath;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final responseBody = e.response?.data;
+      String detail = '';
+      if (responseBody is Map) {
+        detail = responseBody['error']?['message']?.toString() ??
+                 responseBody['message']?.toString() ?? '';
+      } else if (responseBody is String) {
+        detail = responseBody;
+      }
+
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('智谱鉴权失败($statusCode)：请检查API Key。$detail');
+      }
+      if (statusCode == 400) {
+        throw Exception('请求参数错误：$detail');
+      }
+
+      throw Exception('CogVideoX视频生成失败($statusCode)：$detail');
+    }
+  }
+
+  /// 轮询 CogVideoX 任务状态
+  Future<String> _pollCogVideoXTask(
+    String taskId,
+    String apiKey, {
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    const maxRetries = 90; // 最多等待15分钟
+    const pollInterval = Duration(seconds: 10);
+
+    for (int i = 0; i < maxRetries; i++) {
+      try {
+        final response = await retryOnNetworkError(() => _dio.get(
+          '${ApiConfig.cogVideoXTaskQueryUrl}$taskId',
+          options: Options(
+            headers: {
+              'Authorization': 'Bearer $apiKey',
+            },
+            receiveTimeout: const Duration(seconds: 30),
+          ),
+        ));
+
+        final data = response.data as Map<String, dynamic>;
+        final status = data['task_status'] as String? ?? 'UNKNOWN';
+
+        if (status == 'SUCCESS') {
+          // 视频结果在 video_result 数组中
+          final videoResults = data['video_result'] as List<dynamic>?;
+          if (videoResults != null && videoResults.isNotEmpty) {
+            final videoResult = videoResults.first as Map<String, dynamic>;
+            final videoUrl = videoResult['url'] as String?;
+            if (videoUrl != null && videoUrl.isNotEmpty) {
+              return videoUrl;
+            }
+          }
+          throw Exception('视频生成完成但未返回URL');
+        } else if (status == 'FAIL') {
+          final msg = data['error_msg'] as String? ?? '生成失败';
+          throw Exception('CogVideoX视频生成失败：$msg');
+        }
+
+        // 更新进度
+        final progress = 40 + ((i + 1) * 50 / maxRetries).round();
+        onProgress?.call('生成中（${i + 1}/$maxRetries）...', progress.clamp(40, 90));
+
+        await Future.delayed(pollInterval);
+      } on DioException catch (e) {
+        if (i == maxRetries - 1) {
+          throw Exception('查询任务状态失败：${e.message}');
+        }
+        await Future.delayed(pollInterval);
+      }
+    }
+
+    throw Exception('CogVideoX视频生成超时（${maxRetries * 10}秒）');
   }
 
   /// 自定义视频模型（OpenAI兼容接口）
@@ -2128,6 +2372,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       case 'happyhorse': return 'happyhorse-1.0';
       case 'seedance': return ApiConfig.seedanceModel;
       case 'wan27-i2v': return ApiConfig.wan27I2VModel;
+      case 'wan21-i2v': return ApiConfig.wan21I2VModel;
+      case 'cogvideox': return ApiConfig.cogVideoXModel;
       case 'feiying': return 'feiying-avatar';
       default: return videoModel;
     }
@@ -2139,6 +2385,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       case 'agnes-video': return 'agnes-ai';
       case 'seedance': return 'doubao';
       case 'feiying': return 'feiying';
+      case 'cogvideox': return 'zhipu';
       case 'custom': return 'custom';
       default: return 'bailian'; // wanx-s2v, happyhorse, wan27-i2v
     }

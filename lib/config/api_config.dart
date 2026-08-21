@@ -238,6 +238,24 @@ class ApiConfig {
   /// Wan2.7-i2v 模型名
   static const String wan27I2VModel = 'wan2.7-i2v';
 
+  // ==================== 阿里百炼 Wan2.1 图生视频（经典版） ====================
+  /// Wan2.1-i2v 图生视频提交接口（与wan27共用同一端点）
+  static const String wan21I2VSubmitUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/image2video/video-synthesis';
+  /// Wan2.1-i2v 模型名
+  static const String wan21I2VModel = 'wan2.1-i2v-plus';
+
+  // ==================== 智谱 CogVideoX 图生视频 ====================
+  /// CogVideoX 视频生成接口
+  static const String cogVideoXSubmitUrl = 'https://open.bigmodel.cn/api/paas/v4/videos/generations';
+  /// CogVideoX 任务状态查询接口
+  static const String cogVideoXTaskQueryUrl = 'https://open.bigmodel.cn/api/paas/v4/async/result/';
+  /// CogVideoX 模型名
+  static const String cogVideoXModel = 'cogvideox-2';
+
+  // ==================== 阿里百炼 万相风格化文生图 ====================
+  /// 万相风格化模型名
+  static const String wanxStyleModel = 'wanx2.1-t2i-plus';
+
   // ==================== 阿里百炼 Wanxiang 文生图 ====================
   /// Wanxiang文生图提交接口（异步）
   static const String wanxT2ISubmitUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis';

@@ -44,7 +44,10 @@ class ImageGenService {
     String provider = 'local_sd';
     if (model == 'wanx') provider = 'bailian';
     else if (model == 'wan27-image') provider = 'bailian';
+    else if (model == 'wanx-style') provider = 'bailian';
     else if (model == 'siliconflow') provider = 'siliconflow';
+    else if (model == 'siliconflow-sd3') provider = 'siliconflow';
+    else if (model == 'siliconflow-flux-dev') provider = 'siliconflow';
     else if (model == 'agnes-image') provider = 'agnes';
     else if (model == 'seedream') provider = 'doubao';
     else if (model == 'custom') provider = 'custom';
@@ -123,6 +126,31 @@ class ImageGenService {
     } else if (model == 'siliconflow') {
       return _generateWithSiliconFlow(
         prompt: prompt,
+        width: width,
+        height: height,
+        onProgress: onProgress,
+      );
+    } else if (model == 'siliconflow-sd3') {
+      return _generateWithSiliconFlow(
+        prompt: prompt,
+        width: width,
+        height: height,
+        modelName: 'StableDiffusion-3-3.5',
+        onProgress: onProgress,
+      );
+    } else if (model == 'siliconflow-flux-dev') {
+      return _generateWithSiliconFlow(
+        prompt: prompt,
+        width: width,
+        height: height,
+        modelName: 'FLUX.1-dev',
+        onProgress: onProgress,
+      );
+    } else if (model == 'wanx-style') {
+      // 使用阿里百炼万相风格化文生图
+      return _generateWithWanxStyle(
+        prompt: prompt,
+        negativePrompt: negativePrompt,
         width: width,
         height: height,
         onProgress: onProgress,
@@ -263,6 +291,7 @@ class ImageGenService {
     required String prompt,
     required int width,
     required int height,
+    String? modelName,
     void Function(String stage, int progress)? onProgress,
   }) async {
     final apiKey = await StorageUtil.getSecure(ApiConfig.siliconFlowApiKeyKey);
@@ -270,7 +299,11 @@ class ImageGenService {
       throw Exception('请先配置硅基流动API Key（设置页面，免费申请）');
     }
 
-    onProgress?.call('提交FLUX文生图任务...', 10);
+    // 根据传入的 modelName 决定实际使用的模型
+    final actualModel = modelName ?? ApiConfig.siliconFlowFluxSchnellModel;
+    final modelDisplayName = modelName ?? 'FLUX.1-schnell';
+
+    onProgress?.call('提交${modelDisplayName}文生图任务...', 10);
 
     // FLUX.1-schnell 支持的尺寸：1024x1024, 1024x768, 768x1024 等
     // 选择最接近的合法尺寸
@@ -297,7 +330,7 @@ class ImageGenService {
       final response = await retryOnNetworkError(() => _dio.post(
         ApiConfig.siliconFlowImageEndpoint,
         data: jsonEncode({
-          'model': ApiConfig.siliconFlowFluxSchnellModel,
+          'model': actualModel,
           'prompt': prompt,
           'image_size': '${bestSize[0]}x${bestSize[1]}',
           'n': 1,
@@ -447,6 +480,85 @@ class ImageGenService {
       }
 
       throw Exception('文生图失败($statusCode)：$detail');
+    }
+  }
+
+  /// 万相风格化文生图（使用百炼 wanx2.1-t2i-plus 模型）
+  Future<String> _generateWithWanxStyle({
+    required String prompt,
+    required String negativePrompt,
+    required int width,
+    required int height,
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    final apiKey = await _getWanxApiKey();
+
+    onProgress?.call('提交万相风格化文生图任务...', 10);
+
+    final requestBody = {
+      'model': ApiConfig.wanxStyleModel,
+      'input': {
+        'prompt': prompt,
+        'negative_prompt': negativePrompt,
+      },
+      'parameters': {
+        'size': '${width}*$height',
+        'n': 1,
+      },
+    };
+
+    try {
+      final response = await retryOnNetworkError(() => _dio.post(
+        ApiConfig.wanxT2ISubmitUrl,
+        data: jsonEncode(requestBody),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+            'X-DashScope-Async': 'enable',
+          },
+          receiveTimeout: const Duration(minutes: 5),
+        ),
+      ));
+
+      final data = response.data as Map<String, dynamic>;
+      final taskId = data['output']?['task_id'] as String?;
+
+      if (taskId == null || taskId.isEmpty) {
+        final msg = data['message'] ?? data['output']?['message'] ?? '未返回task_id';
+        throw Exception('提交任务失败：$msg');
+      }
+
+      onProgress?.call('等待万相风格化图片生成...', 30);
+
+      final imageUrl = await _pollWanxTask(taskId, apiKey, onProgress: onProgress);
+
+      onProgress?.call('下载图片...', 90);
+      final localPath = await _downloadImage(imageUrl, 'wanx-style');
+
+      onProgress?.call('完成！', 100);
+      return localPath;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final responseBody = e.response?.data;
+      String detail = '';
+      if (responseBody is Map) {
+        detail = responseBody['message']?.toString() ?? '';
+      } else if (responseBody is String) {
+        detail = responseBody;
+      }
+
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('鉴权失败($statusCode)：请检查阿里百炼API Key。$detail');
+      }
+      if (statusCode == 400) {
+        throw Exception('请求参数错误：$detail');
+      }
+      if (statusCode == 402) {
+        throw Exception('账户余额不足：请前往阿里云百炼控制台充值。$detail');
+      }
+
+      throw Exception('万相风格化文生图失败($statusCode)：$detail');
     }
   }
 

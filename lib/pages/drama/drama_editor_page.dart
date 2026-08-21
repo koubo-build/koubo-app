@@ -33,8 +33,14 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   Timer? _progressTimer;
   final Stopwatch _progressStopwatch = Stopwatch();
 
-  // 新建模式 - 步骤导航
+  // 新建模式 - 步骤导航（5步流程，对标桌面版ToonFlow）
   int _currentStep = 0;
+  // 分步流程中间状态
+  int? _createdDramaId; // 步骤3创建drama后保存ID
+  List<DramaCharacter> _extractedCharacters = []; // 步骤3提取的角色
+  List<DramaEpisode> _generatedEpisodes = []; // 步骤4生成的分镜
+  bool _isExtractingChars = false; // 角色提取中
+  bool _isGeneratingStoryboard = false; // 分镜生成中
 
   // 表单控制器（新建模式）
   final _formKey = GlobalKey<FormState>();
@@ -98,34 +104,43 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
 
   // 模型可选值
   static const _textModels = [
-    {'value': 'auto', 'label': '智能路由 (auto)'},
-    {'value': 'qwen-plus', 'label': '通义千问 Plus'},
-    {'value': 'glm-4.7-flash', 'label': '智谱 GLM-4.7 Flash'},
-    {'value': 'agnes-2.0-flash', 'label': 'Agnes 2.0 Flash (免费)'},
-    {'value': 'deepseek-v4-flash', 'label': 'DeepSeek V4 Flash'},
-    {'value': 'deepseek-v4-pro', 'label': 'DeepSeek V4 Pro'},
+    {'value': 'auto', 'label': '🧠 智能路由 (auto)'},
+    {'value': 'qwen-max', 'label': '通义千问 Max (旗舰)'},
+    {'value': 'qwen-plus', 'label': '通义千问 Plus (均衡)'},
+    {'value': 'qwen-turbo', 'label': '通义千问 Turbo (快速)'},
+    {'value': 'glm-4-plus', 'label': '智谱 GLM-4 Plus (旗舰)'},
+    {'value': 'glm-4.7-flash', 'label': '智谱 GLM-4.7 Flash (免费)'},
+    {'value': 'deepseek-v4-pro', 'label': 'DeepSeek V4 Pro (旗舰)'},
+    {'value': 'deepseek-v4-flash', 'label': 'DeepSeek V4 Flash (快速)'},
+    {'value': 'deepseek-chat', 'label': 'DeepSeek Chat (标准)'},
     {'value': 'doubao-pro', 'label': '豆包 Pro (火山引擎)'},
-    {'value': 'custom', 'label': '自定义 (Custom)'},
+    {'value': 'agnes-2.0-flash', 'label': 'Agnes 2.0 Flash (免费)'},
+    {'value': 'custom', 'label': '⚙️ 自定义 (Custom)'},
   ];
 
   static const _imageModels = [
-    {'value': 'wanx', 'label': '万相 (Wanx)'},
-    {'value': 'wan27-image', 'label': '万相 2.7 Image (百炼)'},
-    {'value': 'seedream', 'label': 'Seedream 4.0 (豆包)'},
-    {'value': 'siliconflow', 'label': '硅基流动 FLUX (免费)'},
+    {'value': 'seedream', 'label': 'Seedream 4.0 (豆包·高质量)'},
+    {'value': 'wan27-image', 'label': '万相 2.7 Image (百炼·最新)'},
+    {'value': 'wanx', 'label': '万相 Wanx (百炼·经典)'},
+    {'value': 'wanx-style', 'label': '万相风格化 (百炼·艺术)'},
+    {'value': 'siliconflow-flux-dev', 'label': 'FLUX.1 Dev (硅基流动)'},
+    {'value': 'siliconflow-sd3', 'label': 'Stable Diffusion 3 (硅基流动)'},
+    {'value': 'siliconflow', 'label': '硅基流动 FLUX Schnell (免费)'},
     {'value': 'agnes-image', 'label': 'Agnes Image (免费)'},
-    {'value': 'local_sd', 'label': '本地 SD'},
-    {'value': 'custom', 'label': '自定义 (Custom)'},
+    {'value': 'local_sd', 'label': '本地 SD (8G显存)'},
+    {'value': 'custom', 'label': '⚙️ 自定义 (Custom)'},
   ];
 
   static const _videoModels = [
-    {'value': 'happyhorse', 'label': 'HappyHorse'},
-    {'value': 'wanx-s2v', 'label': '万相 S2V'},
-    {'value': 'seedance', 'label': 'Seedance 1.0 Pro (豆包)'},
-    {'value': 'wan27-i2v', 'label': '万相 2.7 图生视频 (百炼)'},
-    {'value': 'feiying', 'label': '飞影数字人'},
+    {'value': 'seedance', 'label': 'Seedance 1.0 Pro (豆包·高质量)'},
+    {'value': 'wan27-i2v', 'label': '万相 2.7 图生视频 (百炼·最新)'},
+    {'value': 'wan21-i2v', 'label': '万相 2.1 图生视频 (百炼·经典)'},
+    {'value': 'wanx-s2v', 'label': '万相 S2V 口型同步 (百炼)'},
+    {'value': 'happyhorse', 'label': 'HappyHorse 1.1 (百炼·快速)'},
+    {'value': 'cogvideox', 'label': 'CogVideoX (智谱)'},
+    {'value': 'feiying', 'label': '飞影数字人 (音频驱动)'},
     {'value': 'agnes-video', 'label': 'Agnes Video (免费)'},
-    {'value': 'custom', 'label': '自定义 (Custom)'},
+    {'value': 'custom', 'label': '⚙️ 自定义 (Custom)'},
   ];
 
   @override
@@ -558,20 +573,19 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   Widget _buildCreateWizard() {
     return Column(
       children: [
-        // 步骤指示条
+        // 步骤指示条（5步对标桌面ToonFlow流程）
         _buildStepIndicator(),
         // 步骤内容
         Expanded(
-          child: Form(
-            key: _formKey,
-            child: IndexedStack(
-              index: _currentStep,
-              children: [
-                _buildStep1_BasicInfo(),
-                _buildStep2_ModelConfig(),
-                _buildStep3_ConfirmAndCreate(),
-              ],
-            ),
+          child: IndexedStack(
+            index: _currentStep,
+            children: [
+              _buildStep1_TextImport(),       // 文本导入
+              _buildStep2_BasicSetup(),       // 基础设定
+              _buildStep3_CharacterGen(),     // 角色生成
+              _buildStep4_StoryboardGen(),    // 分镜生成
+              _buildStep5_ConfirmAndCreate(), // 确认创作
+            ],
           ),
         ),
         // 底部导航按钮
@@ -582,14 +596,18 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
 
   Widget _buildStepIndicator() {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
       child: Row(
         children: [
-          _buildStepDot(0, '基本信息'),
+          _buildStepDot(0, '导入'),
           _buildStepLine(0),
-          _buildStepDot(1, '模型配置'),
+          _buildStepDot(1, '设定'),
           _buildStepLine(1),
-          _buildStepDot(2, '确认创作'),
+          _buildStepDot(2, '角色'),
+          _buildStepLine(2),
+          _buildStepDot(3, '分镜'),
+          _buildStepLine(3),
+          _buildStepDot(4, '创作'),
         ],
       ),
     );
@@ -654,6 +672,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
   }
 
   Widget _buildStepNavigation() {
+    // 步骤3/4中正在AI生成时禁用导航
+    final isBusy = _isExtractingChars || _isGeneratingStoryboard || _isCreating;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: const BoxDecoration(
@@ -665,7 +685,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
             if (_currentStep > 0)
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _isCreating ? null : () => setState(() => _currentStep--),
+                  onPressed: isBusy ? null : () => setState(() => _currentStep--),
                   icon: const Icon(Icons.arrow_back),
                   label: const Text('上一步'),
                 ),
@@ -673,34 +693,17 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
             if (_currentStep > 0) const SizedBox(width: 12),
             Expanded(
               flex: _currentStep > 0 ? 1 : 1,
-              child: _currentStep < 2
+              child: _currentStep < 4
                   ? ElevatedButton.icon(
-                      onPressed: () {
-                        if (_currentStep == 0) {
-                          // 验证Step1
-                          if (_titleController.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('请输入短剧标题')),
-                            );
-                            return;
-                          }
-                          if (_scriptTextController.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('请输入剧本/小说内容')),
-                            );
-                            return;
-                          }
-                        }
-                        setState(() => _currentStep++);
-                      },
+                      onPressed: isBusy ? null : () => _goToNextStep(),
                       icon: const Icon(Icons.arrow_forward),
-                      label: const Text('下一步'),
+                      label: Text(_getNextStepLabel()),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFF6B9D),
                       ),
                     )
                   : ElevatedButton.icon(
-                      onPressed: _isCreating ? null : _createDramaFromFullScript,
+                      onPressed: isBusy ? null : _finalizeAndCreate,
                       icon: _isCreating
                           ? const SizedBox(
                               width: 18,
@@ -724,18 +727,244 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     );
   }
 
-  // Step 1: 基本信息 + 剧本输入
-  Widget _buildStep1_BasicInfo() {
+  String _getNextStepLabel() {
+    switch (_currentStep) {
+      case 0: return '下一步';
+      case 1: return '提取角色';
+      case 2: return '生成分镜';
+      case 3: return '下一步';
+      default: return '下一步';
+    }
+  }
+
+  Future<void> _goToNextStep() async {
+    // 步骤0→1：验证标题和文本
+    if (_currentStep == 0) {
+      if (_titleController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请输入短剧标题')),
+        );
+        return;
+      }
+      if (_scriptTextController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请输入剧本/小说内容')),
+        );
+        return;
+      }
+      setState(() => _currentStep = 1);
+      return;
+    }
+    // 步骤1→2：进入角色生成页，用户点击后自动提取
+    if (_currentStep == 1) {
+      setState(() => _currentStep = 2);
+      return;
+    }
+    // 步骤2→3：先提取角色，再生成，然后进入分镜
+    if (_currentStep == 2) {
+      await _extractAndGoToStoryboard();
+      return;
+    }
+    // 步骤3→4：先生成分镜，再进入确认页
+    if (_currentStep == 3) {
+      await _generateStoryboardAndFinish();
+      return;
+    }
+  }
+
+  /// 步骤2：提取角色并跳转到分镜步骤
+  Future<void> _extractAndGoToStoryboard() async {
+    if (_createdDramaId == null) {
+      // 先创建Drama记录
+      final dramaService = ref.read(dramaServiceProvider);
+      final modelConfig = DramaModelConfig(
+        textModel: _textModel,
+        textApiKey: _textApiKey,
+        textBaseUrl: _textBaseUrl,
+        imageModel: _imageModel,
+        imageApiKey: _imageApiKey,
+        imageBaseUrl: _imageBaseUrl,
+        videoModel: _videoModel,
+        videoApiKey: _videoApiKey,
+        videoBaseUrl: _videoBaseUrl,
+      );
+      final drama = Drama(
+        title: _titleController.text.trim(),
+        description: _scriptTextController.text.trim().length > 200
+            ? '${_scriptTextController.text.trim().substring(0, 200)}...'
+            : _scriptTextController.text.trim(),
+        style: _selectedStyle,
+        genre: _selectedGenre,
+        aspectRatio: _selectedAspectRatio,
+        modelConfig: jsonEncode(modelConfig.toJson()),
+        sourceText: _scriptTextController.text.trim(),
+        template: _selectedTemplate,
+      );
+      final dramaId = await StorageUtil.insertDrama(drama);
+      _createdDramaId = dramaId;
+    }
+
+    setState(() => _isExtractingChars = true);
+
+    try {
+      final dramaService = ref.read(dramaServiceProvider);
+      final characters = await dramaService.extractCharacters(
+        scriptText: _scriptTextController.text.trim(),
+        dramaId: _createdDramaId!,
+        template: _selectedTemplate,
+        onProgress: (stage, progress) {
+          if (mounted) _showProgressDialog('提取角色：$stage', progress);
+        },
+      );
+
+      // 保存角色到DB
+      for (final c in characters) {
+        await StorageUtil.insertCharacter(c.copyWith(dramaId: _createdDramaId!));
+      }
+      setState(() {
+        _extractedCharacters = characters;
+        _isExtractingChars = false;
+        _currentStep = 3;
+      });
+      _dismissProgressDialog();
+    } catch (e) {
+      setState(() => _isExtractingChars = false);
+      _dismissProgressDialog();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('角色提取失败：$e')),
+        );
+      }
+    }
+  }
+
+  /// 步骤3：生成分镜
+  Future<void> _generateStoryboardAndFinish() async {
+    setState(() => _isGeneratingStoryboard = true);
+    try {
+      final dramaService = ref.read(dramaServiceProvider);
+      final result = await dramaService.generateStoryboardFromScript(
+        scriptText: _scriptTextController.text.trim(),
+        characters: _extractedCharacters,
+        style: _selectedStyle,
+        genre: _selectedGenre,
+        template: _selectedTemplate,
+        onProgress: (stage, progress) {
+          if (mounted) _showProgressDialog('生成分镜：$stage', progress);
+        },
+      );
+      // 保存到DB
+      await StorageUtil.insertEpisodesWithShots(result.episodes);
+      setState(() {
+        _generatedEpisodes = result.episodes;
+        _isGeneratingStoryboard = false;
+        _currentStep = 4;
+      });
+      _dismissProgressDialog();
+    } catch (e) {
+      setState(() => _isGeneratingStoryboard = false);
+      _dismissProgressDialog();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('分镜生成失败：$e')),
+        );
+      }
+    }
+  }
+
+  /// 步骤4：最终确认并刷新数据
+  Future<void> _finalizeAndCreate() async {
+    setState(() => _isCreating = true);
+    try {
+      // 如果用户在Step5修改了模型配置，更新Drama记录
+      if (_createdDramaId != null) {
+        final existing = await StorageUtil.getDrama(_createdDramaId!);
+        if (existing != null) {
+          final modelConfig = DramaModelConfig(
+            textModel: _textModel,
+            textApiKey: _textApiKey,
+            textBaseUrl: _textBaseUrl,
+            imageModel: _imageModel,
+            imageApiKey: _imageApiKey,
+            imageBaseUrl: _imageBaseUrl,
+            videoModel: _videoModel,
+            videoApiKey: _videoApiKey,
+            videoBaseUrl: _videoBaseUrl,
+          );
+          await StorageUtil.updateDrama(existing.copyWith(
+            modelConfig: jsonEncode(modelConfig.toJson()),
+          ));
+        }
+      }
+
+      // 直接用_createdDramaId加载数据（_loadData依赖widget.dramaId，新建模式下为null）
+      final dramaId = _createdDramaId;
+      if (dramaId != null) {
+        final drama = await StorageUtil.getDrama(dramaId);
+        if (drama != null) {
+          _drama = drama;
+          _isNewMode = false;
+          _characters = await StorageUtil.getCharactersByDrama(dramaId);
+          _episodes = await StorageUtil.getEpisodesByDrama(dramaId);
+          for (var i = 0; i < _episodes.length; i++) {
+            final episode = await StorageUtil.getEpisodeWithShots(_episodes[i].id!);
+            if (episode != null) {
+              _episodes[i] = episode;
+            }
+          }
+        }
+      }
+
+      setState(() => _isCreating = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('短剧创建成功！')),
+        );
+        _tabController.animateTo(2); // 跳转到分镜Tab
+      }
+    } catch (e) {
+      setState(() => _isCreating = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('创建失败：$e')),
+        );
+      }
+    }
+  }
+
+  // Step 1: 文本导入（对标桌面版ToonFlow Step1）
+  Widget _buildStep1_TextImport() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 步骤标题
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Icon(Icons.article_outlined, color: const Color(0xFFFF6B9D), size: 22),
+                const SizedBox(width: 8),
+                const Text(
+                  '文本导入',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '粘贴你的完整剧本、小说章节或故事文本，AI将自动分析内容',
+            style: TextStyle(fontSize: 13, color: AppTheme.textHint),
+          ),
+          const SizedBox(height: 16),
           TextFormField(
             controller: _titleController,
             decoration: const InputDecoration(
               labelText: '短剧标题',
               hintText: '给短剧起个名字',
+              prefixIcon: Icon(Icons.title, size: 20),
             ),
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
@@ -749,19 +978,64 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
             controller: _scriptTextController,
             decoration: const InputDecoration(
               labelText: '剧本/小说内容',
-              hintText: '粘贴你的完整剧本、小说章节或故事文本...',
+              hintText: '在此粘贴完整的剧本文本...\n\n支持小说章节、故事梗概、完整剧本等多种文本格式',
               alignLabelWithHint: true,
+              prefixIcon: Icon(Icons.edit_note, size: 20),
             ),
-            maxLines: 15,
-            minLines: 8,
+            maxLines: 18,
+            minLines: 10,
           ),
           const SizedBox(height: 8),
+          Builder(
+            builder: (context) {
+              final charCount = _scriptTextController.text.length;
+              return Row(
+                children: [
+                  Icon(Icons.info_outline, size: 14, color: AppTheme.textHint.withOpacity(0.7)),
+                  const SizedBox(width: 4),
+                  Text(
+                    charCount > 0
+                        ? '已输入 $charCount 字 · AI将根据篇幅自动决定集数'
+                        : 'AI将自动提取角色、生成分镜，并根据篇幅决定集数',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textHint.withOpacity(0.7)),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Step 2: 基础设定（对标桌面版ToonFlow风格/类型设定）
+  Widget _buildStep2_BasicSetup() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 步骤标题
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Icon(Icons.palette_outlined, color: const Color(0xFFFF6B9D), size: 22),
+                const SizedBox(width: 8),
+                const Text(
+                  '基础设定',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
           Text(
-            'AI将根据文本内容自动提取角色、生成分镜，并根据篇幅决定集数',
-            style: TextStyle(fontSize: 12, color: AppTheme.textHint.withOpacity(0.7)),
+            '选择短剧的画风、类型和画面比例',
+            style: TextStyle(fontSize: 13, color: AppTheme.textHint),
           ),
           const SizedBox(height: 20),
-          // ===== TikTok 爆款模板：非人类角色 + 猎奇风格 =====
+          // ===== TikTok 爆款模板 =====
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -893,7 +1167,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           const Text(
             '画风选择',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
@@ -970,29 +1244,585 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     );
   }
 
-  // Step 2: 模型配置
-  Widget _buildStep2_ModelConfig() {
+  // Step 3: 角色生成（对标桌面版ToonFlow Step2 角色生成）
+  Widget _buildStep3_CharacterGen() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '配置AI模型（可选）',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppTheme.textSecondary,
+          // 步骤标题
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Icon(Icons.people_alt_outlined, color: const Color(0xFFFF6B9D), size: 22),
+                const SizedBox(width: 8),
+                const Text(
+                  '角色生成',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 4),
           Text(
-            '使用默认配置也能正常工作，如需自定义请展开对应分组',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppTheme.textHint.withOpacity(0.7),
+            'AI将从你的文本中自动提取角色信息，生成后可编辑调整',
+            style: TextStyle(fontSize: 13, color: AppTheme.textHint),
+          ),
+          const SizedBox(height: 20),
+          // 角色列表
+          if (_extractedCharacters.isEmpty && !_isExtractingChars) ...[
+            // 尚未提取，显示引导
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppTheme.darkSurface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.textHint.withOpacity(0.2)),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.person_search, size: 48, color: AppTheme.textHint.withOpacity(0.5)),
+                  const SizedBox(height: 12),
+                  Text(
+                    '点击底部「提取角色」按钮',
+                    style: TextStyle(fontSize: 15, color: AppTheme.textSecondary),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'AI将自动分析剧本文本，提取所有角色及其特征',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textHint),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (_isExtractingChars) ...[
+            // 正在提取中
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppTheme.darkSurface,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  const CircularProgressIndicator(color: Color(0xFFFF6B9D)),
+                  const SizedBox(height: 16),
+                  const Text('AI正在分析文本，提取角色...', style: TextStyle(fontSize: 14)),
+                ],
+              ),
+            ),
+          ] else ...[
+            // 已提取角色，显示列表
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF7C4DFF).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle, size: 18, color: Color(0xFF7C4DFF)),
+                  const SizedBox(width: 8),
+                  Text(
+                    '已提取 ${_extractedCharacters.length} 个角色 · 点击可编辑',
+                    style: const TextStyle(fontSize: 13, color: Color(0xFF7C4DFF), fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            ..._extractedCharacters.asMap().entries.map((entry) {
+              final index = entry.key;
+              final character = entry.value;
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: const Color(0xFFFF6B9D).withOpacity(0.15),
+                    child: Text(
+                      character.name.isNotEmpty ? character.name[0] : '?',
+                      style: const TextStyle(
+                        color: Color(0xFFFF6B9D),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    character.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (character.description.isNotEmpty)
+                        Text(
+                          character.description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      if (character.personality != null && character.personality!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            '性格：${character.personality}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 11, color: AppTheme.textHint),
+                          ),
+                        ),
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit, size: 18),
+                        color: const Color(0xFFFF6B9D),
+                        onPressed: () => _showEditCharacterDialog(index),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        color: AppTheme.textHint,
+                        onPressed: () {
+                          setState(() => _extractedCharacters.removeAt(index));
+                        },
+                      ),
+                    ],
+                  ),
+                  onTap: () => _showEditCharacterDialog(index),
+                ),
+              );
+            }),
+            // 添加角色按钮
+            OutlinedButton.icon(
+              onPressed: () => _showAddCharacterDialog(),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('添加角色'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFFF6B9D),
+                side: const BorderSide(color: Color(0xFFFF6B9D), width: 0.5),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 编辑角色对话框
+  void _showEditCharacterDialog(int index) {
+    final character = _extractedCharacters[index];
+    final nameController = TextEditingController(text: character.name);
+    final descController = TextEditingController(text: character.description);
+    final personalityController = TextEditingController(text: character.personality ?? '');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E3A),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('编辑角色', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: '角色名'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descController,
+                decoration: const InputDecoration(labelText: '外貌描述'),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: personalityController,
+                decoration: const InputDecoration(labelText: '性格特征'),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _extractedCharacters[index] = character.copyWith(
+                        name: nameController.text.trim(),
+                        description: descController.text.trim(),
+                        personality: personalityController.text.trim(),
+                      );
+                    });
+                    Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF6B9D),
+                  ),
+                  child: const Text('保存'),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 添加角色对话框
+  void _showAddCharacterDialog() {
+    final nameController = TextEditingController();
+    final descController = TextEditingController();
+    final personalityController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E3A),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('添加角色', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: '角色名'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descController,
+                decoration: const InputDecoration(
+                  labelText: '外貌描述',
+                  hintText: '如：年轻女性，黑色长发，白色连衣裙',
+                ),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: personalityController,
+                decoration: const InputDecoration(
+                  labelText: '性格特征',
+                  hintText: '如：独立、坚强、有点傲娇',
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    if (nameController.text.trim().isEmpty) {
+                      Navigator.pop(context);
+                      return;
+                    }
+                    setState(() {
+                      _extractedCharacters.add(DramaCharacter(
+                        name: nameController.text.trim(),
+                        description: descController.text.trim(),
+                        personality: personalityController.text.trim(),
+                        dramaId: _createdDramaId ?? 0,
+                      ));
+                    });
+                    Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF6B9D),
+                  ),
+                  child: const Text('添加'),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Step 4: 分镜生成（对标桌面版ToonFlow Step3-4 剧本+分镜）
+  Widget _buildStep4_StoryboardGen() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 步骤标题
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Icon(Icons.story, color: const Color(0xFFFF6B9D), size: 22),
+                const SizedBox(width: 8),
+                const Text(
+                  '分镜生成',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
             ),
           ),
+          const SizedBox(height: 4),
+          Text(
+            'AI将根据角色和文本生成分集分镜脚本，包含画面描述、台词和运镜',
+            style: TextStyle(fontSize: 13, color: AppTheme.textHint),
+          ),
+          const SizedBox(height: 20),
+          if (_generatedEpisodes.isEmpty && !_isGeneratingStoryboard) ...[
+            // 尚未生成，显示引导
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppTheme.darkSurface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.textHint.withOpacity(0.2)),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.video_library_outlined, size: 48, color: AppTheme.textHint.withOpacity(0.5)),
+                  const SizedBox(height: 12),
+                  Text(
+                    '点击底部「生成分镜」按钮',
+                    style: TextStyle(fontSize: 15, color: AppTheme.textSecondary),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'AI将根据 ${_extractedCharacters.length} 个角色和剧本文本生成分镜',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textHint),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (_isGeneratingStoryboard) ...[
+            // 正在生成中
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppTheme.darkSurface,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  const CircularProgressIndicator(color: Color(0xFFFF6B9D)),
+                  const SizedBox(height: 16),
+                  const Text('AI正在生成分镜脚本...', style: TextStyle(fontSize: 14)),
+                  const SizedBox(height: 4),
+                  Text(
+                    '根据文本长度，这可能需要1-3分钟',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textHint),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            // 已生成分镜，显示预览
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF7C4DFF).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle, size: 18, color: Color(0xFF7C4DFF)),
+                  const SizedBox(width: 8),
+                  Text(
+                    '已生成 ${_generatedEpisodes.length} 集 · ${_generatedEpisodes.fold(0, (sum, ep) => sum + ep.shots.length)} 个镜头',
+                    style: const TextStyle(fontSize: 13, color: Color(0xFF7C4DFF), fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            ..._generatedEpisodes.map((episode) {
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ExpansionTile(
+                  leading: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6B9D).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${episode.episodeNumber}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFFF6B9D),
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    episode.title,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                  subtitle: Text(
+                    '${episode.shots.length}个镜头${episode.summary.isNotEmpty ? ' · ${episode.summary}' : ''}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: AppTheme.textHint),
+                  ),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: episode.shots.take(3).map((shot) {
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppTheme.darkSurface,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 24,
+                                  height: 24,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFF6B9D).withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      '${shot.shotNumber}',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFFFF6B9D),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        shot.visualDescription,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                      if (shot.dialogue.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 2),
+                                          child: Text(
+                                            '💬 ${shot.dialogue}',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(fontSize: 11, color: AppTheme.textHint),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                        if (episode.shots.length > 3)
+                          Center(
+                            child: Text(
+                              '...还有 ${episode.shots.length - 3} 个镜头',
+                              style: TextStyle(fontSize: 11, color: AppTheme.textHint),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // Step 5: 确认创作（对标桌面版ToonFlow Step5-6 出图+视频合成，此处配置模型并确认）
+  Widget _buildStep5_ConfirmAndCreate() {
+    final scriptLength = _scriptTextController.text.trim().length;
+    final charCountText = scriptLength > 0 ? '$scriptLength 字' : '未输入';
+    final totalShots = _generatedEpisodes.fold(0, (sum, ep) => sum + ep.shots.length);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 步骤标题
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Icon(Icons.check_circle_outline, color: const Color(0xFFFF6B9D), size: 22),
+                const SizedBox(width: 8),
+                const Text(
+                  '确认创作',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '配置模型后开始创作，AI将自动完成出图和视频生成',
+            style: TextStyle(fontSize: 13, color: AppTheme.textHint),
+          ),
           const SizedBox(height: 16),
+          // 创作摘要
+          _buildSummaryCard('创作摘要', [
+            _summaryRow('标题', _titleController.text.trim()),
+            _summaryRow('画风', _getStyleLabel(_selectedStyle)),
+            _summaryRow('类型', _getGenreLabel(_selectedGenre)),
+            _summaryRow('画面比例', _selectedAspectRatio),
+            _summaryRow('剧本长度', charCountText),
+            _summaryRow('角色数', '${_extractedCharacters.length} 个'),
+            _summaryRow('分镜数', '${_generatedEpisodes.length}集 · $totalShots 镜头'),
+          ]),
+          const SizedBox(height: 12),
+          // 模型配置（可折叠）
+          Text(
+            'AI模型配置（可选，使用默认也能工作）',
+            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+          ),
+          const SizedBox(height: 8),
           // 文本模型
           _buildModelGroup(
             title: '文本模型',
@@ -1033,7 +1863,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
           _buildModelGroup(
             title: '图像模型',
             icon: Icons.image,
-            initiallyExpanded: true,
+            initiallyExpanded: false,
             selectedModel: _imageModel,
             models: _imageModels,
             onModelChanged: (v) {
@@ -1100,6 +1930,20 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
             apiKeyController: _videoApiKeyController,
             baseUrlController: _videoBaseUrlController,
           ),
+          const SizedBox(height: 24),
+          // 创作流程说明
+          _buildSummaryCard('后续自动流程', [
+            _summaryRow('1.', '根据分镜描述批量生成画面'),
+            _summaryRow('2.', '为每个镜头生成配音和字幕'),
+            _summaryRow('3.', '合成视频并可导出分享'),
+          ]),
+          const SizedBox(height: 20),
+          Center(
+            child: Text(
+              '点击上方「开始创作」完成所有步骤',
+              style: TextStyle(fontSize: 12, color: AppTheme.textHint),
+            ),
+          ),
         ],
       ),
     );
@@ -1112,8 +1956,17 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
       case 'agnes-image':
       case 'agnes-video':
         return 'https://apihub.agnes-ai.cn/v1';
+      case 'qwen-max':
+      case 'qwen-plus':
+      case 'qwen-turbo':
+        return 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+      case 'glm-4-plus':
+      case 'glm-4.7-flash':
+      case 'cogvideox':
+        return 'https://open.bigmodel.cn/api/paas/v4';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
+      case 'deepseek-chat':
         return 'https://api.deepseek.com';
       case 'doubao-pro':
       case 'seedream':
@@ -1121,6 +1974,17 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
         return 'https://ark.cn-beijing.volces.com/api/v3';
       case 'feiying':
         return 'https://hfw-api.hifly.cc';
+      case 'wanx':
+      case 'wan27-image':
+      case 'wanx-style':
+      case 'wanx-s2v':
+      case 'wan27-i2v':
+      case 'wan21-i2v':
+        return 'https://dashscope.aliyuncs.com/api/v1';
+      case 'siliconflow':
+      case 'siliconflow-sd3':
+      case 'siliconflow-flux-dev':
+        return 'https://api.siliconflow.cn/v1';
       default:
         return '';
     }
@@ -1219,83 +2083,6 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
           ),
         ),
       ],
-    );
-  }
-
-  // Step 3: 确认并生成
-  Widget _buildStep3_ConfirmAndCreate() {
-    final scriptLength = _scriptTextController.text.trim().length;
-    final charCountText = scriptLength > 0 ? '$scriptLength 字' : '未输入';
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '创作配置摘要',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 20),
-          // 基本信息
-          _buildSummaryCard('基本信息', [
-            _summaryRow('标题', _titleController.text.trim()),
-            _summaryRow('画风', _getStyleLabel(_selectedStyle)),
-            _summaryRow('类型', _getGenreLabel(_selectedGenre)),
-            _summaryRow('画面比例', _selectedAspectRatio),
-            _summaryRow('剧本长度', charCountText),
-          ]),
-          const SizedBox(height: 12),
-          // 模型配置
-          _buildSummaryCard('模型配置', [
-            _summaryRow('文本模型', _getModelLabel(_textModel, _textModels)),
-            _summaryRow('图像模型', _getModelLabel(_imageModel, _imageModels)),
-            _summaryRow('视频模型', _getModelLabel(_videoModel, _videoModels)),
-            if (_textModel == 'custom') _summaryRow('文本API', _textBaseUrl.isNotEmpty ? '已配置' : '未配置'),
-            if (_imageModel == 'custom') _summaryRow('图像API', _imageBaseUrl.isNotEmpty ? '已配置' : '未配置'),
-            if (_videoModel == 'custom') _summaryRow('视频API', _videoBaseUrl.isNotEmpty ? '已配置' : '未配置'),
-          ]),
-          const SizedBox(height: 12),
-          // 流程说明
-          _buildSummaryCard('创作流程', [
-            _summaryRow('1.', 'AI自动分析剧本提取角色'),
-            _summaryRow('2.', 'AI根据角色生成分镜脚本'),
-            _summaryRow('3.', '自动保存所有剧集和镜头'),
-          ]),
-          const SizedBox(height: 32),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _isCreating ? null : _createDramaFromFullScript,
-              icon: _isCreating
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.auto_awesome, size: 24),
-              label: Text(
-                _isCreating ? 'AI创作中...' : '开始创作',
-                style: const TextStyle(fontSize: 18),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF6B9D),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Center(
-            child: Text(
-              '创作过程需要几分钟，请耐心等待',
-              style: TextStyle(fontSize: 12, color: AppTheme.textHint),
-            ),
-          ),
-        ],
-      ),
     );
   }
 

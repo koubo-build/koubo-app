@@ -748,10 +748,13 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
         onTimeout: () => throw Exception('API请求超时（5分钟），请检查网络或API配置'),
       );
     } else if (config.textModel != 'auto' && config.textModel.isNotEmpty) {
-      // 检查是否有预设的Base URL和用户填的API Key
+      // 检查是否有预设的Base URL
       final presetUrl = _getPresetBaseUrl(config.textModel);
-      final presetKey = _getPresetApiKey(config.textModel);
-      final effectiveApiKey = config.textApiKey.isNotEmpty ? config.textApiKey : presetKey;
+      // 优先使用用户手动填写的key，否则根据模型类型自动从安全存储获取对应的key
+      String effectiveApiKey = config.textApiKey.isNotEmpty ? config.textApiKey : '';
+      if (effectiveApiKey.isEmpty) {
+        effectiveApiKey = await _getModelSpecificApiKey(config.textModel);
+      }
 
       if (presetUrl.isNotEmpty && effectiveApiKey.isNotEmpty) {
         // 有预设URL且有API Key：直接调用 + 失败自动回退
@@ -807,13 +810,51 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
     }
   }
 
+  /// 根据模型名称自动获取对应的API Key（从安全存储中）
+  static Future<String> _getModelSpecificApiKey(String model) async {
+    String storageKey;
+    switch (model) {
+      case 'qwen-max':
+      case 'qwen-plus':
+      case 'qwen-turbo':
+        storageKey = ApiConfig.aliBailianApiKeyKey;
+        break;
+      case 'glm-4-plus':
+      case 'glm-4.7-flash':
+        storageKey = ApiConfig.zhipuApiKeyKey;
+        break;
+      case 'deepseek-v4-flash':
+      case 'deepseek-v4-pro':
+      case 'deepseek-chat':
+        storageKey = ApiConfig.deepseekApiKeyKey;
+        break;
+      case 'doubao-pro':
+        storageKey = ApiConfig.doubaoApiKeyKey;
+        break;
+      case 'agnes-2.0-flash':
+        return 'sk-Rcb7FziWSyPq3cZPEcrHx4Xh4MOte1DlUjuEg6w0TBVvhiub';
+      default:
+        return '';
+    }
+    final key = await StorageUtil.getSecure(storageKey);
+    return key ?? '';
+  }
+
   /// 获取预设模型的默认Base URL
   static String _getPresetBaseUrl(String model) {
     switch (model) {
+      case 'qwen-max':
+      case 'qwen-plus':
+      case 'qwen-turbo':
+        return 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+      case 'glm-4-plus':
+      case 'glm-4.7-flash':
+        return 'https://open.bigmodel.cn/api/paas/v4';
       case 'agnes-2.0-flash':
         return 'https://apihub.agnes-ai.cn/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
+      case 'deepseek-chat':
         return 'https://api.deepseek.com';
       case 'doubao-pro':
         return 'https://ark.cn-beijing.volces.com/api/v3';
