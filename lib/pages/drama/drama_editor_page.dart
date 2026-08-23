@@ -1578,7 +1578,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(
               children: [
-                Icon(Icons.story, color: const Color(0xFFFF6B9D), size: 22),
+                Icon(Icons.movie_creation_outlined, color: const Color(0xFFFF6B9D), size: 22),
                 const SizedBox(width: 8),
                 const Text(
                   '分镜生成',
@@ -1688,7 +1688,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                     style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                   ),
                   subtitle: Text(
-                    '${episode.shots.length}个镜头${episode.summary.isNotEmpty ? ' · ${episode.summary}' : ''}',
+                    '${episode.shots.length}个镜头${(episode.summary != null && episode.summary!.isNotEmpty) ? ' · ${episode.summary}' : ''}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 12, color: AppTheme.textHint),
@@ -1698,7 +1698,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: episode.shots.take(3).map((shot) {
+                        children: [
+                          ...episode.shots.take(3).map((shot) {
                           return Container(
                             margin: const EdgeInsets.only(bottom: 6),
                             padding: const EdgeInsets.all(8),
@@ -1755,8 +1756,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                             ),
                           );
                         }).toList(),
-                        if (episode.shots.length > 3)
-                          Center(
+                          if (episode.shots.length > 3) ...[
+                            Center(
                             child: Text(
                               '...还有 ${episode.shots.length - 3} 个镜头',
                               style: TextStyle(fontSize: 11, color: AppTheme.textHint),
@@ -1765,6 +1766,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                         ],
                       ),
                     ),
+                  ],
                   ],
                 ),
               );
