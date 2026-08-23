@@ -1764,9 +1764,9 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
                             ),
                           ),
                         ],
+                        ],
                       ),
                     ),
-                  ],
                   ],
                 ),
               );
