@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/api_config.dart';
@@ -80,6 +81,8 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     {'value': 'cogvideox', 'label': 'CogVideoX (智谱)'},
     {'value': 'feiying', 'label': '飞影数字人 (音频驱动)'},
     {'value': 'agnes-video', 'label': 'Agnes Video (免费)'},
+    {'value': 'pixverse-720p', 'label': 'PixVerse 720p (海外·高质量)'},
+    {'value': 'pixverse-1080p', 'label': 'PixVerse 1080p (海外·超清)'},
     {'value': 'custom', 'label': '⚙️ 自定义 (Custom)'},
   ];
 
@@ -902,6 +905,21 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           prompt: prompt,
           onProgress: onProgress,
         );
+      case 'pixverse':
+      case 'pixverse-720p':
+        return _generatePixVerseVideo(
+          imagePath: imagePath,
+          prompt: prompt,
+          quality: '720p',
+          onProgress: onProgress,
+        );
+      case 'pixverse-1080p':
+        return _generatePixVerseVideo(
+          imagePath: imagePath,
+          prompt: prompt,
+          quality: '1080p',
+          onProgress: onProgress,
+        );
       case 'custom':
         if (config.videoApiKey.isEmpty || config.videoBaseUrl.isEmpty) {
           throw Exception('自定义视频模型需要配置API Key和Base URL');
@@ -1535,6 +1553,198 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     }
 
     throw Exception('CogVideoX视频生成超时（${maxRetries * 10}秒）');
+  }
+
+  // ==================== PixVerse 视频生成 ====================
+
+  /// PixVerse 图生视频
+  /// quality: '720p' 或 '1080p'
+  Future<String> _generatePixVerseVideo({
+    required String imagePath,
+    String? prompt,
+    String quality = '720p',
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    // 获取PixVerse API Key
+    var apiKey = await StorageUtil.getSecure(ApiConfig.pixverseApiKeyKey);
+    apiKey = apiKey?.trim() ?? '';
+    if (apiKey.isEmpty) {
+      throw Exception('请先在设置页配置 PixVerse API Key');
+    }
+
+    final traceId = const Uuid().v4();
+
+    onProgress?.call('上传图片到PixVerse...', 5);
+
+    // 1. 上传图片获取 img_id
+    int imgId;
+    try {
+      final formData = FormData.fromMap({
+        'image': await MultipartFile.fromFile(imagePath),
+      });
+      final uploadResp = await retryOnNetworkError(() => _dio.post(
+        ApiConfig.pixverseImageUploadUrl,
+        data: formData,
+        options: Options(
+          headers: {
+            'API-KEY': apiKey,
+            'Ai-trace-id': traceId,
+          },
+          receiveTimeout: const Duration(minutes: 3),
+        ),
+      ));
+
+      final uploadData = uploadResp.data as Map<String, dynamic>;
+      if (uploadData['ErrCode'] != 0) {
+        throw Exception(uploadData['ErrMsg']?.toString() ?? '图片上传失败');
+      }
+      final resp = uploadData['Resp'] as Map<String, dynamic>?;
+      imgId = (resp?['img_id'] as num?)?.toInt() ?? 0;
+      if (imgId == 0) {
+        throw Exception('图片上传未返回img_id');
+      }
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final body = e.response?.data;
+      String detail = '';
+      if (body is Map) {
+        detail = body['ErrMsg']?.toString() ?? body['message']?.toString() ?? '';
+      } else if (body is String) {
+        detail = body;
+      }
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('PixVerse鉴权失败($statusCode)：请检查API Key。$detail');
+      }
+      throw Exception('PixVerse图片上传失败($statusCode)：$detail');
+    }
+
+    onProgress?.call('提交PixVerse视频任务($quality)...', 20);
+
+    // 2. 提交图生视频任务
+    final requestBody = {
+      'img_id': imgId,
+      'prompt': prompt ?? 'cinematic, high quality, smooth motion',
+      'negative_prompt': 'blurry, low quality, distorted, watermark, text',
+      'model': ApiConfig.pixverseModel,
+      'duration': 5,
+      'quality': quality,
+      'aspect_ratio': '16:9',
+      'motion_mode': 'normal',
+      'water_mark': false,
+    };
+
+    int videoId;
+    try {
+      final submitTraceId = const Uuid().v4();
+      final submitResp = await retryOnNetworkError(() => _dio.post(
+        ApiConfig.pixverseI2VSubmitUrl,
+        data: jsonEncode(requestBody),
+        options: Options(
+          headers: {
+            'API-KEY': apiKey,
+            'Ai-trace-id': submitTraceId,
+            'Content-Type': 'application/json',
+          },
+          receiveTimeout: const Duration(minutes: 3),
+        ),
+      ));
+
+      final submitData = submitResp.data as Map<String, dynamic>;
+      if (submitData['ErrCode'] != 0) {
+        throw Exception(submitData['ErrMsg']?.toString() ?? '提交任务失败');
+      }
+      final resp = submitData['Resp'] as Map<String, dynamic>?;
+      videoId = (resp?['video_id'] as num?)?.toInt() ?? 0;
+      if (videoId == 0) {
+        throw Exception('提交任务未返回video_id');
+      }
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final body = e.response?.data;
+      String detail = '';
+      if (body is Map) {
+        detail = body['ErrMsg']?.toString() ?? body['message']?.toString() ?? '';
+      } else if (body is String) {
+        detail = body;
+      }
+      if (statusCode == 401 || statusCode == 403) {
+        throw Exception('PixVerse鉴权失败($statusCode)：请检查API Key。$detail');
+      }
+      if (statusCode == 400) {
+        throw Exception('PixVerse请求参数错误：$detail');
+      }
+      throw Exception('PixVerse提交任务失败($statusCode)：$detail');
+    }
+
+    onProgress?.call('PixVerse视频生成中...', 35);
+
+    // 3. 轮询任务状态
+    final videoUrl = await _pollPixVerseTask(videoId, apiKey, onProgress: onProgress);
+
+    onProgress?.call('下载视频中...', 90);
+    final localPath = await _downloadVideo(videoUrl);
+    return localPath;
+  }
+
+  /// 轮询 PixVerse 任务状态
+  Future<String> _pollPixVerseTask(
+    int videoId,
+    String apiKey, {
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    const maxRetries = 120; // 最多等待10分钟
+    const pollInterval = Duration(seconds: 5);
+
+    for (int i = 0; i < maxRetries; i++) {
+      try {
+        final traceId = const Uuid().v4();
+        final response = await retryOnNetworkError(() => _dio.get(
+          '${ApiConfig.pixverseTaskQueryUrl}$videoId',
+          options: Options(
+            headers: {
+              'API-KEY': apiKey,
+              'Ai-trace-id': traceId,
+            },
+            receiveTimeout: const Duration(seconds: 30),
+          ),
+        ));
+
+        final data = response.data as Map<String, dynamic>;
+        final errCode = data['ErrCode'] as int? ?? -1;
+        if (errCode != 0) {
+          throw Exception(data['ErrMsg']?.toString() ?? '查询任务失败');
+        }
+
+        final resp = data['Resp'] as Map<String, dynamic>?;
+        final status = (resp?['status'] as num?)?.toInt() ?? 0;
+
+        if (status == 1) {
+          // 生成成功
+          final url = resp?['url'] as String?;
+          if (url != null && url.isNotEmpty) {
+            return url;
+          }
+          throw Exception('视频生成完成但未返回URL');
+        } else if (status == 2 || status == 3) {
+          // 2=失败, 3=过期
+          final msg = resp?['ErrMsg']?.toString() ?? '生成失败(status=$status)';
+          throw Exception('PixVerse视频生成失败：$msg');
+        }
+
+        // status=0 排队/生成中
+        final progress = 35 + ((i + 1) * 50 / maxRetries).round();
+        onProgress?.call('生成中（${i + 1}/$maxRetries）...', progress.clamp(35, 90));
+
+        await Future.delayed(pollInterval);
+      } on DioException catch (e) {
+        if (i == maxRetries - 1) {
+          throw Exception('查询PixVerse任务状态失败：${e.message}');
+        }
+        await Future.delayed(pollInterval);
+      }
+    }
+
+    throw Exception('PixVerse视频生成超时（${maxRetries * 5}秒）');
   }
 
   /// 自定义视频模型（OpenAI兼容接口）
@@ -2375,6 +2585,9 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       case 'wan21-i2v': return ApiConfig.wan21I2VModel;
       case 'cogvideox': return ApiConfig.cogVideoXModel;
       case 'feiying': return 'feiying-avatar';
+      case 'pixverse':
+      case 'pixverse-720p': return 'pixverse-v4.5-720p';
+      case 'pixverse-1080p': return 'pixverse-v4.5-1080p';
       default: return videoModel;
     }
   }
@@ -2387,6 +2600,9 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       case 'feiying': return 'feiying';
       case 'cogvideox': return 'zhipu';
       case 'custom': return 'custom';
+      case 'pixverse':
+      case 'pixverse-720p':
+      case 'pixverse-1080p': return 'pixverse';
       default: return 'bailian'; // wanx-s2v, happyhorse, wan27-i2v
     }
   }

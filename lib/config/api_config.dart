@@ -264,6 +264,22 @@ class ApiConfig {
   /// Wanxiang文生图模型名
   static const String wanxT2IModel = 'wanx2.1-t2i-turbo';
 
+  // ==================== PixVerse（图生视频/文生视频） ====================
+  /// PixVerse API Base URL
+  static const String pixverseBaseUrl = 'https://app-api.pixverse.ai/openapi/v2';
+  /// 图片上传接口（获取img_id）
+  static const String pixverseImageUploadUrl = 'https://app-api.pixverse.ai/openapi/v2/image/upload';
+  /// 图生视频提交接口
+  static const String pixverseI2VSubmitUrl = 'https://app-api.pixverse.ai/openapi/v2/video/img/generate';
+  /// 文生视频提交接口
+  static const String pixverseT2VSubmitUrl = 'https://app-api.pixverse.ai/openapi/v2/video/text/generate';
+  /// 任务状态查询接口（拼接video_id）
+  static const String pixverseTaskQueryUrl = 'https://app-api.pixverse.ai/openapi/v2/video/result/';
+  /// PixVerse 模型名（v4.5 图生视频效果稳定）
+  static const String pixverseModel = 'v4.5';
+  /// PixVerse API Key 存储键
+  static const String pixverseApiKeyKey = 'pixverse_api_key';
+
   // ==================== 本地 Stable Diffusion ====================
   /// 本地SD WebUI默认地址（Android模拟器访问主机用10.0.2.2）
   static const String defaultLocalSdUrl = 'http://10.0.2.2:7860';

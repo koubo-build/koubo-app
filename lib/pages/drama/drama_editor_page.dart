@@ -140,6 +140,8 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     {'value': 'cogvideox', 'label': 'CogVideoX (智谱)'},
     {'value': 'feiying', 'label': '飞影数字人 (音频驱动)'},
     {'value': 'agnes-video', 'label': 'Agnes Video (免费)'},
+    {'value': 'pixverse-720p', 'label': 'PixVerse 720p (海外·高质量)'},
+    {'value': 'pixverse-1080p', 'label': 'PixVerse 1080p (海外·超清)'},
     {'value': 'custom', 'label': '⚙️ 自定义 (Custom)'},
   ];
 
@@ -1976,6 +1978,10 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
         return 'https://ark.cn-beijing.volces.com/api/v3';
       case 'feiying':
         return 'https://hfw-api.hifly.cc';
+      case 'pixverse':
+      case 'pixverse-720p':
+      case 'pixverse-1080p':
+        return 'https://app-api.pixverse.ai/openapi/v2';
       case 'wanx':
       case 'wan27-image':
       case 'wanx-style':

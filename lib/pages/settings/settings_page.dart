@@ -30,6 +30,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _minimaxKeyController = TextEditingController();
   final _doubaoKeyController = TextEditingController();
   final _feiyingKeyController = TextEditingController();
+  final _pixverseKeyController = TextEditingController();
 
   // 自定义API Provider控制器
   final _customTextBaseUrlController = TextEditingController();
@@ -55,6 +56,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _minimaxKeyVisible = false;
   bool _doubaoKeyVisible = false;
   bool _feiyingKeyVisible = false;
+  bool _pixverseKeyVisible = false;
 
   // 自定义API Key显示/隐藏
   bool _customTextKeyVisible = false;
@@ -71,6 +73,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _minimaxKeyStatus;
   String? _doubaoKeyStatus;
   String? _feiyingKeyStatus;
+  String? _pixverseKeyStatus;
 
   // 正在检测的Key标识
   String? _testingKey;
@@ -117,6 +120,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _minimaxKeyController.dispose();
     _doubaoKeyController.dispose();
     _feiyingKeyController.dispose();
+    _pixverseKeyController.dispose();
     _feiyingAvatarController.dispose();
     _customTextBaseUrlController.dispose();
     _customTextApiKeyController.dispose();
@@ -144,6 +148,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _minimaxKeyController.text = await StorageUtil.getSecure(ApiConfig.minimaxApiKeyKey) ?? '';
     _doubaoKeyController.text = await StorageUtil.getSecure(ApiConfig.doubaoApiKeyKey) ?? '';
     _feiyingKeyController.text = await StorageUtil.getSecure(ApiConfig.feiyingApiKeyKey) ?? '';
+    _pixverseKeyController.text = await StorageUtil.getSecure(ApiConfig.pixverseApiKeyKey) ?? '';
     _feiyingAvatarController.text = StorageUtil.getFeiyingAvatarId() ?? '';
 
     // 加载自定义API配置
@@ -414,6 +419,24 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ],
               ),
+            ),
+
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // PixVerse 视频生成
+            _buildApiKeyCard(
+              platformName: 'PixVerse',
+              platformDesc: '海外高质量AI视频生成（图生视频，支持720p/1080p）',
+              icon: Icons.movie_filter_outlined,
+              iconColor: const Color(0xFFAB47BC),
+              controller: _pixverseKeyController,
+              hintText: '输入 PixVerse API Key',
+              isVisible: _pixverseKeyVisible,
+              onToggleVisibility: () => setState(() => _pixverseKeyVisible = !_pixverseKeyVisible),
+              status: _pixverseKeyStatus,
+              isTesting: _testingKey == 'pixverse',
+              onTest: () => _testApiKey('pixverse'),
+              onClear: () => _clearApiKey('pixverse'),
             ),
 
             const SizedBox(height: AppTheme.spacingMedium),
@@ -1160,6 +1183,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ApiConfig.minimaxApiKeyKey: _minimaxKeyController.text.trim(),
         ApiConfig.doubaoApiKeyKey: _doubaoKeyController.text.trim(),
         ApiConfig.feiyingApiKeyKey: _feiyingKeyController.text.trim(),
+        ApiConfig.pixverseApiKeyKey: _pixverseKeyController.text.trim(),
         ApiConfig.customTextApiKeyKey: _customTextApiKeyController.text.trim(),
         ApiConfig.customImageApiKeyKey: _customImageApiKeyController.text.trim(),
         ApiConfig.customVideoApiKeyKey: _customVideoApiKeyController.text.trim(),
@@ -1247,6 +1271,11 @@ class _SettingsPageState extends State<SettingsPage> {
           testUrl = '${ApiConfig.feiyingBaseUrl}${ApiConfig.feiyingAccountCredit}';
           model = ''; // 飞影用GET请求，不需要model
           break;
+        case 'pixverse':
+          apiKey = _pixverseKeyController.text.trim();
+          testUrl = ApiConfig.pixverseTaskQueryUrl + '0';
+          model = ''; // PixVerse用自定义header验证
+          break;
         default:
           return;
       }
@@ -1312,6 +1341,22 @@ class _SettingsPageState extends State<SettingsPage> {
           final status = e.response?.statusCode ?? 0;
           isValid = status != 401 && status != 403;
         }
+      } else if (platform == 'pixverse') {
+        // PixVerse用查询任务接口测试（假ID），只要不返回401/403说明Key有效
+        try {
+          await dio.get(
+            testUrl,
+            options: Options(headers: {
+              'API-KEY': apiKey,
+              'Ai-trace-id': 'test-validation-${DateTime.now().millisecondsSinceEpoch}',
+              'Accept': 'application/json',
+            }),
+          );
+          isValid = true;
+        } on DioException catch (e) {
+          final status = e.response?.statusCode ?? 0;
+          isValid = status != 401 && status != 403;
+        }
       } else {
         // 大模型平台用chat接口测试
         final response = await dio.post(
@@ -1341,6 +1386,7 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'minimax': _minimaxKeyStatus = isValid ? 'valid' : 'invalid'; break;
             case 'doubao': _doubaoKeyStatus = isValid ? 'valid' : 'invalid'; break;
             case 'feiying': _feiyingKeyStatus = isValid ? 'valid' : 'invalid'; break;
+            case 'pixverse': _pixverseKeyStatus = isValid ? 'valid' : 'invalid'; break;
         }
       });
 
@@ -1366,6 +1412,7 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'minimax': _minimaxKeyStatus = 'invalid'; break;
             case 'doubao': _doubaoKeyStatus = 'invalid'; break;
             case 'feiying': _feiyingKeyStatus = 'invalid'; break;
+            case 'pixverse': _pixverseKeyStatus = 'invalid'; break;
           }
         });
       } else if (e.response?.statusCode == 429) {
@@ -1408,6 +1455,7 @@ class _SettingsPageState extends State<SettingsPage> {
             case 'minimax': _minimaxKeyStatus = 'invalid'; break;
             case 'doubao': _doubaoKeyStatus = 'invalid'; break;
             case 'feiying': _feiyingKeyStatus = 'invalid'; break;
+            case 'pixverse': _pixverseKeyStatus = 'invalid'; break;
           }
         });
       }
@@ -1424,6 +1472,7 @@ class _SettingsPageState extends State<SettingsPage> {
           case 'minimax': _minimaxKeyStatus = 'invalid'; break;
           case 'doubao': _doubaoKeyStatus = 'invalid'; break;
           case 'feiying': _feiyingKeyStatus = 'invalid'; break;
+          case 'pixverse': _pixverseKeyStatus = 'invalid'; break;
         }
       });
       _showSnackBar('✗ 检测失败，请稍后重试');
@@ -1482,6 +1531,11 @@ class _SettingsPageState extends State<SettingsPage> {
         _feiyingKeyStatus = null;
         _feiyingAvatarController.clear();
         await StorageUtil.setFeiyingAvatarId('');
+        break;
+      case 'pixverse':
+        storageKey = ApiConfig.pixverseApiKeyKey;
+        _pixverseKeyController.clear();
+        _pixverseKeyStatus = null;
         break;
       default:
         return;
