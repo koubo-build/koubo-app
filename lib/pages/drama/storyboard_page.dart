@@ -80,7 +80,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     {'value': 'happyhorse', 'label': 'HappyHorse 1.1 (百炼·快速)'},
     {'value': 'cogvideox', 'label': 'CogVideoX (智谱)'},
     {'value': 'feiying', 'label': '飞影数字人 (音频驱动)'},
-    {'value': 'agnes-video', 'label': 'Agnes Video (免费)'},
+    {'value': 'agnes-video', 'label': 'Agnes Video 2.5 Flash (免费·推荐)'},
     {'value': 'pixverse-720p', 'label': 'PixVerse 720p (海外·高质量)'},
     {'value': 'pixverse-1080p', 'label': 'PixVerse 1080p (海外·超清)'},
     {'value': 'custom', 'label': '⚙️ 自定义 (Custom)'},
@@ -448,11 +448,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     try {
       final drama = _drama!;
       final config = drama.parsedModelConfig;
-      for (int i = 0; i < readyShots.length; i++) {
+      for (int i = 0; i < readyShots.length && i < 4; i++) {
         final shot = readyShots[i];
         setState(() {
           _currentProcessingIndex = _shots.indexWhere((s) => s.id == shot.id);
-          _generateProgress = '[视频 ${i + 1}/${readyShots.length}] 镜头 #${shot.shotNumber}';
+          _generateProgress = '[视频 ${i + 1}/min(${readyShots.length},4)] 镜头 #${shot.shotNumber}';
         });
 
         // TaskLog: 视频生成开始
@@ -960,7 +960,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     );
   }
 
-  /// Agnes AI 图生视频（免费）
+  /// Agnes AI 图生视频（免费，使用正确的 /videos 异步任务端点）
   Future<String> _generateAgnesVideo({
     required String imagePath,
     String? prompt,
@@ -972,68 +972,93 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       apiKey = 'sk-7910JE6f3qpCtYchwYPgzPdpFC2X99chkCNExCvTmvLObACo';
     }
 
-    onProgress?.call('上传图片中...', 5);
-    // 读取图片并转为base64
-    final imageFile = File(imagePath);
-    final imageBytes = await imageFile.readAsBytes();
-    final base64Image = base64Encode(imageBytes);
-    final ext = imagePath.split('.').last.toLowerCase();
-    final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
-
-    onProgress?.call('提交Agnes Video任务...', 25);
-    final requestBody = {
-      'model': 'agnes-video-v2.0',
-      'messages': [
-        {
-          'role': 'user',
-          'content': [
-            {
-              'type': 'image_url',
-              'image_url': {'url': 'data:$mimeType;base64,$base64Image'},
-            },
-            if (prompt != null && prompt.isNotEmpty)
-              {'type': 'text', 'text': prompt},
-          ],
-        }
-      ],
-    };
-
+    // 步骤1：将本地图片上传为托管URL（Agnes视频API需要URL而非base64）
+    onProgress?.call('准备图片...', 5);
+    String? imageUrl;
     try {
-      final response = await retryOnNetworkError(() => _dio.post(
-        '${ApiConfig.agnesBaseUrl}/chat/completions',
-        data: jsonEncode(requestBody),
+      final imageFile = File(imagePath);
+      final imageBytes = await imageFile.readAsBytes();
+      final base64Image = base64Encode(imageBytes);
+      final ext = imagePath.split('.').last.toLowerCase();
+      final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
+
+      // 使用图片生成API将本地图片转为托管URL
+      final uploadResp = await retryOnNetworkError(() => _dio.post(
+        ApiConfig.agnesImageUploadUrl,
+        data: jsonEncode({
+          'model': 'agnes-image-2.1-flash',
+          'prompt': 'Keep the image exactly as it is',
+          'n': 1,
+          'size': '1024x1024',
+          'extra_body': {
+            'response_format': 'url',
+            'image': 'data:$mimeType;base64,$base64Image',
+          },
+        }),
         options: Options(
           headers: {
             'Authorization': 'Bearer $apiKey',
             'Content-Type': 'application/json',
           },
-          receiveTimeout: const Duration(minutes: 10),
+          receiveTimeout: const Duration(seconds: 60),
         ),
       ));
 
-      final data = response.data as Map<String, dynamic>;
-      final choices = data['choices'] as List<dynamic>?;
-      if (choices == null || choices.isEmpty) {
-        throw Exception('Agnes Video未返回结果');
+      final uploadData = uploadResp.data as Map<String, dynamic>;
+      final uploadDataList = uploadData['data'] as List<dynamic>?;
+      if (uploadDataList != null && uploadDataList.isNotEmpty) {
+        imageUrl = uploadDataList[0]['url']?.toString();
       }
-      final message = choices[0]['message'] as Map<String, dynamic>?;
-      final content = message?['content'];
-      String? videoUrl;
-      if (content is List) {
-        for (final item in content) {
-          if (item is Map && item['type'] == 'video_url') {
-            videoUrl = item['video_url']?['url']?.toString();
-            break;
-          }
-        }
-      }
-      if (videoUrl == null || videoUrl.isEmpty) {
-        throw Exception('Agnes Video未返回视频URL');
-      }
+    } catch (e) {
+      // 图片上传失败，回退使用base64 data URL
+      debugPrint('[AgnesVideo] 图片上传失败，回退base64: $e');
+      final imageFile = File(imagePath);
+      final imageBytes = await imageFile.readAsBytes();
+      final base64Image = base64Encode(imageBytes);
+      final ext = imagePath.split('.').last.toLowerCase();
+      final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
+      imageUrl = 'data:$mimeType;base64,$base64Image';
+    }
 
-      onProgress?.call('下载视频中...', 90);
-      final localPath = await _downloadVideo(videoUrl);
-      return localPath;
+    if (imageUrl == null || imageUrl.isEmpty) {
+      throw Exception('Agnes图片上传失败，无法获取图片URL');
+    }
+
+    // 步骤2：提交视频生成任务（POST /v1/videos）
+    onProgress?.call('提交Agnes Video任务...', 20);
+    final submitBody = {
+      'model': ApiConfig.agnesVideoModel,
+      'prompt': prompt ?? 'Animate this image naturally',
+      'image': imageUrl,
+      'mode': 'ti2vid',
+      'width': 768,
+      'height': 1152,
+      'num_frames': 121,
+      'frame_rate': 24,
+      'negative_prompt': 'blurry, distorted, low quality, watermark, text overlay',
+    };
+
+    String videoId;
+    try {
+      final submitResp = await retryOnNetworkError(() => _dio.post(
+        ApiConfig.agnesVideoSubmitUrl,
+        data: jsonEncode(submitBody),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+          receiveTimeout: const Duration(seconds: 60),
+        ),
+      ));
+
+      final submitData = submitResp.data as Map<String, dynamic>;
+      videoId = submitData['video_id']?.toString() ??
+                submitData['task_id']?.toString() ??
+                submitData['id']?.toString() ?? '';
+      if (videoId.isEmpty) {
+        throw Exception('Agnes Video未返回video_id，响应: ${submitData.keys.join(",")}');
+      }
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       final responseBody = e.response?.data;
@@ -1041,12 +1066,74 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
       if (responseBody is Map) {
         detail = responseBody['error']?['message']?.toString() ??
                  responseBody['message']?.toString() ?? '';
+      } else if (responseBody is String) {
+        detail = responseBody;
       }
       if (statusCode == 401 || statusCode == 403) {
         throw Exception('Agnes AI鉴权失败：$detail');
       }
-      throw Exception('Agnes Video生成失败($statusCode)：$detail');
+      throw Exception('Agnes Video提交失败(${statusCode ?? '网络错误'})：$detail');
     }
+
+    // 步骤3：轮询任务状态（GET /agnesapi?video_id=xxx）
+    onProgress?.call('生成视频中...', 40);
+    const maxPollAttempts = 60; // 最多轮询60次 × 10秒 = 10分钟
+    const pollInterval = Duration(seconds: 10);
+    String? videoUrl;
+
+    for (int attempt = 0; attempt < maxPollAttempts; attempt++) {
+      await Future.delayed(pollInterval);
+      onProgress?.call('生成视频中...(${(attempt + 1) * 10}秒)', 40 + (attempt * 50 ~/ maxPollAttempts));
+
+      try {
+        final pollResp = await retryOnNetworkError(() => _dio.get(
+          '${ApiConfig.agnesVideoPollUrl}?video_id=$videoId',
+          options: Options(
+            headers: {
+              'Authorization': 'Bearer $apiKey',
+            },
+            receiveTimeout: const Duration(seconds: 30),
+          ),
+        ));
+
+        final pollData = pollResp.data as Map<String, dynamic>;
+        final status = pollData['status']?.toString() ?? '';
+
+        if (status == 'completed' || status == 'COMPLETED') {
+          // 提取视频URL
+          videoUrl = pollData['video_url']?.toString() ??
+                     pollData['url']?.toString() ??
+                     pollData['remixed_from_video_id']?.toString();
+          if (videoUrl == null || videoUrl.isEmpty) {
+            final data = pollData['data'];
+            if (data is Map) {
+              videoUrl = data['video_url']?.toString() ?? data['url']?.toString();
+            }
+          }
+          if (videoUrl != null && videoUrl.isNotEmpty) break;
+          throw Exception('任务完成但未返回视频URL');
+        } else if (status == 'failed' || status == 'FAILED') {
+          final errMsg = pollData['error']?.toString() ?? '未知错误';
+          throw Exception('Agnes Video生成失败：$errMsg');
+        }
+        // status == 'processing' / 'pending' / etc → 继续轮询
+      } on DioException catch (e) {
+        // 轮询网络错误，继续重试
+        debugPrint('[AgnesVideo] 轮询失败(第${attempt + 1}次): ${e.message}');
+        if (attempt >= maxPollAttempts - 3) {
+          throw Exception('Agnes Video轮询失败：${e.message}');
+        }
+      }
+    }
+
+    if (videoUrl == null || videoUrl.isEmpty) {
+      throw Exception('Agnes Video生成超时（${maxPollAttempts * 10}秒）');
+    }
+
+    // 步骤4：下载视频到本地
+    onProgress?.call('下载视频中...', 90);
+    final localPath = await _downloadVideo(videoUrl!);
+    return localPath;
   }
 
   /// 火山引擎 Seedance 1.0 Pro 图生视频
@@ -1953,7 +2040,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
         final readyShots = _shots
             .where((s) => s.imagePath != null && s.status != 'video_ready')
             .toList();
-        for (int i = 0; i < readyShots.length; i++) {
+        for (int i = 0; i < readyShots.length && i < 4; i++) {
           final shot = readyShots[i];
           final retryKey = '${shot.id}_video';
           bool videoSuccess = false;
@@ -1961,7 +2048,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
           if (mounted) {
             setState(() {
               _currentProcessingIndex = _shots.indexWhere((s) => s.id == shot.id);
-              _generateProgress = '[视频 ${i + 1}/${readyShots.length}] 镜头 #${shot.shotNumber}';
+              _generateProgress = '[视频 ${i + 1}/min(${readyShots.length},4)] 镜头 #${shot.shotNumber}';
             });
           }
 
