@@ -139,7 +139,7 @@ class _DramaEditorPageState extends ConsumerState<DramaEditorPage>
     {'value': 'happyhorse', 'label': 'HappyHorse 1.1 (百炼·快速)'},
     {'value': 'cogvideox', 'label': 'CogVideoX (智谱)'},
     {'value': 'feiying', 'label': '飞影数字人 (音频驱动)'},
-    {'value': 'agnes-video', 'label': 'Agnes Video 2.5 Flash (免费·推荐)'},
+    {'value': 'agnes-video', 'label': 'Agnes Video v2.0 (免费·推荐)'},
     {'value': 'pixverse-720p', 'label': 'PixVerse 720p (海外·高质量)'},
     {'value': 'pixverse-1080p', 'label': 'PixVerse 1080p (海外·超清)'},
     {'value': 'custom', 'label': '⚙️ 自定义 (Custom)'},

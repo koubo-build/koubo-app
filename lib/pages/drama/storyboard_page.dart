@@ -80,7 +80,7 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
     {'value': 'happyhorse', 'label': 'HappyHorse 1.1 (百炼·快速)'},
     {'value': 'cogvideox', 'label': 'CogVideoX (智谱)'},
     {'value': 'feiying', 'label': '飞影数字人 (音频驱动)'},
-    {'value': 'agnes-video', 'label': 'Agnes Video 2.5 Flash (免费·推荐)'},
+    {'value': 'agnes-video', 'label': 'Agnes Video v2.0 (免费·推荐)'},
     {'value': 'pixverse-720p', 'label': 'PixVerse 720p (海外·高质量)'},
     {'value': 'pixverse-1080p', 'label': 'PixVerse 1080p (海外·超清)'},
     {'value': 'custom', 'label': '⚙️ 自定义 (Custom)'},
@@ -968,8 +968,11 @@ class _StoryboardPageState extends ConsumerState<StoryboardPage> {
   }) async {
     var apiKey = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey);
     if (apiKey == null || apiKey.isEmpty) {
-      // 使用内置默认Key（Agnes AI全模型免费）
-      apiKey = 'sk-7910JE6f3qpCtYchwYPgzPdpFC2X99chkCNExCvTmvLObACo';
+      // 兜底：从内置默认Key配置读取（Agnes AI全模型免费）
+      apiKey = ApiConfig.defaultApiKeys[ApiConfig.agnesApiKeyKey] ?? '';
+    }
+    if (apiKey.isEmpty) {
+      throw Exception('Agnes API Key未配置，请在设置页填写或重启App自动填充内置Key');
     }
 
     // 步骤1：将本地图片上传为托管URL（Agnes视频API需要URL而非base64）
