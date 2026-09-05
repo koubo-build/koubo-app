@@ -1435,6 +1435,8 @@ class _VoicePageState extends ConsumerState<VoicePage>
       if (path != null) {
         ref.read(voiceProvider.notifier).setRecordFilePath(path);
         ref.read(voiceProvider.notifier).setRecordState(RecordState.recorded);
+        // 录音完成后自动克隆并生成配音，无需测试
+        _autoCloneAndSynthesize(path);
       } else {
         ref.read(voiceProvider.notifier).setRecordState(RecordState.idle);
       }
@@ -1465,6 +1467,37 @@ class _VoicePageState extends ConsumerState<VoicePage>
     ref.read(voiceProvider.notifier).setRecordState(RecordState.idle);
     ref.read(voiceProvider.notifier).setRecordDuration(0);
     ref.read(voiceProvider.notifier).setRecordFilePath(null);
+  }
+
+  /// 录音完成后自动克隆音色并生成配音，跳过测试步骤
+  Future<void> _autoCloneAndSynthesize(String recordPath) async {
+    // 检查是否有配音文案
+    final scriptText = _scriptController.text.trim();
+    if (scriptText.isEmpty) {
+      _showSnackBar('请先输入配音文案，再录音', isError: true);
+      return;
+    }
+
+    // 自动生成克隆名称（带时间戳避免重复）
+    final now = DateTime.now();
+    final autoName = '我的声音_${now.month}${now.day}_${now.hour}${now.minute}';
+    ref.read(voiceProvider.notifier).setCloneVoiceName(autoName);
+
+    // 折叠克隆区，让用户看到合成进度
+    ref.read(voiceProvider.notifier).toggleCloneExpanded();
+
+    // 1. 自动克隆音色
+    await ref.read(voiceProvider.notifier).cloneVoice();
+
+    // 检查克隆是否成功（selectedVoice 不为 null 表示克隆完成并已选中）
+    final stateAfterClone = ref.read(voiceProvider);
+    if (stateAfterClone.selectedVoice == null) {
+      _showSnackBar('声音克隆失败，请重试', isError: true);
+      return;
+    }
+
+    // 2. 克隆成功，直接生成配音
+    await ref.read(voiceProvider.notifier).synthesize();
   }
 
   // ==================== 音频播放相关方法 ====================
