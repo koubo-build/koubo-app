@@ -18,6 +18,60 @@ enum VideoGenState {
   failed          // 失败
 }
 
+/// 配音模式枚举
+enum AudioMode {
+  autoTts,    // 系统自动TTS配音
+  record,     // 本页录音
+  external,   // 外部带入（从语音合成页）
+}
+
+/// 数字人模型信息
+class DigitalHumanModelInfo {
+  final String id;
+  final String name;
+  final String description;
+  final bool needsImage;  // 是否需要照片
+  final bool needsAudio;  // 是否需要音频
+  final bool supportsLipSync;  // 是否支持口型同步
+
+  const DigitalHumanModelInfo({
+    required this.id,
+    required this.name,
+    required this.description,
+    this.needsImage = true,
+    this.needsAudio = true,
+    this.supportsLipSync = true,
+  });
+}
+
+/// 所有可用的数字人模型列表
+const List<DigitalHumanModelInfo> availableDigitalHumanModels = [
+  DigitalHumanModelInfo(
+    id: 'wan2.2-s2v',
+    name: '万相数字人',
+    description: '照片+音频→口型视频，效果最自然',
+    needsImage: true,
+    needsAudio: true,
+    supportsLipSync: true,
+  ),
+  DigitalHumanModelInfo(
+    id: 'happyhorse-1.0-i2v',
+    name: 'HappyHorse',
+    description: '照片→动态视频，适合展示类场景',
+    needsImage: true,
+    needsAudio: false,
+    supportsLipSync: false,
+  ),
+  DigitalHumanModelInfo(
+    id: 'feiying',
+    name: '飞影数字人',
+    description: '音频驱动，无需上传照片',
+    needsImage: false,
+    needsAudio: true,
+    supportsLipSync: true,
+  ),
+];
+
 /// 数字人页面状态类（分段生成版）
 class DigitalHumanState {
   /// 照片路径
@@ -74,6 +128,21 @@ class DigitalHumanState {
   /// 是否正在AI生成文案
   final bool isGeneratingScript;
 
+  /// 当前选择的数字人模型ID
+  final String selectedModel;
+
+  /// 配音模式
+  final AudioMode audioMode;
+
+  /// 本页录音文件路径
+  final String? recordedAudioPath;
+
+  /// 是否正在录音
+  final bool isRecording;
+
+  /// 录音时长（秒）
+  final int recordDuration;
+
   const DigitalHumanState({
     this.avatarImagePath,
     this.audioPath,
@@ -93,6 +162,11 @@ class DigitalHumanState {
     this.errorMessage,
     this.isLoading = false,
     this.isGeneratingScript = false,
+    this.selectedModel = 'wan2.2-s2v',
+    this.audioMode = AudioMode.autoTts,
+    this.recordedAudioPath,
+    this.isRecording = false,
+    this.recordDuration = 0,
   });
 
   DigitalHumanState copyWith({
@@ -119,6 +193,12 @@ class DigitalHumanState {
     bool clearError = false,
     bool? isLoading,
     bool? isGeneratingScript,
+    String? selectedModel,
+    AudioMode? audioMode,
+    String? recordedAudioPath,
+    bool clearRecordedAudio = false,
+    bool? isRecording,
+    int? recordDuration,
   }) {
     return DigitalHumanState(
       avatarImagePath: clearAvatar ? null : (avatarImagePath ?? this.avatarImagePath),
@@ -139,14 +219,71 @@ class DigitalHumanState {
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       isLoading: isLoading ?? this.isLoading,
       isGeneratingScript: isGeneratingScript ?? this.isGeneratingScript,
+      selectedModel: selectedModel ?? this.selectedModel,
+      audioMode: audioMode ?? this.audioMode,
+      recordedAudioPath: clearRecordedAudio ? null : (recordedAudioPath ?? this.recordedAudioPath),
+      isRecording: isRecording ?? this.isRecording,
+      recordDuration: recordDuration ?? this.recordDuration,
     );
   }
 
-  /// 是否可以生成视频（有照片+有文案即可，不再强制要求音频）
+  /// 是否可以生成视频（根据模型和配音模式判断）
   bool get canGenerate {
-    final hasPhoto = avatarImagePath != null;
     final hasText = scriptText.trim().isNotEmpty;
-    return hasPhoto && hasText;
+    
+    // 根据当前选择的模型获取其需求
+    final modelInfo = availableDigitalHumanModels.firstWhere(
+      (m) => m.id == selectedModel,
+      orElse: () => availableDigitalHumanModels[0],
+    );
+    
+    // 根据配音模式判断音频是否就绪
+    bool hasAudio;
+    switch (audioMode) {
+      case AudioMode.autoTts:
+        hasAudio = true; // 自动TTS，不需要额外音频
+        break;
+      case AudioMode.record:
+        hasAudio = recordedAudioPath != null;
+        break;
+      case AudioMode.external:
+        hasAudio = audioPath != null;
+        break;
+    }
+    
+    // HappyHorse不需要音频
+    if (!modelInfo.needsAudio) hasAudio = true;
+    
+    // 飞影不需要照片
+    final hasPhoto = modelInfo.needsImage ? (avatarImagePath != null) : true;
+    
+    return hasPhoto && hasText && hasAudio;
+  }
+  
+  /// 获取当前不可生成的原因提示
+  String get cannotGenerateReason {
+    final hasText = scriptText.trim().isNotEmpty;
+    final modelInfo = availableDigitalHumanModels.firstWhere(
+      (m) => m.id == selectedModel,
+      orElse: () => availableDigitalHumanModels[0],
+    );
+    
+    if (modelInfo.needsImage && avatarImagePath == null) return '请上传照片';
+    if (!hasText) return '请输入口播文案';
+    
+    if (modelInfo.needsAudio) {
+      switch (audioMode) {
+        case AudioMode.record:
+          if (recordedAudioPath == null) return '请先录制配音';
+          break;
+        case AudioMode.external:
+          if (audioPath == null) return '请从语音合成页带入音频';
+          break;
+        default:
+          break;
+      }
+    }
+    return '';
   }
 
   /// 是否为多段生成结果
@@ -212,6 +349,7 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
     final fastMode = StorageUtil.getDhFastMode();
     final avatarPath = StorageUtil.getDhAvatarPath();
     final audioPath = StorageUtil.getDhAudioPath();
+    final videoModel = StorageUtil.getVideoModel();
 
     state = DigitalHumanState(
       scriptText: scriptText,
@@ -221,6 +359,7 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
       fastMode: fastMode,
       avatarImagePath: avatarPath,
       audioPath: audioPath,
+      selectedModel: videoModel,
     );
   }
 
@@ -335,17 +474,59 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
     StorageUtil.setDhFastMode(enabled);
   }
 
+  /// 设置选择的数字人模型
+  void setSelectedModel(String modelId) {
+    state = state.copyWith(selectedModel: modelId);
+    StorageUtil.setVideoModel(modelId);
+    
+    // 根据模型特性自动调整配音模式
+    final modelInfo = availableDigitalHumanModels.firstWhere(
+      (m) => m.id == modelId,
+      orElse: () => availableDigitalHumanModels[0],
+    );
+    // HappyHorse不需要音频，切换到自动TTS
+    if (!modelInfo.needsAudio && state.audioMode != AudioMode.autoTts) {
+      state = state.copyWith(audioMode: AudioMode.autoTts);
+    }
+  }
+
+  /// 设置配音模式
+  void setAudioMode(AudioMode mode) {
+    state = state.copyWith(audioMode: mode);
+  }
+
+  /// 设置录音文件路径
+  void setRecordedAudioPath(String? path) {
+    if (path == null) {
+      state = state.copyWith(clearRecordedAudio: true);
+    } else {
+      state = state.copyWith(recordedAudioPath: path);
+    }
+  }
+
+  /// 设置录音状态
+  void setRecording(bool recording) {
+    state = state.copyWith(isRecording: recording);
+  }
+
+  /// 设置录音时长
+  void setRecordDuration(int seconds) {
+    state = state.copyWith(recordDuration: seconds);
+  }
+
   /// 生成视频（分段模式）
   /// 自动将文案切割为多段，每段独立生成TTS配音+数字人视频
   /// 万相模型快速模式强制关闭
   Future<void> generateVideo() async {
     if (!state.canGenerate) {
-      state = state.copyWith(errorMessage: '请完善所有必填信息：照片、文案');
+      state = state.copyWith(errorMessage: state.cannotGenerateReason.isNotEmpty 
+          ? state.cannotGenerateReason 
+          : '请完善所有必填信息：照片、文案');
       return;
     }
 
-    // 万相模型强制关闭快速模式
-    final videoModel = StorageUtil.getVideoModel();
+    // 使用页面选择的模型
+    final videoModel = state.selectedModel;
     final forceFastModeOff = (videoModel == 'wan2.2-s2v');
 
     state = state.copyWith(
@@ -361,12 +542,19 @@ class DigitalHumanNotifier extends StateNotifier<DigitalHumanState> {
     );
 
     try {
+      // 确定录音路径：如果是录音模式且录音文件存在，直接使用录音文件（不再分段TTS）
+      String? recordedPath;
+      if (state.audioMode == AudioMode.record && state.recordedAudioPath != null) {
+        recordedPath = state.recordedAudioPath;
+      }
+
       // 使用多段生成流程：文案校验 → 切割 → 逐段TTS+视频
       final results = await _service.generateVideoMultiSegment(
         scriptText: state.scriptText,
-        imagePath: state.avatarImagePath!,
+        imagePath: state.avatarImagePath ?? '',
         prompt: state.prompt.isNotEmpty ? state.prompt : null,
         outputResolution: state.outputResolution,
+        recordedAudioPath: recordedPath,
         onProgress: (stage, progress, segmentIdx, totalSegments) {
           VideoGenState genState;
           if (stage.contains('配音')) {

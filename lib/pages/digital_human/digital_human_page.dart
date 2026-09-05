@@ -1,9 +1,13 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:record/record.dart' hide RecordState;
+import 'package:just_audio/just_audio.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../config/theme.dart';
 import '../../config/routes.dart';
 import '../../providers/digital_human_provider.dart';
@@ -55,14 +59,28 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
   // 是否已同步过文案（防止每次重建都覆盖输入框）
   bool _hasSyncedScriptText = false;
 
+  // 录音相关
+  final AudioRecorder _recorder = AudioRecorder();
+  AudioPlayer? _previewPlayer;
+  Timer? _recordTimer;
+  late AnimationController _pulseAnimController;
+
   @override
   void initState() {
     super.initState();
 
+    // 初始化脉冲动画控制器
+    _pulseAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+
     // 初始化音频路径（从语音合成页带入）
     if (widget.audioPath != null && widget.audioPath!.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(digitalHumanProvider.notifier).setAudioPath(widget.audioPath);
+        final notifier = ref.read(digitalHumanProvider.notifier);
+        notifier.setAudioPath(widget.audioPath);
+        notifier.setAudioMode(AudioMode.external);
       });
     }
     
@@ -92,6 +110,10 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
     _scriptTextController.dispose();
     _scriptTopicController.dispose();
     _videoController?.dispose();
+    _recordTimer?.cancel();
+    _recorder.dispose();
+    _previewPlayer?.dispose();
+    _pulseAnimController.dispose();
     super.dispose();
   }
 
@@ -165,6 +187,12 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
   // ==================== A. 照片上传区 ====================
 
   Widget _buildPhotoSection(DigitalHumanState state) {
+    // 获取当前选中模型信息
+    final currentModel = availableDigitalHumanModels.firstWhere(
+      (m) => m.id == state.selectedModel,
+      orElse: () => availableDigitalHumanModels[0],
+    );
+    
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -173,17 +201,32 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
             children: [
               const Icon(Icons.photo_camera, color: AppTheme.primaryColor, size: 20),
               const SizedBox(width: 8),
-              const Text('照片上传', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              const Text('数字人', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
               const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  '万相数字人',
-                  style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
+              // 可交互的模型选择器
+              GestureDetector(
+                onTap: _canEdit ? _showModelSelector : null,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: AppTheme.primaryColor.withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        currentModel.name,
+                        style: const TextStyle(fontSize: 11, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(width: 2),
+                      const Icon(Icons.arrow_drop_down, size: 16, color: AppTheme.primaryColor),
+                    ],
+                  ),
                 ),
               ),
               const Spacer(),
@@ -204,6 +247,12 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
                   ),
                 ),
             ],
+          ),
+          // 模型描述提示
+          const SizedBox(height: 4),
+          Text(
+            currentModel.description,
+            style: TextStyle(fontSize: 11, color: AppTheme.textHint),
           ),
           const SizedBox(height: AppTheme.spacingMedium),
 
@@ -307,12 +356,56 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
     );
   }
 
-  // ==================== B. 配音信息区（可选） ====================
+  // ==================== B. 配音信息区（多模式） ====================
 
   Widget _buildAudioSection(DigitalHumanState state) {
     // 获取当前选中的音色名称
     final currentVoiceId = StorageUtil.getDhTtsVoiceId() ?? 'longanhuan';
     final currentVoiceName = _getVoiceDisplayName(currentVoiceId);
+    
+    // 当前模型是否需要音频
+    final currentModel = availableDigitalHumanModels.firstWhere(
+      (m) => m.id == state.selectedModel,
+      orElse: () => availableDigitalHumanModels[0],
+    );
+    
+    // 如果模型不需要音频，显示简化提示
+    if (!currentModel.needsAudio) {
+      return AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.audiotrack, color: AppTheme.accentColor, size: 20),
+                const SizedBox(width: 8),
+                const Text('配音', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              ],
+            ),
+            const SizedBox(height: AppTheme.spacingSmall),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.darkSurface,
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, size: 14, color: AppTheme.textHint),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '当前模型「${currentModel.name}」不需要音频输入，将根据画面提示词自动生成视频。',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return AppCard(
       child: Column(
@@ -330,140 +423,450 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
                   color: AppTheme.primaryColor.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: const Text(
-                  '自动生成',
-                  style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
+                child: Text(
+                  _getAudioModeLabel(state.audioMode),
+                  style: const TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
                 ),
               ),
             ],
           ),
           const SizedBox(height: AppTheme.spacingSmall),
 
-          // 说明文案：分段生成时自动配音
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppTheme.darkSurface,
-              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.auto_fix_high, size: 14, color: AppTheme.primaryColor),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    '系统会自动将文案分段并生成配音，每段独立合成数字人视频。无需手动制作音频。',
-                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.4),
-                  ),
-                ),
-              ],
+          // 配音模式切换按钮组
+          Row(
+            children: [
+              _buildAudioModeChip('系统配音', Icons.auto_fix_high, AudioMode.autoTts, state),
+              const SizedBox(width: 8),
+              _buildAudioModeChip('录音', Icons.mic, AudioMode.record, state),
+              const SizedBox(width: 8),
+              _buildAudioModeChip('外部带入', Icons.link, AudioMode.external, state),
+            ],
+          ),
+          const SizedBox(height: AppTheme.spacingSmall),
+
+          // 根据配音模式显示不同内容
+          _buildAudioModeContent(state, currentVoiceName),
+        ],
+      ),
+    );
+  }
+
+  /// 配音模式标签文本
+  String _getAudioModeLabel(AudioMode mode) {
+    switch (mode) {
+      case AudioMode.autoTts: return '系统配音';
+      case AudioMode.record: return '录音';
+      case AudioMode.external: return '外部带入';
+    }
+  }
+
+  /// 配音模式选择chip
+  Widget _buildAudioModeChip(String label, IconData icon, AudioMode mode, DigitalHumanState state) {
+    final isSelected = state.audioMode == mode;
+    return Expanded(
+      child: GestureDetector(
+        onTap: _canEdit ? () => ref.read(digitalHumanProvider.notifier).setAudioMode(mode) : null,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected 
+                ? AppTheme.accentColor.withOpacity(0.15)
+                : AppTheme.darkSurface,
+            borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+            border: Border.all(
+              color: isSelected ? AppTheme.accentColor : Colors.transparent,
+              width: 1.5,
             ),
           ),
+          child: Column(
+            children: [
+              Icon(icon, size: 18, color: isSelected ? AppTheme.accentColor : AppTheme.textHint),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  color: isSelected ? AppTheme.accentColor : AppTheme.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-          // 当前音色显示
-          const SizedBox(height: AppTheme.spacingSmall),
+  /// 根据配音模式显示不同内容区域
+  Widget _buildAudioModeContent(DigitalHumanState state, String currentVoiceName) {
+    switch (state.audioMode) {
+      case AudioMode.autoTts:
+        return _buildAutoTtsContent(state, currentVoiceName);
+      case AudioMode.record:
+        return _buildRecordContent(state);
+      case AudioMode.external:
+        return _buildExternalAudioContent(state);
+    }
+  }
+
+  /// 自动TTS模式内容
+  Widget _buildAutoTtsContent(DigitalHumanState state, String currentVoiceName) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppTheme.darkSurface,
+            borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.auto_fix_high, size: 14, color: AppTheme.primaryColor),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '系统自动将文案分段并生成配音，无需手动制作音频。',
+                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.4),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppTheme.spacingSmall),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppTheme.accentColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+            border: Border.all(
+              color: AppTheme.accentColor.withOpacity(0.3),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.record_voice_over, size: 16, color: AppTheme.accentColor),
+              const SizedBox(width: 8),
+              Text(
+                '当前音色：$currentVoiceName',
+                style: const TextStyle(fontSize: 12, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => Navigator.pushNamed(context, AppRoutes.voice),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.swap_horiz, size: 14, color: AppTheme.accentColor),
+                      SizedBox(width: 4),
+                      Text('切换音色', style: TextStyle(fontSize: 11, color: AppTheme.accentColor, fontWeight: FontWeight.w500)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppTheme.spacingSmall),
+        TextButton.icon(
+          onPressed: () => Navigator.pushNamed(context, AppRoutes.voice),
+          icon: const Icon(Icons.tune, size: 14),
+          label: const Text('想精细调音？去语音合成页', style: TextStyle(fontSize: 12)),
+          style: TextButton.styleFrom(
+            foregroundColor: AppTheme.accentColor,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 录音模式内容
+  Widget _buildRecordContent(DigitalHumanState state) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppTheme.darkSurface,
+            borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.mic, size: 14, color: AppTheme.accentColor),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '点击下方按钮直接录制配音，最长60秒。录音完成后自动用于视频生成。',
+                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.4),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppTheme.spacingSmall),
+
+        // 录音按钮和状态
+        Center(
+          child: Column(
+            children: [
+              // 录音按钮
+              GestureDetector(
+                onTap: _canEdit 
+                    ? (state.isRecording ? _stopRecording : _startRecording)
+                    : null,
+                child: AnimatedBuilder(
+                  animation: _pulseAnimController,
+                  builder: (context, child) {
+                    final scale = state.isRecording
+                        ? 1.0 + _pulseAnimController.value * 0.15
+                        : 1.0;
+                    return Transform.scale(
+                      scale: scale,
+                      child: Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          color: state.isRecording
+                              ? AppTheme.highRiskColor
+                              : AppTheme.accentColor,
+                          shape: BoxShape.circle,
+                          boxShadow: state.isRecording
+                              ? [BoxShadow(
+                                  color: AppTheme.highRiskColor.withOpacity(0.4),
+                                  blurRadius: 12 + _pulseAnimController.value * 8,
+                                  spreadRadius: 2 + _pulseAnimController.value * 4,
+                                )]
+                              : [BoxShadow(
+                                  color: AppTheme.accentColor.withOpacity(0.3),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                )],
+                        ),
+                        child: Icon(
+                          state.isRecording ? Icons.stop : Icons.mic,
+                          color: Colors.white,
+                          size: 32,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                state.isRecording 
+                    ? '录音中... ${_formatRecordDuration(state.recordDuration)}'
+                    : (state.recordedAudioPath != null ? '点击重录' : '点击开始录音'),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: state.isRecording ? AppTheme.highRiskColor : AppTheme.textHint,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppTheme.spacingSmall),
+
+        // 录音完成后显示播放和确认
+        if (state.recordedAudioPath != null && !state.isRecording) ...[
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppTheme.accentColor.withOpacity(0.1),
+              color: AppTheme.safeColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
               border: Border.all(
-                color: AppTheme.accentColor.withOpacity(0.3),
+                color: AppTheme.safeColor.withOpacity(0.3),
                 width: 1,
               ),
             ),
             child: Row(
               children: [
-                const Icon(Icons.record_voice_over, size: 16, color: AppTheme.accentColor),
-                const SizedBox(width: 8),
-                Text(
-                  '当前音色：$currentVoiceName',
-                  style: const TextStyle(fontSize: 12, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.safeColor.withOpacity(0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check_circle, color: AppTheme.safeColor, size: 18),
                 ),
-                const Spacer(),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '录音完成',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
+                      ),
+                      Text(
+                        '时长 ${_formatRecordDuration(state.recordDuration)}',
+                        style: const TextStyle(fontSize: 10, color: AppTheme.textHint),
+                      ),
+                    ],
+                  ),
+                ),
+                // 播放按钮
                 GestureDetector(
-                  onTap: () => Navigator.pushNamed(context, AppRoutes.voice),
+                  onTap: _playRecordedAudio,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       color: AppTheme.accentColor.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.swap_horiz, size: 14, color: AppTheme.accentColor),
-                        SizedBox(width: 4),
-                        Text(
-                          '切换音色',
-                          style: TextStyle(fontSize: 11, color: AppTheme.accentColor, fontWeight: FontWeight.w500),
-                        ),
-                      ],
+                    child: const Icon(Icons.play_arrow, size: 20, color: AppTheme.accentColor),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // 删除按钮
+                GestureDetector(
+                  onTap: () {
+                    ref.read(digitalHumanProvider.notifier).setRecordedAudioPath(null);
+                    ref.read(digitalHumanProvider.notifier).setRecordDuration(0);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.highRiskColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(20),
                     ),
+                    child: const Icon(Icons.delete_outline, size: 20, color: AppTheme.highRiskColor),
                   ),
                 ),
               ],
             ),
           ),
+        ],
+      ],
+    );
+  }
 
-          // 如果有外部带入的配音，显示出来
-          if (state.audioPath != null) ...[
-            const SizedBox(height: AppTheme.spacingSmall),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppTheme.darkSurface,
-                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+  /// 外部带入音频模式内容
+  Widget _buildExternalAudioContent(DigitalHumanState state) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppTheme.darkSurface,
+            borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.link, size: 14, color: AppTheme.primaryColor),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  '从语音合成页带入已生成的音频文件，用于数字人视频合成。',
+                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.4),
+                ),
               ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: AppTheme.accentColor.withOpacity(0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.music_note, color: AppTheme.accentColor, size: 16),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          '已有外部配音',
-                          style: TextStyle(fontSize: 12, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
-                        ),
-                        Text(
-                          '将使用分段自动生成流程',
-                          style: TextStyle(fontSize: 10, color: AppTheme.textHint),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+            ],
+          ),
+        ),
+        // 如果有外部带入的配音，显示出来
+        if (state.audioPath != null) ...[
+          const SizedBox(height: AppTheme.spacingSmall),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppTheme.safeColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+              border: Border.all(
+                color: AppTheme.safeColor.withOpacity(0.3),
+                width: 1,
               ),
             ),
-          ],
-
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentColor.withOpacity(0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.music_note, color: AppTheme.accentColor, size: 16),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '已有外部配音',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
+                      ),
+                      Text(
+                        '将使用该音频生成数字人视频',
+                        style: TextStyle(fontSize: 10, color: AppTheme.textHint),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ] else ...[
           const SizedBox(height: AppTheme.spacingSmall),
-
-          // 语音合成页入口
-          TextButton.icon(
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.voice),
-            icon: const Icon(Icons.tune, size: 14),
-            label: const Text('想精细调音？去语音合成页', style: TextStyle(fontSize: 12)),
-            style: TextButton.styleFrom(
-              foregroundColor: AppTheme.accentColor,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppTheme.highRiskColor.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+              border: Border.all(
+                color: AppTheme.highRiskColor.withOpacity(0.2),
+                width: 1,
+              ),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.warning_amber_outlined, size: 14, color: AppTheme.highRiskColor),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '尚未带入音频，请前往语音合成页生成后带入',
+                    style: TextStyle(fontSize: 12, color: AppTheme.highRiskColor, height: 1.4),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
-      ),
+        const SizedBox(height: AppTheme.spacingSmall),
+        TextButton.icon(
+          onPressed: () => Navigator.pushNamed(context, AppRoutes.voice),
+          icon: const Icon(Icons.tune, size: 14),
+          label: const Text('去语音合成页生成配音', style: TextStyle(fontSize: 12)),
+          style: TextButton.styleFrom(
+            foregroundColor: AppTheme.accentColor,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      ],
     );
+  }
+
+  /// 格式化录音时长
+  String _formatRecordDuration(int seconds) {
+    final min = seconds ~/ 60;
+    final sec = seconds % 60;
+    return '${min.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
 
   /// 获取音色显示名称
@@ -748,7 +1151,7 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // 生成按钮（空闲或失败状态）
-        if (state.genState == VideoGenState.idle || state.genState == VideoGenState.failed)
+        if (state.genState == VideoGenState.idle || state.genState == VideoGenState.failed) ...[
           AppButton(
             text: state.genState == VideoGenState.failed ? '重新生成' : '生成数字人视频',
             icon: Icons.smart_display,
@@ -760,6 +1163,17 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
                   }
                 : null,
           ),
+          // 不可生成提示
+          if (!state.canGenerate && state.cannotGenerateReason.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                state.cannotGenerateReason,
+                style: const TextStyle(fontSize: 12, color: AppTheme.highRiskColor),
+                textAlign: TextAlign.center,
+              ),
+            ),
+        ],
 
         // 进度显示（生成中）
         if (state.genState != VideoGenState.idle &&
@@ -1542,6 +1956,240 @@ class _DigitalHumanPageState extends ConsumerState<DigitalHumanPage>
                     ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // ==================== 录音方法 ====================
+
+  /// 开始录音
+  Future<void> _startRecording() async {
+    // 检查麦克风权限
+    final status = await Permission.microphone.request();
+    if (!status.isGranted) {
+      _showSnackBar('需要麦克风权限才能录音，请在系统设置中开启', isError: true);
+      return;
+    }
+
+    try {
+      if (!await _recorder.hasPermission()) {
+        _showSnackBar('无法获取录音权限', isError: true);
+        return;
+      }
+
+      // 开始录音
+      final audioDir = await StorageUtil.getAudioDirectory();
+      final filePath = '$audioDir/dh_record_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          sampleRate: 44100,
+          numChannels: 1,
+        ),
+        path: filePath,
+      );
+
+      // 更新状态
+      ref.read(digitalHumanProvider.notifier).setRecording(true);
+      ref.read(digitalHumanProvider.notifier).setRecordDuration(0);
+      ref.read(digitalHumanProvider.notifier).setRecordedAudioPath(null);
+      
+      // 启动脉冲动画
+      _pulseAnimController.repeat(reverse: true);
+
+      // 计时器
+      _recordTimer?.cancel();
+      int seconds = 0;
+      _recordTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        seconds++;
+        ref.read(digitalHumanProvider.notifier).setRecordDuration(seconds);
+        // 超过60秒自动停止
+        if (seconds >= 60) {
+          _stopRecording();
+        }
+      });
+    } catch (e) {
+      _showSnackBar('录音启动失败：$e', isError: true);
+    }
+  }
+
+  /// 停止录音
+  Future<void> _stopRecording() async {
+    try {
+      final path = await _recorder.stop();
+      _recordTimer?.cancel();
+      _pulseAnimController.stop();
+
+      if (path != null) {
+        ref.read(digitalHumanProvider.notifier).setRecording(false);
+        ref.read(digitalHumanProvider.notifier).setRecordedAudioPath(path);
+      } else {
+        ref.read(digitalHumanProvider.notifier).setRecording(false);
+        _showSnackBar('录音失败，未获取到音频文件', isError: true);
+      }
+    } catch (e) {
+      _showSnackBar('停止录音失败：$e', isError: true);
+      ref.read(digitalHumanProvider.notifier).setRecording(false);
+      _pulseAnimController.stop();
+    }
+  }
+
+  /// 播放录音
+  Future<void> _playRecordedAudio() async {
+    final state = ref.read(digitalHumanProvider);
+    if (state.recordedAudioPath == null) return;
+
+    try {
+      _previewPlayer?.dispose();
+      _previewPlayer = AudioPlayer();
+      await _previewPlayer!.setFilePath(state.recordedAudioPath!);
+      _previewPlayer!.play();
+    } catch (e) {
+      _showSnackBar('播放录音失败：$e', isError: true);
+    }
+  }
+
+  // ==================== 模型选择器 ====================
+
+  /// 显示数字人模型选择器
+  void _showModelSelector() {
+    final currentModel = ref.read(digitalHumanProvider).selectedModel;
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.darkSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusLarge)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppTheme.spacingLarge),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '选择数字人模型',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: AppTheme.spacingSmall),
+              const Text(
+                '不同模型有不同的输入要求和生成效果',
+                style: TextStyle(fontSize: 12, color: AppTheme.textHint),
+              ),
+              const SizedBox(height: AppTheme.spacingMedium),
+              ...availableDigitalHumanModels.map((model) {
+                final isSelected = model.id == currentModel;
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.pop(context);
+                    ref.read(digitalHumanProvider.notifier).setSelectedModel(model.id);
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: isSelected 
+                          ? AppTheme.primaryColor.withOpacity(0.1)
+                          : AppTheme.darkCard,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                      border: Border.all(
+                        color: isSelected 
+                            ? AppTheme.primaryColor 
+                            : Colors.transparent,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        // 模型图标
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: isSelected 
+                                ? AppTheme.primaryColor.withOpacity(0.2)
+                                : AppTheme.darkSurface,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            _getModelIcon(model.id),
+                            color: isSelected ? AppTheme.primaryColor : AppTheme.textHint,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                model.name,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: isSelected ? AppTheme.primaryColor : AppTheme.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                model.description,
+                                style: const TextStyle(fontSize: 11, color: AppTheme.textHint),
+                              ),
+                              // 特性标签
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  if (model.needsImage) _buildModelTag('需照片', isSelected),
+                                  if (model.needsAudio) _buildModelTag('需音频', isSelected),
+                                  if (model.supportsLipSync) _buildModelTag('口型同步', isSelected),
+                                  if (!model.needsImage) _buildModelTag('无需照片', isSelected),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (isSelected)
+                          const Icon(Icons.check_circle, color: AppTheme.primaryColor, size: 20),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 获取模型对应的图标
+  IconData _getModelIcon(String modelId) {
+    switch (modelId) {
+      case 'wan2.2-s2v': return Icons.person_outline;
+      case 'happyhorse-1.0-i2v': return Icons.movie_creation_outlined;
+      case 'feiying': return Icons.record_voice_over;
+      default: return Icons.smart_display;
+    }
+  }
+
+  /// 模型特性标签
+  Widget _buildModelTag(String text, bool isSelected) {
+    return Container(
+      margin: const EdgeInsets.only(right: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: isSelected 
+            ? AppTheme.primaryColor.withOpacity(0.1)
+            : AppTheme.darkSurface,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 9,
+          color: isSelected ? AppTheme.primaryColor : AppTheme.textHint,
         ),
       ),
     );

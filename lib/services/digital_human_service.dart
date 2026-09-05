@@ -493,6 +493,7 @@ class DigitalHumanService {
   /// [imagePath] 数字人照片路径（必填）
   /// [prompt] 画面表情提示词（可选）
   /// [outputResolution] 输出分辨率，默认720
+  /// [recordedAudioPath] 用户在本页录音的音频路径（如果提供，则跳过TTS，直接使用该音频）
   /// [onProgress] 进度回调：stage=阶段描述, progress=0-100, segmentIdx=当前段序号, totalSegments=总段数
   /// 
   /// 返回每段视频的 VideoSegmentResult 列表
@@ -501,28 +502,81 @@ class DigitalHumanService {
     required String imagePath,
     String? prompt,
     int outputResolution = 720,
+    String? recordedAudioPath,
     void Function(String stage, int progress, int segmentIdx, int totalSegments)? onProgress,
   }) async {
     // 1. 文案前置校验（180字上限）
     validateText(scriptText);
 
-    // 2. 文本切割（每段≤55字）
+    // 2. 读取视频模型偏好
+    final videoModel = StorageUtil.getVideoModel();
+    
+    // 3. 如果有录音文件（用户在本页录音），整段音频直接用于视频生成，不切割文案
+    if (recordedAudioPath != null) {
+      final file = File(recordedAudioPath);
+      if (!await file.exists()) {
+        throw Exception('录音文件不存在：$recordedAudioPath');
+      }
+      
+      onProgress?.call('上传录音...', 10, 1, 1);
+      
+      String localVideoPath;
+      switch (videoModel) {
+        case 'happyhorse-1.0-i2v':
+          localVideoPath = await _generateWithHappyHorse(
+            imagePath: imagePath,
+            prompt: prompt,
+            outputResolution: outputResolution,
+            onProgress: (stage, progress) {
+              onProgress?.call(stage, progress, 1, 1);
+            },
+          );
+          break;
+        case 'feiying':
+          localVideoPath = await _generateWithFeiying(
+            audioPath: recordedAudioPath,
+            onProgress: (stage, progress) {
+              onProgress?.call(stage, progress, 1, 1);
+            },
+          );
+          break;
+        case 'wan2.2-s2v':
+        default:
+          localVideoPath = await _generateWithWanx(
+            imagePath: imagePath,
+            audioPath: recordedAudioPath,
+            prompt: prompt,
+            outputResolution: outputResolution,
+            onProgress: (stage, progress) {
+              onProgress?.call(stage, progress, 1, 1);
+            },
+          );
+      }
+      
+      onProgress?.call('全部完成！', 100, 1, 1);
+      return [VideoSegmentResult(
+        segmentIndex: 1,
+        totalSegments: 1,
+        segmentText: scriptText,
+        localVideoPath: localVideoPath,
+      )];
+    }
+
+    // 4. 无录音时走分段TTS流程
+    // 文本切割（每段≤55字）
     final segments = splitText(scriptText);
     final totalSegments = segments.length;
 
-    // 3. 读取视频模型偏好
-    final videoModel = StorageUtil.getVideoModel();
-
     final results = <VideoSegmentResult>[];
 
-    // 4. 逐段生成：TTS → 视频
+    // 5. 逐段生成：TTS → 视频
     for (int i = 0; i < totalSegments; i++) {
       final segText = segments[i];
       final segIdx = i + 1;
 
       onProgress?.call('第$segIdx/$totalSegments段：生成配音...', ((i) / totalSegments * 100).round(), segIdx, totalSegments);
 
-      // 4.1 为该段生成TTS音频
+      // 5.1 为该段生成TTS音频
       final ttsEngine = StorageUtil.getTtsEngine();
       String provider;
       switch (ttsEngine) {
