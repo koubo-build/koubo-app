@@ -104,7 +104,7 @@ class ApiConfig {
   static const String siliconFlowFluxSchnellModel = 'black-forest-labs/FLUX.1-schnell';
 
   // ==================== Agnes AI（全模态免费平台） ====================
-  static const String agnesBaseUrl = 'https://apihub.agnes-ai.cn/v1';
+  static const String agnesBaseUrl = 'https://apihub.agnes-ai.com/v1';
   static const String agnesModelFlash = 'agnes-2.0-flash';
   /// Agnes 2.5 Flash 文本模型（更强推理）
   static const String agnesModel25Flash = 'agnes-2.5-flash';
@@ -113,11 +113,11 @@ class ApiConfig {
   /// Agnes Video 2.5 Flash 模型名（最新免费，效果更好）
   static const String agnesVideo25FlashModel = 'agnes-video-2.5-flash';
   /// Agnes 视频生成提交接口（POST，异步任务）
-  static const String agnesVideoSubmitUrl = 'https://apihub.agnes-ai.cn/v1/videos';
+  static const String agnesVideoSubmitUrl = 'https://apihub.agnes-ai.com/v1/videos';
   /// Agnes 视频结果查询接口（GET，拼接video_id参数）
-  static const String agnesVideoPollUrl = 'https://apihub.agnes-ai.cn/agnesapi';
+  static const String agnesVideoPollUrl = 'https://apihub.agnes-ai.com/agnesapi';
   /// Agnes 图片上传为托管URL（用于图生视频传入image参数）
-  static const String agnesImageUploadUrl = 'https://apihub.agnes-ai.cn/v1/images/generations';
+  static const String agnesImageUploadUrl = 'https://apihub.agnes-ai.com/v1/images/generations';
 
   // ==================== DeepSeek ====================
   static const String deepseekBaseUrl = 'https://api.deepseek.com/v1';

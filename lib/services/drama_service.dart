@@ -851,7 +851,7 @@ ${estimatedEpisodes > 1 ? '\n再次强调：请务必将故事拆分为多集，
       case 'glm-4.7-flash':
         return 'https://open.bigmodel.cn/api/paas/v4';
       case 'agnes-2.0-flash':
-        return 'https://apihub.agnes-ai.cn/v1';
+        return 'https://apihub.agnes-ai.com/v1';
       case 'deepseek-v4-flash':
       case 'deepseek-v4-pro':
       case 'deepseek-chat':

@@ -21,7 +21,7 @@ class ToonFlowService {
   // ==================== 全局变量配置 ====================
 
   /// 默认视频模型
-  static const String defaultVideoModel = 'Agnes-2.5-Flash';
+  static const String defaultVideoModel = 'agnes-video-v2.0';
 
   /// 默认画面比例
   static const String defaultAspectRatio = '9:16';
@@ -34,7 +34,7 @@ class ToonFlowService {
   Future<String> _getAgnesApiKey() async {
     final saved = await StorageUtil.getSecure(ApiConfig.agnesApiKeyKey);
     if (saved != null && saved.isNotEmpty) return saved;
-    return 'sk-7910JE6f3qpCtYchwYPgzPdpFC2X99chkCNExCvTmvLObACo';
+    return ApiConfig.defaultApiKeys[ApiConfig.agnesApiKeyKey] ?? '';
   }
 
   // ==================== 角色音色池 ====================
@@ -226,7 +226,9 @@ class ToonFlowService {
   // ==================== 节点4：循环生成视频+配音 ====================
 
   /// 提交Agnes文生视频任务（带重试机制）
-  Future<String> _submitVideoTask({
+  /// 返回一个Map: {'task_id': ..., 'video_id': ...}
+  /// video_id 是推荐的轮询ID
+  Future<Map<String, String>> _submitVideoTask({
     required String prompt,
     required String apiKey,
     required String videoModel,
@@ -235,24 +237,48 @@ class ToonFlowService {
     String? imageRef,
     int maxRetries = 3,
   }) async {
+    // 将aspectRatio映射为width/height（480p基准）
+    int width, height;
+    switch (aspectRatio) {
+      case '9:16':
+        width = 448; height = 832; break;
+      case '16:9':
+        width = 832; height = 448; break;
+      case '1:1':
+        width = 640; height = 640; break;
+      case '3:4':
+        width = 576; height = 768; break;
+      case '4:3':
+        width = 768; height = 576; break;
+      default:
+        width = 832; height = 448; // 默认16:9
+    }
+    // num_frames必须满足8n+1规则，且<=441
+    // 根据duration计算：frames = duration * frame_rate，然后调整为8n+1
+    int frameRate = 24;
+    int numFrames = duration * frameRate;
+    // 调整为8n+1
+    numFrames = ((numFrames - 1) ~/ 8) * 8 + 1;
+    if (numFrames < 81) numFrames = 81; // 最少约3秒
+    if (numFrames > 441) numFrames = 441; // 最多约18秒
+
     final body = <String, dynamic>{
       'model': videoModel,
       'prompt': prompt,
-      'ratio': aspectRatio,
-      'duration': duration,
-      'cfg_scale': 7,
-      'motion_bucket_id': 120,
+      'width': width,
+      'height': height,
+      'num_frames': numFrames,
+      'frame_rate': frameRate,
     };
 
-    // 支持image_ref参数（角色参考图URL）
+    // 支持image参数（图生视频）
     if (imageRef != null && imageRef.isNotEmpty) {
-      body['image_ref'] = imageRef;
+      body['image'] = imageRef;
     }
 
     DioException? lastError;
     for (int attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
-        // 指数退避：第1次重试等5秒，第2次等10秒，第3次等20秒
         final waitSeconds = 5 * (1 << (attempt - 1));
         debugPrint('[ToonFlow] 视频提交第${attempt}次重试，等待${waitSeconds}秒...');
         await Future.delayed(Duration(seconds: waitSeconds));
@@ -265,7 +291,7 @@ class ToonFlowService {
         ));
 
         final response = await dio.post(
-          '${ApiConfig.agnesBaseUrl}/video/generations',
+          '${ApiConfig.agnesBaseUrl}/videos',
           data: jsonEncode(body),
           options: Options(headers: {
             'Authorization': 'Bearer $apiKey',
@@ -274,18 +300,19 @@ class ToonFlowService {
         );
 
         final data = response.data as Map<String, dynamic>;
-        final taskId = data['task_id'] as String?;
-        if (taskId == null || taskId.isEmpty) {
-          throw Exception('Agnes视频任务提交失败，未返回task_id');
+        final taskId = data['task_id'] as String? ?? '';
+        final videoId = data['video_id'] as String? ?? '';
+        if (taskId.isEmpty && videoId.isEmpty) {
+          throw Exception('Agnes视频任务提交失败，未返回task_id或video_id');
         }
         if (attempt > 0) {
           debugPrint('[ToonFlow] 视频提交重试成功');
         }
-        return taskId;
+        debugPrint('[ToonFlow] 视频提交成功: task_id=$taskId, video_id=$videoId, status=${data['status']}');
+        return {'task_id': taskId, 'video_id': videoId};
       } on DioException catch (e) {
         lastError = e;
         debugPrint('[ToonFlow] 视频提交第${attempt + 1}次失败: ${e.response?.statusCode} ${e.message}');
-        // 如果是4xx客户端错误（非429），不重试
         if (e.response?.statusCode != null &&
             e.response!.statusCode! >= 400 &&
             e.response!.statusCode! < 500 &&
@@ -299,10 +326,12 @@ class ToonFlowService {
   }
 
   /// 轮询查询Agnes视频任务状态
+  /// 使用video_id轮询（推荐方式），兼容task_id轮询（旧版）
   /// 返回 (status, videoUrl)
   Future<VideoPollResult> _pollVideoTask({
     required String taskId,
     required String apiKey,
+    String? videoId,
     int maxPolls = 180, // 最多轮询180次（15分钟，给足时间）
   }) async {
     final dio = Dio(BaseOptions(
@@ -312,39 +341,74 @@ class ToonFlowService {
     int consecutiveErrors = 0;
 
     for (int i = 0; i < maxPolls; i++) {
-      await Future.delayed(const Duration(seconds: 5)); // 轮询间隔不低于5秒
+      await Future.delayed(const Duration(seconds: 10)); // 轮询间隔10秒
 
       try {
+        String pollUrl;
+        if (videoId != null && videoId.isNotEmpty) {
+          // 推荐方式：使用video_id查询
+          pollUrl = '${ApiConfig.agnesVideoPollUrl}?video_id=$videoId';
+        } else {
+          // 旧版兼容：使用task_id查询
+          pollUrl = '${ApiConfig.agnesBaseUrl}/videos/$taskId';
+        }
+
         final response = await dio.get(
-          '${ApiConfig.agnesBaseUrl}/video/generations/$taskId',
+          pollUrl,
           options: Options(headers: {
             'Authorization': 'Bearer $apiKey',
           }),
         );
 
-        consecutiveErrors = 0; // 重置连续错误计数
+        consecutiveErrors = 0;
         final data = response.data as Map<String, dynamic>;
         final status = data['status'] as String? ?? '';
 
-        if (status == 'success') {
-          final videoUrl = data['video_url'] as String? ?? '';
-          return VideoPollResult(status: 'success', videoUrl: videoUrl);
+        if (i % 6 == 0) { // 每60秒打印一次进度
+          debugPrint('[ToonFlow] 轮询第${i + 1}次: status=$status, progress=${data['progress']}%');
+        }
+
+        if (status == 'completed' || status == 'success') {
+          // 视频URL在不同返回格式中可能在不同位置
+          String videoUrl = '';
+          // 方式1：顶层url字段（推荐方式返回）
+          if (data['url'] != null && (data['url'] as String).isNotEmpty) {
+            videoUrl = data['url'] as String;
+          }
+          // 方式2：metadata.url字段
+          else if (data['metadata'] != null && data['metadata'] is Map) {
+            videoUrl = (data['metadata'] as Map)['url'] as String? ?? '';
+          }
+          // 方式3：remixed_from_video_id字段（旧版兼容）
+          else if (data['remixed_from_video_id'] != null && (data['remixed_from_video_id'] as String).isNotEmpty) {
+            videoUrl = data['remixed_from_video_id'] as String;
+          }
+          // 方式4：video_url字段（兜底）
+          else if (data['video_url'] != null && (data['video_url'] as String).isNotEmpty) {
+            videoUrl = data['video_url'] as String;
+          }
+
+          if (videoUrl.isNotEmpty) {
+            return VideoPollResult(status: 'success', videoUrl: videoUrl);
+          } else {
+            debugPrint('[ToonFlow] 视频完成但URL为空，数据: $data');
+            return VideoPollResult(status: 'failed', videoUrl: '', error: '视频生成完成但未返回URL');
+          }
         } else if (status == 'failed') {
-          final errorMsg = data['error'] as String? ?? '视频生成失败';
+          final errorMsg = data['error']?.toString() ?? '视频生成失败';
           return VideoPollResult(status: 'failed', videoUrl: '', error: errorMsg);
         }
-        // pending / running → 继续轮询
+        // queued / in_progress → 继续轮询
       } on DioException catch (e) {
         consecutiveErrors++;
         debugPrint('[ToonFlow] 轮询第${i + 1}次网络错误: ${e.message}（连续${consecutiveErrors}次）');
-        // 连续10次网络错误才放弃
         if (consecutiveErrors >= 10) {
           return VideoPollResult(status: 'failed', videoUrl: '', error: '轮询网络连续失败: ${e.message}');
         }
       }
     }
 
-    return VideoPollResult(status: 'failed', videoUrl: '', error: '视频生成超时（已等待${maxPolls * 5}秒）');
+    return VideoPollResult(status: 'failed', videoUrl: '', error: '视频生成超时（已等待${maxPolls * 10}秒）');
   }
 
   /// TTS配音：为单个镜头生成音频
@@ -686,11 +750,12 @@ class ToonFlowService {
 
       // 4-1: 提交Agnes视频任务
       String? taskId;
+      String? videoId;
       try {
         final prompt = '${shot.scene_desc},$baseStyle';
         final duration = shot.durationInt;
 
-        taskId = await _submitVideoTask(
+        final submitResult = await _submitVideoTask(
           prompt: prompt,
           apiKey: apiKey,
           videoModel: videoModel,
@@ -698,6 +763,8 @@ class ToonFlowService {
           duration: duration,
           imageRef: shotImageRef,
         );
+        taskId = submitResult['task_id'];
+        videoId = submitResult['video_id'];
       } catch (e) {
         debugPrint('[ToonFlow] 镜头${i + 1}提交失败: $e');
         failedCount++;
@@ -734,8 +801,9 @@ class ToonFlowService {
       );
 
       final pollResult = await _pollVideoTask(
-        taskId: taskId,
+        taskId: taskId!,
         apiKey: apiKey,
+        videoId: videoId,
       );
 
       final bool isSuccess = pollResult.status == 'success';
@@ -893,10 +961,11 @@ class ToonFlowService {
 
       // 提交视频任务
       String? taskId;
+      String? videoId;
       try {
         final prompt = '${shot.scene_desc},$baseStyle';
         final duration = shot.durationInt;
-        taskId = await _submitVideoTask(
+        final submitResult = await _submitVideoTask(
           prompt: prompt,
           apiKey: apiKey,
           videoModel: videoModel,
@@ -904,6 +973,8 @@ class ToonFlowService {
           duration: duration,
           imageRef: shotImageRef,
         );
+        taskId = submitResult['task_id'];
+        videoId = submitResult['video_id'];
       } catch (e) {
         debugPrint('[ToonFlow] 镜头${i + 1}提交失败: $e');
         failedCount++;
@@ -929,8 +1000,9 @@ class ToonFlowService {
       onProgress?.call('镜头 ${i + 1}/$totalShots 视频生成中...', shotProgress + 2);
 
       final pollResult = await _pollVideoTask(
-        taskId: taskId,
+        taskId: taskId!,
         apiKey: apiKey,
+        videoId: videoId,
       );
 
       final bool isSuccess = pollResult.status == 'success';
@@ -1094,11 +1166,12 @@ class ToonFlowService {
 
       // 提交视频任务
       String? taskId;
+      String? videoId;
       try {
         final prompt = '${shot.scene_desc},$baseStyle';
         final duration = shot.durationInt;
 
-        taskId = await _submitVideoTask(
+        final submitResult = await _submitVideoTask(
           prompt: prompt,
           apiKey: apiKey,
           videoModel: videoModel,
@@ -1106,6 +1179,8 @@ class ToonFlowService {
           duration: duration,
           imageRef: shotImageRef,
         );
+        taskId = submitResult['task_id'];
+        videoId = submitResult['video_id'];
       } catch (e) {
         debugPrint('[ToonFlow] 重试镜头${idx + 1}提交失败: $e');
         newVideoList.add(VideoSegment(
@@ -1124,8 +1199,9 @@ class ToonFlowService {
       );
 
       final pollResult = await _pollVideoTask(
-        taskId: taskId,
+        taskId: taskId!,
         apiKey: apiKey,
+        videoId: videoId,
       );
 
       if (pollResult.status == 'success') {
@@ -1256,12 +1332,14 @@ class ToonFlowService {
 
     try {
       final prompt = '${shot.scene_desc},$baseStyle';
-      final taskId = await _submitVideoTask(
+      final submitResult = await _submitVideoTask(
         prompt: prompt, apiKey: apiKey,
         videoModel: videoModel, aspectRatio: aspectRatio,
         duration: shot.durationInt, imageRef: imageRef,
       );
-      final pollResult = await _pollVideoTask(taskId: taskId, apiKey: apiKey);
+      final taskId = submitResult['task_id']!;
+      final videoId = submitResult['video_id'];
+      final pollResult = await _pollVideoTask(taskId: taskId, apiKey: apiKey, videoId: videoId);
       if (pollResult.status == 'success') {
         return VideoSegment(index: shotIndex, videoUrl: pollResult.videoUrl, status: 'success');
       } else {

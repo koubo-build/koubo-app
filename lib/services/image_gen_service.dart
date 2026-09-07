@@ -119,7 +119,7 @@ class ImageGenService {
         width: width,
         height: height,
         apiKey: agnesKey,
-        baseUrl: customBaseUrl?.isNotEmpty == true ? customBaseUrl! : 'https://apihub.agnes-ai.cn/v1',
+        baseUrl: customBaseUrl?.isNotEmpty == true ? customBaseUrl! : 'https://apihub.agnes-ai.com/v1',
         modelName: 'agnes-image-2.1-flash',
         onProgress: onProgress,
       );
