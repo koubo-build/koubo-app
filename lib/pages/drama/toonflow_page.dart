@@ -46,6 +46,10 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   int? _regeneratingPortraitIdx; // 正在重新生成定妆照的角色索引
   int? _retryingVideoIdx; // 正在重试的视频镜头索引
 
+  // 分镜预览阶段的单镜头视频结果（key: 镜头index, value: 视频片段）
+  final Map<int, VideoSegment> _perShotVideos = {};
+  int? _generatingShotIdx; // 分镜预览阶段正在生成视频的镜头索引
+
   // 分步流程状态
   List<ShotItem> _shots = []; // 已确认的分镜列表
   bool _storyboardReady = false; // 分镜是否已就绪，可供用户确认
@@ -123,6 +127,9 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
         'storyboardReady': _storyboardReady,
         'shots': _shots.map((s) => s.toJson()).toList(),
         if (_result != null) 'result': _result!.toJson(),
+        'perShotVideos': _perShotVideos.map(
+          (k, v) => MapEntry(k.toString(), v.toJson()),
+        ),
       };
       StorageUtil.setString(_stateKey, jsonEncode(state));
     } catch (_) {}
@@ -159,6 +166,16 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           _shots = (state['shots'] as List)
               .map((e) => ShotItem.fromJson(e as Map<String, dynamic>))
               .toList();
+        }
+        if (state['perShotVideos'] != null) {
+          final raw = state['perShotVideos'] as Map<String, dynamic>;
+          _perShotVideos.clear();
+          raw.forEach((k, v) {
+            final idx = int.tryParse(k);
+            if (idx != null) {
+              _perShotVideos[idx] = VideoSegment.fromJson(v as Map<String, dynamic>);
+            }
+          });
         }
       });
     } catch (_) {}
@@ -369,6 +386,10 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       if (mounted) {
         setState(() {
           _result = result;
+          // 批量生成完成后同步到单镜头缓存
+          for (final v in result.videoSegments) {
+            _perShotVideos[v.index] = v;
+          }
           _isRunning = false;
           _progress = 100;
           _currentStage = '完成！';
@@ -562,6 +583,67 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           SnackBar(content: Text('重试失败: ${e.toString().substring(0, e.toString().length > 60 ? 60 : e.toString().length)}'), duration: const Duration(seconds: 3)),
         );
       }
+    }
+  }
+
+  /// 分镜预览阶段：单个镜头生成视频（不影响其他镜头）
+  Future<void> _generateSingleShotVideo(int shotIdx) async {
+    if (shotIdx < 0 || shotIdx >= _shots.length) return;
+    final shot = _shots[shotIdx];
+    // 防重复点击
+    if (_generatingShotIdx == shotIdx) return;
+
+    setState(() {
+      _generatingShotIdx = shotIdx;
+    });
+
+    try {
+      final service = ref.read(toonFlowServiceProvider);
+      final newVideo = await service.retrySingleShot(
+        shotIndex: shotIdx,
+        shot: shot,
+        characters: _characters,
+        videoModel: _videoModel,
+        aspectRatio: _aspectRatio,
+        baseStyle: _baseStyle,
+      );
+      if (mounted) {
+        setState(() {
+          _perShotVideos[shotIdx] = newVideo;
+          _generatingShotIdx = null;
+        });
+        _saveState();
+        final isOk = newVideo.status == 'success';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('镜头${shotIdx + 1}${isOk ? "生成成功" : "生成失败"}'), duration: const Duration(seconds: 2)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _perShotVideos[shotIdx] = VideoSegment(
+            index: shotIdx,
+            videoUrl: '',
+            status: 'failed',
+            error: e.toString(),
+          );
+          _generatingShotIdx = null;
+        });
+        final msg = e.toString().length > 60 ? e.toString().substring(0, 60) : e.toString();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('生成失败: $msg'), duration: const Duration(seconds: 3)),
+        );
+      }
+    }
+  }
+
+  /// 分镜预览阶段：查看已生成的视频（跳转到浏览器/播放器）
+  void _openPerShotVideo(int shotIdx) {
+    final v = _perShotVideos[shotIdx];
+    if (v == null || v.videoUrl.isEmpty) return;
+    final uri = Uri.tryParse(v.videoUrl);
+    if (uri != null) {
+      launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
@@ -1192,6 +1274,78 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
 
   // ==================== 分镜预览区 ====================
 
+  /// 分镜卡片右侧的视频生成按钮 + 状态
+  Widget _buildShotVideoButton(int idx) {
+    final isGenerating = _generatingShotIdx == idx;
+    final video = _perShotVideos[idx];
+    final isSuccess = video != null && video.status == 'success';
+    final isFailed = video != null && video.status == 'failed';
+
+    if (isGenerating) {
+      return const SizedBox(
+        width: 20, height: 20,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9800)),
+        ),
+      );
+    }
+
+    // 成功：显示播放按钮，点了打开视频
+    if (isSuccess) {
+      return GestureDetector(
+        onTap: () => _openPerShotVideo(idx),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          decoration: BoxDecoration(
+            color: AppTheme.safeColor.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.play_circle_filled, size: 12, color: AppTheme.safeColor),
+              SizedBox(width: 2),
+              Text('查看', style: TextStyle(fontSize: 10, color: AppTheme.safeColor)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 失败或未生成：显示生成/重试按钮
+    return GestureDetector(
+      onTap: () => _generateSingleShotVideo(idx),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          color: isFailed
+              ? AppTheme.highRiskColor.withOpacity(0.15)
+              : const Color(0xFFFF9800).withOpacity(0.15),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isFailed ? Icons.refresh : Icons.videocam,
+              size: 12,
+              color: isFailed ? AppTheme.highRiskColor : const Color(0xFFFF9800),
+            ),
+            const SizedBox(width: 2),
+            Text(
+              isFailed ? '重试' : '生成',
+              style: TextStyle(
+                fontSize: 10,
+                color: isFailed ? AppTheme.highRiskColor : const Color(0xFFFF9800),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// 分镜预览列表（确认后开始生成视频）
   Widget _buildStoryboardPreview() {
     return Container(
@@ -1228,6 +1382,21 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF7C4DFF)),
                 ),
                 const Spacer(),
+                // 单镜头生成进度
+                if (_perShotVideos.isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppTheme.safeColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '视频 ${_perShotVideos.values.where((v) => v.status == "success").length}/${_shots.length}',
+                      style: const TextStyle(color: AppTheme.safeColor, fontSize: 11),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Text(
                   '点击镜头可编辑',
                   style: TextStyle(color: AppTheme.textHint.withOpacity(0.7), fontSize: 12),
@@ -1340,6 +1509,10 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                         ],
                       ),
                     ),
+                    const SizedBox(width: 6),
+                    // 单镜头视频生成状态 & 按钮
+                    _buildShotVideoButton(idx),
+                    const SizedBox(width: 4),
                     const Icon(Icons.edit, size: 14, color: AppTheme.textHint),
                   ],
                 ),
@@ -1470,19 +1643,32 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           ),
           TextButton(
             onPressed: () {
+              final newDesc = descCtrl.text.trim().isNotEmpty ? descCtrl.text.trim() : shot.scene_desc;
+              final newCamera = cameraCtrl.text.trim().isNotEmpty ? cameraCtrl.text.trim() : shot.camera;
+              final newAudio = audioCtrl.text.trim().isNotEmpty ? audioCtrl.text.trim() : shot.audio_text;
+              final newDuration = durationCtrl.text.trim().isNotEmpty ? durationCtrl.text.trim() : shot.duration;
+              final newSpeaker = speakerCtrl.text.trim();
+              // 提示词/时长/角色变了就清除已生成的视频，需要重新生成
+              final descChanged = newDesc != shot.scene_desc || newDuration != shot.duration || newSpeaker != shot.speaker;
               setState(() {
                 _shots[idx] = ShotItem(
-                  scene_desc: descCtrl.text.trim().isNotEmpty ? descCtrl.text.trim() : shot.scene_desc,
-                  camera: cameraCtrl.text.trim().isNotEmpty ? cameraCtrl.text.trim() : shot.camera,
-                  audio_text: audioCtrl.text.trim().isNotEmpty ? audioCtrl.text.trim() : shot.audio_text,
-                  duration: durationCtrl.text.trim().isNotEmpty ? durationCtrl.text.trim() : shot.duration,
-                  speaker: speakerCtrl.text.trim(),
+                  scene_desc: newDesc,
+                  camera: newCamera,
+                  audio_text: newAudio,
+                  duration: newDuration,
+                  speaker: newSpeaker,
                 );
+                if (descChanged) {
+                  _perShotVideos.remove(idx);
+                }
                 _saveState();
               });
               Navigator.of(ctx).pop();
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('分镜已更新，可点击"开始生成视频"执行'), duration: Duration(seconds: 2)),
+                SnackBar(
+                  content: Text(descChanged ? '分镜已更新，视频已清除，可重新生成' : '分镜已更新'),
+                  duration: const Duration(seconds: 2),
+                ),
               );
             },
             child: const Text('保存', style: TextStyle(color: Color(0xFF7C4DFF))),
