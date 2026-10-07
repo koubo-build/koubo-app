@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as path;
 import '../config/api_config.dart';
 import '../models/task_log.dart';
 import '../utils/storage_util.dart';
@@ -474,6 +476,8 @@ class ToonFlowService {
             aspectRatio: aspectRatio,
             imageModel: imageModel,
             viewAngle: angle,
+            // 如果角色有参考图，则走图生图模式
+            referenceImageUrl: char.referenceImageUrl.isEmpty ? null : char.referenceImageUrl,
           );
           char.portraitUrls[angle] = portraitUrl;
           charSuccessCount++;
@@ -526,8 +530,30 @@ class ToonFlowService {
     return successCount;
   }
 
+  /// 本地图片文件转base64（data URI格式，供图生图API使用）
+  Future<String> _imageToBase64(String filePath) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      throw Exception('参考图文件不存在: $filePath');
+    }
+    final bytes = await file.readAsBytes();
+    final base64Str = base64Encode(bytes);
+    // 根据扩展名推断MIME类型
+    final ext = path.extension(filePath).toLowerCase();
+    String mimeType = 'image/jpeg';
+    if (ext == '.png') {
+      mimeType = 'image/png';
+    } else if (ext == '.webp') {
+      mimeType = 'image/webp';
+    } else if (ext == '.gif') {
+      mimeType = 'image/gif';
+    }
+    return 'data:$mimeType;base64,$base64Str';
+  }
+
   /// 生成单个角色单个角度的定妆照
   /// [viewAngle] 视角：0=正面, 1=左侧, 2=右侧, 3=背面
+  /// [referenceImageUrl] 参考图URL或本地文件路径：传入则走图生图模式
   Future<String> _generatePortrait({
     required String apiKey,
     required String characterName,
@@ -536,6 +562,7 @@ class ToonFlowService {
     required String aspectRatio,
     String imageModel = 'agnes-image-2.1-flash',
     int viewAngle = 0,
+    String? referenceImageUrl,
   }) async {
     // 根据角度构造不同的prompt
     final angleDescs = [
@@ -558,14 +585,26 @@ class ToonFlowService {
       receiveTimeout: const Duration(minutes: 5),
     ));
 
+    // 构造请求体：有参考图时走图生图模式（在images字段中传参考图URL或base64）
+    final Map<String, dynamic> requestBody = {
+      'model': imageModel,
+      'prompt': prompt,
+      'size': size,
+      'n': 1,
+    };
+    if (referenceImageUrl != null && referenceImageUrl.isNotEmpty) {
+      // 图生图模式：参考图作为images字段传入（Agnes Image 2.1 Flash OpenAI兼容格式）
+      // 本地文件路径转base64，URL直接传
+      final refImgValue = referenceImageUrl.startsWith('http')
+          ? referenceImageUrl
+          : await _imageToBase64(referenceImageUrl);
+      requestBody['images'] = [refImgValue];
+      debugPrint('[ToonFlow] 图生图模式，参考图: ${referenceImageUrl.startsWith('http') ? referenceImageUrl : '(本地base64)'}');
+    }
+
     final response = await dio.post(
       '${ApiConfig.agnesBaseUrl}/images/generations',
-      data: jsonEncode({
-        'model': imageModel,
-        'prompt': prompt,
-        'size': size,
-        'n': 1,
-      }),
+      data: jsonEncode(requestBody),
       options: Options(headers: {
         'Authorization': 'Bearer $apiKey',
         'Content-Type': 'application/json',
@@ -606,6 +645,49 @@ class ToonFlowService {
       imageModel: imageModel,
       onProgress: onProgress,
     );
+  }
+
+  /// 以图生图方式重新生成单个角色的所有定妆照
+  /// 基于角色已有的 [referenceImageUrl] 参考图，生成保持人物一致的四视图定妆照
+  /// 返回成功生成的图片数量（0~4）
+  Future<int> regeneratePortraitsWithReference({
+    required ToonCharacter character,
+    required String baseStyle,
+    required String aspectRatio,
+    String imageModel = 'agnes-image-2.1-flash',
+    void Function(String stage, int progress)? onProgress,
+  }) async {
+    if (character.referenceImageUrl.isEmpty) {
+      throw Exception('请先上传参考图');
+    }
+    final apiKey = await _getAgnesApiKey();
+    int successCount = 0;
+    const totalImages = 4;
+
+    for (int angle = 0; angle < totalImages; angle++) {
+      final angleLabel = ToonCharacter.angleLabels[angle];
+      onProgress?.call(
+        '图生图·${character.name}·$angleLabel (${angle + 1}/$totalImages)',
+        ((angle + 1) / totalImages * 100).round(),
+      );
+      try {
+        final url = await _generatePortrait(
+          apiKey: apiKey,
+          characterName: character.name,
+          characterDesc: character.desc,
+          baseStyle: baseStyle,
+          aspectRatio: aspectRatio,
+          imageModel: imageModel,
+          viewAngle: angle,
+          referenceImageUrl: character.referenceImageUrl,
+        );
+        character.portraitUrls[angle] = url;
+        successCount++;
+      } catch (e) {
+        debugPrint('[ToonFlow] 图生图 ${character.name} $angleLabel 失败: $e');
+      }
+    }
+    return successCount;
   }
 
   // ==================== 主流程：一键生成完整短剧 ====================
@@ -1269,6 +1351,8 @@ class ToonFlowService {
   }) async {
     final apiKey = await _getAgnesApiKey();
     final urls = <String>[];
+    // 有参考图则走图生图模式
+    final refUrl = character.referenceImageUrl.isEmpty ? null : character.referenceImageUrl;
 
     for (int angle = 0; angle < 4; angle++) {
       try {
@@ -1280,6 +1364,7 @@ class ToonFlowService {
           aspectRatio: aspectRatio,
           imageModel: imageModel,
           viewAngle: angle,
+          referenceImageUrl: refUrl,
         );
         urls.add(url);
       } catch (e) {
@@ -1460,6 +1545,10 @@ class ToonCharacter {
   /// 用于视频生成时保持角色形象一致性
   List<String> portraitUrls;
 
+  /// 用户上传的参考图URL（图生图模式使用）
+  /// 上传参考图后，生成定妆照时以参考图为基准，保证人物形象一致
+  String referenceImageUrl;
+
   /// 角度标签，与portraitUrls一一对应
   static const List<String> angleLabels = ['正面', '左侧', '右侧', '背面'];
 
@@ -1468,6 +1557,7 @@ class ToonCharacter {
     required this.desc,
     this.voiceId = '',
     List<String>? portraitUrls,
+    this.referenceImageUrl = '',
   }) : portraitUrls = portraitUrls ?? [];
 
   /// 兼容旧代码：获取正面定妆照（第一张）
@@ -1508,6 +1598,7 @@ class ToonCharacter {
       desc: json['desc'] as String? ?? '',
       voiceId: json['voiceId'] as String? ?? '',
       portraitUrls: urls,
+      referenceImageUrl: json['referenceImageUrl'] as String? ?? '',
     );
   }
 
@@ -1516,6 +1607,7 @@ class ToonCharacter {
     'desc': desc,
     'voiceId': voiceId,
     'portraitUrls': portraitUrls,
+    'referenceImageUrl': referenceImageUrl,
   };
 }
 

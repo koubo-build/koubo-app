@@ -183,6 +183,7 @@ class _HomePageState extends State<HomePage> {
       (Icons.shield_outlined, '法务审核', const Color(0xFFFFB74D), AppRoutes.audit),
       (Icons.record_voice_over, '语音合成', const Color(0xFFE57373), AppRoutes.voice),
       (Icons.smart_toy_outlined, '数字人', const Color(0xFFBA68C8), AppRoutes.digitalHuman),
+      (Icons.directions_run, '动作迁移', const Color(0xFFFF6B6B), AppRoutes.motionTransfer),
       (Icons.movie_edit, '视频混剪', const Color(0xFF26C6DA), AppRoutes.videoEdit),
       (Icons.theaters, 'AI短剧', const Color(0xFFFF6B9D), AppRoutes.dramaList),
       (Icons.auto_awesome, 'ToonFlow', const Color(0xFF7C4DFF), AppRoutes.toonFlow),

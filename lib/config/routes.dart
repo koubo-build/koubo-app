@@ -12,6 +12,7 @@ import '../pages/monitor/monitor_page.dart';
 import '../pages/settings/settings_page.dart';
 import '../pages/history/history_page.dart';
 import '../pages/help/help_page.dart';
+import '../pages/motion_transfer/motion_transfer_page.dart';
 import '../pages/drama/drama_list_page.dart';
 import '../pages/drama/drama_editor_page.dart';
 import '../pages/drama/storyboard_page.dart';
@@ -30,6 +31,7 @@ class AppRoutes {
   static const String audit = '/audit';               // 法务审核（独立入口）
   static const String voice = '/voice';
   static const String digitalHuman = '/digital_human';
+  static const String motionTransfer = '/motion_transfer';
   static const String videoEdit = '/video_edit';      // 视频混剪
   static const String publish = '/publish';            // 一键发布
   static const String monitor = '/monitor';            // 监控台
@@ -48,6 +50,7 @@ class AppRoutes {
     extract: (context) => const ExtractPage(),
     audit: (context) => const AuditPage(),
     monitor: (context) => const MonitorPage(),
+    motionTransfer: (context) => const MotionTransferPage(),
     settings: (context) => const SettingsPage(),
     history: (context) => const HistoryPage(),
     help: (context) => const HelpPage(),

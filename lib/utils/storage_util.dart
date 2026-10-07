@@ -572,6 +572,16 @@ class StorageUtil {
     return setString('tts_voice_model', model);
   }
 
+  /// 获取动作迁移模型偏好
+  static String getMotionTransferModel() {
+    return getString('motion_transfer_model') ?? 'wan2.2-animate-move';
+  }
+
+  /// 保存动作迁移模型偏好
+  static Future<bool> setMotionTransferModel(String model) {
+    return setString('motion_transfer_model', model);
+  }
+
   // ==================== 数字人页面状态持久化 ====================
 
   /// 获取数字人页面草稿

@@ -87,6 +87,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String _scriptModel = '自动选择';
   String _videoModel = 'wan2.2-s2v';
   String _ttsVoiceModel = 'cosyvoice-v3-flash';
+  String _motionTransferModel = 'wan2.2-animate-move';
 
   // 缓存统计
   int _scriptCount = 0;
@@ -169,6 +170,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _scriptModel = StorageUtil.getScriptModel();
     _videoModel = StorageUtil.getVideoModel();
     _ttsVoiceModel = StorageUtil.getTtsVoiceModel();
+    _motionTransferModel = StorageUtil.getMotionTransferModel();
 
     // 加载缓存统计
     await _loadCacheStats();
@@ -570,6 +572,26 @@ class _SettingsPageState extends State<SettingsPage> {
                     value: _videoModel,
                     items: ApiConfig.videoModelOptions,
                     onChanged: (v) => setState(() => _videoModel = v!),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // 动作迁移模型
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('动作迁移模型', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  const Text('选择AI动作迁移接口模型', style: TextStyle(fontSize: 11, color: AppTheme.textHint)),
+                  const SizedBox(height: 8),
+                  _buildModelSelectorWithDesc(
+                    value: _motionTransferModel,
+                    items: ApiConfig.motionTransferModelOptions,
+                    onChanged: (v) => setState(() => _motionTransferModel = v!),
                   ),
                 ],
               ),
@@ -1207,6 +1229,7 @@ class _SettingsPageState extends State<SettingsPage> {
       await StorageUtil.setScriptModel(_scriptModel);
       await StorageUtil.setVideoModel(_videoModel);
       await StorageUtil.setTtsVoiceModel(_ttsVoiceModel);
+      await StorageUtil.setMotionTransferModel(_motionTransferModel);
 
       _showSnackBar('配置已保存');
     } catch (e) {

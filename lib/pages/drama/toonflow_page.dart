@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../config/theme.dart';
 import '../../services/toonflow_service.dart';
@@ -45,6 +47,12 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   // 单角色/单镜头重生成状态
   int? _regeneratingPortraitIdx; // 正在重新生成定妆照的角色索引
   int? _retryingVideoIdx; // 正在重试的视频镜头索引
+
+  // 图生图：正在上传/生成参考图的角色索引
+  int? _generatingReferenceIdx;
+
+  // ImagePicker 实例（用于上传参考图）
+  final ImagePicker _imagePicker = ImagePicker();
 
   // 分镜预览阶段的单镜头视频结果（key: 镜头index, value: 视频片段）
   final Map<int, VideoSegment> _perShotVideos = {};
@@ -1225,6 +1233,9 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  const SizedBox(height: 6),
+                  // 参考图 + 图生图功能行
+                  _buildReferenceImageRow(idx, char),
                 ],
               ),
             ),
@@ -1268,6 +1279,228 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 构建参考图功能行（上传参考图 + 图生图重新生成定妆照）
+  Widget _buildReferenceImageRow(int idx, ToonCharacter char) {
+    final isGenerating = _generatingReferenceIdx == idx;
+    final hasReference = char.referenceImageUrl.isNotEmpty;
+
+    return Row(
+      children: [
+        // 参考图缩略图（已上传时显示）
+        if (hasReference)
+          GestureDetector(
+            onTap: () => _showReferenceImagePreview(char.referenceImageUrl),
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: const Color(0xFF7C4DFF).withOpacity(0.4),
+                  width: 1,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: char.referenceImageUrl.startsWith('http')
+                    ? Image.network(
+                        char.referenceImageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.image,
+                          size: 14,
+                          color: AppTheme.textHint,
+                        ),
+                      )
+                    : Image.file(
+                        File(char.referenceImageUrl),
+                        fit: BoxFit.cover,
+                      ),
+              ),
+            ),
+          )
+        else
+          const Icon(Icons.photo_camera_outlined, size: 14, color: AppTheme.textHint),
+        const SizedBox(width: 6),
+        // 上传/查看参考图按钮
+        GestureDetector(
+          onTap: isGenerating ? null : () => _pickReferenceImage(idx),
+          child: Text(
+            hasReference ? '更换参考图' : '上传参考图',
+            style: TextStyle(
+              fontSize: 11,
+              color: isGenerating
+                  ? AppTheme.textHint
+                  : const Color(0xFF7C4DFF),
+              decoration: TextDecoration.underline,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        // 图生图重新生成定妆照按钮
+        if (hasReference)
+          GestureDetector(
+            onTap: (isGenerating || _regeneratingPortraitIdx == idx)
+                ? null
+                : () => _regeneratePortraitsWithReference(idx),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isGenerating)
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: Color(0xFF7C4DFF),
+                    ),
+                  )
+                else
+                  const Icon(Icons.auto_awesome, size: 12, color: Color(0xFFFF6B9D)),
+                const SizedBox(width: 3),
+                Text(
+                  isGenerating ? '生成中...' : '图生图重绘',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isGenerating
+                        ? AppTheme.textHint
+                        : const Color(0xFFFF6B9D),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// 从相册选择参考图
+  Future<void> _pickReferenceImage(int idx) async {
+    if (idx < 0 || idx >= _characters.length) return;
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+      if (image != null) {
+        setState(() {
+          _characters[idx] = ToonCharacter(
+            name: _characters[idx].name,
+            desc: _characters[idx].desc,
+            voiceId: _characters[idx].voiceId,
+            portraitUrls: List<String>.from(_characters[idx].portraitUrls),
+            referenceImageUrl: image.path,
+          );
+        });
+        _saveState();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('参考图已上传，点击"图生图重绘"生成定妆照'),
+              backgroundColor: Color(0xFF2A2A4A),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('选择图片失败：${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red.withOpacity(0.8),
+          ),
+        );
+      }
+    }
+  }
+
+  /// 以图生图方式重新生成该角色的四视图定妆照
+  Future<void> _regeneratePortraitsWithReference(int idx) async {
+    if (idx < 0 || idx >= _characters.length) return;
+    final char = _characters[idx];
+    if (char.referenceImageUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('请先上传参考图'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _generatingReferenceIdx = idx;
+      _regeneratingPortraitIdx = idx;
+    });
+
+    try {
+      final service = ToonFlowService();
+      final count = await service.regeneratePortraitsWithReference(
+        character: char,
+        baseStyle: _baseStyle,
+        aspectRatio: _aspectRatio,
+        imageModel: _imageModel,
+        onProgress: (stage, progress) {
+          debugPrint('[ToonFlow] $stage - $progress%');
+        },
+      );
+
+      if (mounted) {
+        setState(() {
+          _portraitsReady = true;
+          if (count > 0 && _portraitSuccessCount < _characters.length) {
+            _portraitSuccessCount = _characters.where((c) => c.portraitCount > 0).length;
+          }
+        });
+        _saveState();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('图生图完成，成功生成 $count/4 张定妆照'),
+            backgroundColor: const Color(0xFF2A2A4A),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('图生图失败：${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red.withOpacity(0.8),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _generatingReferenceIdx = null;
+          _regeneratingPortraitIdx = null;
+        });
+      }
+    }
+  }
+
+  /// 预览参考图大图
+  void _showReferenceImagePreview(String url) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(16),
+        child: InteractiveViewer(
+          child: url.startsWith('http')
+              ? Image.network(url, fit: BoxFit.contain)
+              : Image.file(File(url), fit: BoxFit.contain),
+        ),
       ),
     );
   }

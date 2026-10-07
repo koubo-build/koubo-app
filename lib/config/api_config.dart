@@ -290,6 +290,27 @@ class ApiConfig {
   /// PixVerse API Key 存储键
   static const String pixverseApiKeyKey = 'pixverse_api_key';
 
+  // ==================== 阿里百炼 动作迁移（图生动作） ====================
+  /// Wan2.2-Animate-Move 动作迁移模型提交接口（与image2video同路径，通过model区分）
+  static const String wanAnimateMoveSubmitUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/image2video/video-synthesis';
+  /// Wan2.2-Animate-Move 任务状态查询接口
+  static const String wanAnimateMoveTaskQueryUrl = 'https://dashscope.aliyuncs.com/api/v1/tasks/';
+  /// Wan2.2-Animate-Move 模型名（标准模式wan-std / 专业模式wan-pro）
+  static const String wanAnimateMoveModel = 'wan2.2-animate-move';
+
+  /// PixVerse Motion Control 动作迁移模型提交接口（百炼平台，video-generation路径）
+  static const String pixverseMotionControlSubmitUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
+  /// PixVerse Motion Control 任务状态查询接口
+  static const String pixverseMotionControlTaskQueryUrl = 'https://dashscope.aliyuncs.com/api/v1/tasks/';
+  /// PixVerse Motion Control 模型名
+  static const String pixverseMotionControlModel = 'pixverse/pixverse-motioncontrol';
+
+  /// 动作迁移可选模型列表
+  static const List<Map<String, String>> motionTransferModelOptions = [
+    {'value': 'wan2.2-animate-move', 'label': '万相动作迁移', 'desc': '阿里百炼，效果好，支持std/pro两档'},
+    {'value': 'pixverse-motioncontrol', 'label': 'PixVerse动作模仿', 'desc': '爱诗科技，分辨率可选360P/540P/720P'},
+  ];
+
   // ==================== 本地 Stable Diffusion ====================
   /// 本地SD WebUI默认地址（Android模拟器访问主机用10.0.2.2）
   static const String defaultLocalSdUrl = 'http://10.0.2.2:7860';
