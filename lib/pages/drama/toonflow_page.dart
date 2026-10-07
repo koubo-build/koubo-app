@@ -1442,7 +1442,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     });
 
     try {
-      final service = ToonFlowService();
+      final service = ref.read(toonFlowServiceProvider);
       final count = await service.regeneratePortraitsWithReference(
         character: char,
         baseStyle: _baseStyle,
