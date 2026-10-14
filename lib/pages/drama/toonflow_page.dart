@@ -54,6 +54,9 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   // ImagePicker 实例（用于上传参考图）
   final ImagePicker _imagePicker = ImagePicker();
 
+  // 动态加载的克隆音色列表（voicePool 的扩展来源）
+  List<Map<String, String>> _clonedVoiceOptions = [];
+
   // 分镜预览阶段的单镜头视频结果（key: 镜头index, value: 视频片段）
   final Map<int, VideoSegment> _perShotVideos = {};
   int? _generatingShotIdx; // 分镜预览阶段正在生成视频的镜头索引
@@ -103,6 +106,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
   @override
   void initState() {
     super.initState();
+    _loadClonedVoices();
     _loadSavedState();
   }
 
@@ -141,6 +145,57 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       };
       StorageUtil.setString(_stateKey, jsonEncode(state));
     } catch (_) {}
+  }
+
+  /// 从本地存储加载克隆音色，补充到音色选项中
+  Future<void> _loadClonedVoices() async {
+    try {
+      final voicesJson = StorageUtil.getString('cloned_voices');
+      if (voicesJson == null || voicesJson.isEmpty) return;
+      final entries = voicesJson.split(';');
+      final cloned = <Map<String, String>>[];
+      for (final entry in entries) {
+        if (entry.isEmpty) continue;
+        final parts = entry.split('|');
+        if (parts.length < 2) continue;
+        cloned.add({
+          'id': parts[0],
+          'name': parts[1],
+          'gender': parts.length > 2 && parts[2].isNotEmpty ? parts[2] : 'male',
+          'style': '克隆音色',
+        });
+      }
+      if (mounted && cloned.isNotEmpty) {
+        setState(() {
+          _clonedVoiceOptions = cloned;
+        });
+      }
+    } catch (_) {
+      // 加载失败不影响主流程
+    }
+  }
+
+  /// 获取合并后的音色列表：系统音色 + 克隆音色（按ID去重）
+  List<Map<String, String>> get _allVoiceOptions {
+    final seen = <String>{};
+    final result = <Map<String, String>>[];
+    // 先加系统音色
+    for (final v in _allVoiceOptions) {
+      final id = v['id']!;
+      if (!seen.contains(id)) {
+        seen.add(id);
+        result.add(v);
+      }
+    }
+    // 再加克隆音色（避免重复）
+    for (final v in _clonedVoiceOptions) {
+      final id = v['id']!;
+      if (!seen.contains(id)) {
+        seen.add(id);
+        result.add(v);
+      }
+    }
+    return result;
   }
 
   /// 从本地缓存恢复状态
@@ -1085,8 +1140,11 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           ),
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            children: [
           // 角色四视图定妆照（点击查看详情）
           GestureDetector(
             onTap: _regeneratingPortraitIdx == idx ? null : () => _showPortraitViewer(idx),
@@ -1233,13 +1291,10 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 6),
-                  // 参考图 + 图生图功能行
-                  _buildReferenceImageRow(idx, char),
-                ],
-              ),
-            ),
-          ),
+	                ],
+	              ),
+	            ),
+	          ),
           const SizedBox(width: 8),
           // 音色选择下拉
           Container(
@@ -1254,7 +1309,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
             ),
             child: DropdownButton<String>(
               value: char.voiceId.isEmpty ? null : char.voiceId,
-              items: ToonFlowService.voicePool
+              items: _allVoiceOptions
                   .map((v) => DropdownMenuItem(
                         value: v['id'],
                         child: Text(
@@ -1280,6 +1335,9 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
           ),
         ],
       ),
+      const SizedBox(height: 8),
+      // 参考图 + 图生图功能行
+      _buildReferenceImageRow(idx, char),
     );
   }
 
@@ -1649,7 +1707,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                 if (char.name == shot.speaker) {
                   speakerPortraitUrl = char.portraitUrl;
                   if (char.voiceId.isNotEmpty) {
-                    final voiceInfo = ToonFlowService.voicePool.firstWhere(
+                    final voiceInfo = _allVoiceOptions.firstWhere(
                       (v) => v['id'] == char.voiceId,
                       orElse: () => {'name': ''},
                     );
@@ -2064,7 +2122,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
                 runSpacing: 8,
                 children: result.characters.map((c) {
                   // 获取角色对应的音色名称
-                  final voiceInfo = ToonFlowService.voicePool.firstWhere(
+                  final voiceInfo = _allVoiceOptions.firstWhere(
                     (v) => v['id'] == c.voiceId,
                     orElse: () => {'name': '', 'style': ''},
                   );
@@ -2269,7 +2327,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
               for (final char in result.characters) {
                 if (char.name == shot.speaker) {
                   if (char.voiceId.isNotEmpty) {
-                    final voiceInfo = ToonFlowService.voicePool.firstWhere(
+                    final voiceInfo = _allVoiceOptions.firstWhere(
                       (v) => v['id'] == char.voiceId,
                       orElse: () => {'name': ''},
                     );
@@ -2708,7 +2766,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
             if (shot != null && shot.speaker.isNotEmpty) {
               for (final char in result.characters) {
                 if (char.name == shot.speaker && char.voiceId.isNotEmpty) {
-                  final voiceInfo = ToonFlowService.voicePool.firstWhere(
+                  final voiceInfo = _allVoiceOptions.firstWhere(
                     (v) => v['id'] == char.voiceId,
                     orElse: () => {'name': ''},
                   );

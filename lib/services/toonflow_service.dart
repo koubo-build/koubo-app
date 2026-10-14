@@ -44,14 +44,18 @@ class ToonFlowService {
   /// 可用音色池，包含男声和女声
   /// 每个音色包含：id、name、gender（male/female）、style描述
   static const List<Map<String, String>> voicePool = [
+    // 系统女声（CosyVoice 原生，全量可用）
     {'id': 'longanhuan', 'name': '龙安欢', 'gender': 'female', 'style': '元气女声'},
     {'id': 'longxiaochun', 'name': '龙小淳', 'gender': 'female', 'style': '知性女声'},
+    {'id': 'longhuhu', 'name': '龙呼呼', 'gender': 'female', 'style': '童声女声'},
+    // 系统男声（CosyVoice 原生，全量可用）
+    {'id': 'longshuo', 'name': '龙硕', 'gender': 'male', 'style': '沉稳男声'},
+    {'id': 'longanyang', 'name': '龙安洋', 'gender': 'male', 'style': '阳光男声'},
+    // 克隆音色（用户自己克隆的，实际可用性取决于用户是否已克隆）
     {'id': 'longyue', 'name': '龙悦', 'gender': 'female', 'style': '温柔女声'},
     {'id': 'longmiao', 'name': '龙喵', 'gender': 'female', 'style': '甜美女声'},
     {'id': 'loongbella', 'name': '龙贝拉', 'gender': 'female', 'style': '优雅女声'},
     {'id': 'loongstella', 'name': '龙思黛拉', 'gender': 'female', 'style': '成熟女声'},
-    {'id': 'longshuo', 'name': '龙硕', 'gender': 'male', 'style': '沉稳男声'},
-    {'id': 'longanyang', 'name': '龙安洋', 'gender': 'male', 'style': '阳光男声'},
     {'id': 'longxiang', 'name': '龙翔', 'gender': 'male', 'style': '磁性男声'},
     {'id': 'longtong', 'name': '龙彤', 'gender': 'male', 'style': '少年男声'},
   ];
