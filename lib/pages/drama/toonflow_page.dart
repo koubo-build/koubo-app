@@ -1338,7 +1338,9 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
       const SizedBox(height: 8),
       // 参考图 + 图生图功能行
       _buildReferenceImageRow(idx, char),
-    );
+    ],
+  ),
+);
   }
 
   /// 构建参考图功能行（上传参考图 + 图生图重新生成定妆照）
