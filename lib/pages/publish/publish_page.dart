@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/theme.dart';
 import '../../providers/publish_provider.dart';
+import '../../services/ai_rewrite_service.dart';
 
 /// 一键发布页面 - 封面生成 + 多平台发布
 class PublishPage extends ConsumerStatefulWidget {
@@ -27,6 +28,10 @@ class _PublishPageState extends ConsumerState<PublishPage>
   final _keywordController = TextEditingController();
   final _descController = TextEditingController();
   final _tagsController = TextEditingController();
+
+  // AI推荐状态
+  bool _isRecommending = false;
+  String? _recommendedStyle;
 
   @override
   void initState() {
@@ -98,6 +103,72 @@ class _PublishPageState extends ConsumerState<PublishPage>
     );
   }
 
+  // ==================== 封面生成Tab相关方法 ====================
+
+  /// 获取风格的中文名
+  String get _styleDisplayName {
+    switch (_recommendedStyle ?? '') {
+      case 'tech': return '科技感';
+      case 'emotional': return '情感风';
+      case 'suspense': return '悬疑风';
+      default: return '';
+    }
+  }
+
+  /// AI智能推荐封面风格和关键词
+  Future<void> _aiRecommendCover() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先输入封面标题')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isRecommending = true;
+    });
+
+    try {
+      final result = await ref.read(aiRewriteServiceProvider).generateTitle(title);
+
+      // 自动填充关键词
+      if (result.keywords.isNotEmpty) {
+        final ctrl = ref.read(publishProvider);
+        for (final kw in result.keywords.take(5)) {
+          ctrl.addKeyword(kw);
+        }
+      }
+
+      // 根据情感词推荐风格
+      String recommendedStyle = 'tech';
+      final emotions = result.emotionWords.join('');
+      if (emotions.contains('惊') || emotions.contains('悬疑') || emotions.contains('恐') || emotions.contains('神秘')) {
+        recommendedStyle = 'suspense';
+      } else if (emotions.contains('感动') || emotions.contains('温') || emotions.contains('爱') || emotions.contains('暖心') || emotions.contains('泪')) {
+        recommendedStyle = 'emotional';
+      }
+
+      ref.read(publishProvider).setStyle(recommendedStyle);
+
+      setState(() {
+        _recommendedStyle = recommendedStyle;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('AI推荐失败：${e.toString().substring(0, 40)}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRecommending = false;
+        });
+      }
+    }
+  }
+
   /// 封面生成Tab
   Widget _buildCoverTab(PublishNotifier ctrl) {
     return SingleChildScrollView(
@@ -127,9 +198,42 @@ class _PublishPageState extends ConsumerState<PublishPage>
                 borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
                 borderSide: BorderSide.none,
               ),
+              suffixIcon: TextButton(
+                onPressed: _isRecommending ? null : _aiRecommendCover,
+                child: _isRecommending
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('AI推荐', style: TextStyle(fontSize: 12)),
+              ),
             ),
             onChanged: (value) => ctrl.setTitle(value),
           ),
+          const SizedBox(height: AppTheme.spacingMedium),
+
+          // AI智能推荐说明
+          if (_recommendedStyle != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.auto_awesome, size: 14, color: AppTheme.primaryColor),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '已为您推荐「$_styleDisplayName」风格，关键词已自动填充',
+                      style: TextStyle(fontSize: 12, color: AppTheme.primaryColor),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           const SizedBox(height: AppTheme.spacingLarge),
 
           // 关键词
