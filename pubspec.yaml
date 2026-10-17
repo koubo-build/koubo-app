@@ -25,7 +25,9 @@ dependencies:
   flutter_secure_storage: ^9.2.2
 
   # 轻量级KV存储（模型偏好等配置）
-  shared_preferences: ^2.2.3
+  shared_preferences: 2.2.3
+  shared_preferences_android: 2.2.3
+  shared_preferences_platform_interface: 2.3.2
 
   # 录音
   record: ^5.1.0
