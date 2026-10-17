@@ -17,7 +17,7 @@ class DouyinService {
   // ==================== 平台类型 ====================
 
   /// 支持的平台列表
-  static const List<String> supportedPlatforms = ['抖音', '快手'];
+  static const List<String> supportedPlatforms = ['抖音', '快手', '小红书'];
 
   // ==================== 核心方法 ====================
 
@@ -75,7 +75,7 @@ class DouyinService {
     final platform = identifyPlatform(url);
     if (platform == null) {
       throw ExtractException(
-        '无法识别链接平台，目前支持抖音和快手链接\n请确认粘贴的是完整的分享链接',
+        '无法识别链接平台，目前支持抖音、快手和小红书链接\n请确认粘贴的是完整的分享链接',
         ExtractErrorType.unsupportedPlatform,
       );
     }
@@ -132,14 +132,21 @@ class DouyinService {
     // 快手分享口令
     if (_isKuaishouShareCode(trimmed)) return '快手';
 
+    // 小红书链接
+    if (_isXiaohongshuUrl(trimmed)) return '小红书';
+
+    // 小红书分享文案
+    if (_isXiaohongshuShareText(trimmed)) return '小红书';
+
     return null;
   }
 
   /// 验证链接格式是否合法（URL或分享口令均可）
   bool isValidUrl(String url) {
     final trimmedUrl = url.trim();
-    return _isDouyinUrl(trimmedUrl) || _isKuaishouUrl(trimmedUrl)
-        || _isDouyinShareCode(trimmedUrl) || _isKuaishouShareCode(trimmedUrl);
+    return _isDouyinUrl(trimmedUrl) || _isKuaishouUrl(trimmedUrl) || _isXiaohongshuUrl(trimmedUrl)
+        || _isDouyinShareCode(trimmedUrl) || _isKuaishouShareCode(trimmedUrl)
+        || _isXiaohongshuShareText(trimmedUrl);
   }
 
   // ==================== 链接格式识别（增强版） ====================
@@ -201,6 +208,27 @@ class DouyinService {
     return false;
   }
 
+  /// 判断是否为小红书链接
+  bool _isXiaohongshuUrl(String url) {
+    final patterns = [
+      RegExp(r'^https?://www\.xiaohongshu\.com/explore/[a-zA-Z0-9]+'),          // 网页端笔记
+      RegExp(r'^https?://www\.xiaohongshu\.com/discovery/item/[a-zA-Z0-9]+'),   // 旧版路径
+      RegExp(r'^https?://xhslink\.com/[a-zA-Z0-9_-]+'),                         // 短链接
+      RegExp(r'^https?://s\.xiaohongshu\.com/[a-zA-Z0-9]+'),                    // 移动端短链
+      // 支持分享文本中的链接
+      RegExp(r'https?://www\.xiaohongshu\.com/explore/[a-zA-Z0-9]+'),
+      RegExp(r'https?://xhslink\.com/[a-zA-Z0-9_-]+'),
+    ];
+    return patterns.any((pattern) => pattern.hasMatch(url));
+  }
+
+  /// 判断是否为小红书分享文案
+  bool _isXiaohongshuShareText(String text) {
+    if (text.contains('小红书') || text.contains('xiaohongshu')) return true;
+    if (text.contains('xhslink') || text.contains('xiaohongshu.com')) return true;
+    return false;
+  }
+
   /// 从分享文本中提取URL
   /// 用户可能复制了整段分享文本，如："7.87 Lkt:/ 复制打开抖音，看看【xxx】https://v.douyin.com/xxx/"
   /// 返回提取到的URL，如果分享文本中没有URL则返回null
@@ -230,12 +258,25 @@ class DouyinService {
       if (match != null) return match.group(0);
     }
 
+    // 尝试提取小红书链接
+    final xhsPatterns = [
+      RegExp(r'https?://www\.xiaohongshu\.com/explore/[a-zA-Z0-9]+'),
+      RegExp(r'https?://www\.xiaohongshu\.com/discovery/item/[a-zA-Z0-9]+'),
+      RegExp(r'https?://xhslink\.com/[a-zA-Z0-9_-]+'),
+      RegExp(r'https?://s\.xiaohongshu\.com/[a-zA-Z0-9]+'),
+    ];
+    for (final pattern in xhsPatterns) {
+      final match = pattern.firstMatch(text);
+      if (match != null) return match.group(0);
+    }
+
     // 尝试提取通用http链接（兜底，处理非标准格式）
     final genericMatch = RegExp(r'https?://[^\s<>"\x27]+').firstMatch(text);
     if (genericMatch != null) {
       final url = genericMatch.group(0) ?? '';
-      // 只返回抖音或快手域名的URL
-      if (url.contains('douyin') || url.contains('kuaishou') || url.contains('iesdouyin')) {
+      // 只返回已知域名的URL
+      if (url.contains('douyin') || url.contains('kuaishou') || url.contains('iesdouyin')
+          || url.contains('xiaohongshu') || url.contains('xhslink')) {
         return url;
       }
     }
@@ -250,7 +291,7 @@ class DouyinService {
     // 先检查是否包含URL
     if (extractUrlFromShareText(trimmed) != null) return false;
     // 再检查是否为分享口令
-    return _isDouyinShareCode(trimmed) || _isKuaishouShareCode(trimmed);
+    return _isDouyinShareCode(trimmed) || _isKuaishouShareCode(trimmed) || _isXiaohongshuShareText(trimmed);
   }
 
   // ==================== 自建解析 ====================
@@ -261,6 +302,8 @@ class DouyinService {
       return _parseDouyin(url);
     } else if (platform == '快手') {
       return _parseKuaishou(url);
+    } else if (platform == '小红书') {
+      return _parseXiaohongshu(url);
     }
     throw ExtractException('不支持的平台：$platform', ExtractErrorType.unsupportedPlatform);
   }
@@ -580,6 +623,189 @@ class DouyinService {
         final desc = awemeDetail['desc'] as String?;
         if (desc != null && desc.trim().isNotEmpty) return desc.trim();
       }
+      return '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// 解析小红书链接 - 多策略提取文案
+  /// 策略优先级：
+  /// 1. TikHub xiaohongshu/web端点获取笔记详情
+  /// 2. HTML抓取笔记标题+正文
+  Future<String> _parseXiaohongshu(String url) async {
+    // 策略1：TikHub API获取笔记详情
+    try {
+      final noteId = await _resolveXiaohongshuNoteId(url);
+      if (noteId.isNotEmpty) {
+        final result = await _tikhubXiaohongshuExtract(noteId);
+        if (result.isNotEmpty) return result;
+      }
+    } on ExtractException {
+      rethrow;
+    } catch (_) {}
+
+    // 策略2：直接抓取分享页面HTML，提取笔记标题和正文
+    try {
+      final desc = await _fetchXiaohongshuDescription(url);
+      if (desc.isNotEmpty) return desc;
+    } catch (_) {}
+
+    throw ExtractException(
+      '小红书文案提取失败，请尝试：\n1. 确认链接正确且笔记未设为私密\n2. 点击「手动输入」直接粘贴笔记文案\n3. 稍后重试',
+      ExtractErrorType.extractFailed,
+    );
+  }
+
+  /// 解析小红书短链接，获取笔记ID
+  Future<String> _resolveXiaohongshuNoteId(String url) async {
+    // 如果URL已包含note_id，直接提取
+    final exploreMatch = RegExp(r'/explore/([a-zA-Z0-9]+)').firstMatch(url);
+    if (exploreMatch != null) return exploreMatch.group(1) ?? '';
+
+    final itemMatch = RegExp(r'/discovery/item/([a-zA-Z0-9]+)').firstMatch(url);
+    if (itemMatch != null) return itemMatch.group(1) ?? '';
+
+    // 短链接跟随重定向获取最终URL中的note_id
+    try {
+      final response = await _apiClient.get(
+        url,
+        options: Options(
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 400,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+          },
+          receiveTimeout: const Duration(seconds: 10),
+        ),
+      );
+
+      final location = response.headers['location']?.first ?? '';
+      if (location.isEmpty) return '';
+
+      // 从重定向URL中提取note_id
+      var match = RegExp(r'/explore/([a-zA-Z0-9]+)').firstMatch(location);
+      if (match != null) return match.group(1) ?? '';
+      match = RegExp(r'/discovery/item/([a-zA-Z0-9]+)').firstMatch(location);
+      if (match != null) return match.group(1) ?? '';
+      match = RegExp(r'note_id=([a-zA-Z0-9]+)').firstMatch(location);
+      if (match != null) return match.group(1) ?? '';
+
+      return '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// TikHub xiaohongshu/web端点提取笔记文案
+  Future<String> _tikhubXiaohongshuExtract(String noteId) async {
+    final apiKey = await StorageUtil.getSecure(ApiConfig.tikhubApiKeyKey);
+    if (apiKey == null || apiKey.isEmpty) return '';
+
+    try {
+      final response = await _apiClient.get(
+        '${ApiConfig.tikhubBaseUrl}/xiaohongshu/web/fetch_one_note',
+        queryParameters: {'note_id': noteId},
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Accept': 'application/json',
+          },
+          validateStatus: (status) => status != null && status < 500,
+          receiveTimeout: const Duration(seconds: 20),
+        ),
+      );
+
+      final data = response.data;
+      if (data is Map<String, dynamic> && data['code'] == 200) {
+        final dataField = data['data'];
+        if (dataField is Map<String, dynamic>) {
+          // 尝试从不同路径提取标题和正文
+          String title = '';
+          String desc = '';
+
+          // 路径1：直接字段
+          title = dataField['title']?.toString() ?? '';
+          desc = dataField['desc']?.toString() ?? '';
+
+          // 路径2：note_detail嵌套
+          if (desc.isEmpty) {
+            final noteDetail = dataField['note_detail'];
+            if (noteDetail is Map<String, dynamic>) {
+              title = noteDetail['title']?.toString() ?? '';
+              desc = noteDetail['desc']?.toString() ?? '';
+            }
+          }
+
+          // 路径3：data.data字段
+          if (desc.isEmpty) {
+            final innerData = dataField['data'];
+            if (innerData is Map<String, dynamic>) {
+              title = innerData['title']?.toString() ?? '';
+              desc = innerData['desc']?.toString() ?? '';
+            }
+          }
+
+          // 组合标题+正文
+          final buffer = StringBuffer();
+          if (title.isNotEmpty) {
+            buffer.writeln(title);
+            buffer.writeln();
+          }
+          if (desc.isNotEmpty) {
+            buffer.write(desc);
+          }
+
+          final result = buffer.toString().trim();
+          if (result.isNotEmpty) return result;
+        }
+      }
+
+      return '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// 从小红书分享页面抓取笔记标题和正文
+  Future<String> _fetchXiaohongshuDescription(String url) async {
+    try {
+      final response = await _apiClient.get(
+        url,
+        options: Options(
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+            'Referer': 'https://www.xiaohongshu.com/',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          },
+          followRedirects: true,
+          maxRedirects: 5,
+          responseType: ResponseType.plain,
+          validateStatus: (status) => status != null && status < 500,
+          receiveTimeout: const Duration(seconds: 15),
+        ),
+      );
+
+      final html = response.data?.toString() ?? '';
+      if (html.isEmpty) return '';
+
+      // 方法1：从meta标签提取description
+      final metaMatch = RegExp(r'<meta[^>]*name="description"[^>]*content="([^"]*)"').firstMatch(html);
+      if (metaMatch != null) {
+        final desc = metaMatch.group(1)?.trim() ?? '';
+        if (desc.isNotEmpty && desc.length > 5) return desc;
+      }
+
+      // 方法2：从og:title + og:description提取
+      final ogTitleMatch = RegExp(r'<meta[^>]*property="og:title"[^>]*content="([^"]*)"').firstMatch(html);
+      final ogDescMatch = RegExp(r'<meta[^>]*property="og:description"[^>]*content="([^"]*)"').firstMatch(html);
+      final title = ogTitleMatch?.group(1)?.trim() ?? '';
+      final desc = ogDescMatch?.group(1)?.trim() ?? '';
+      if (desc.isNotEmpty || title.isNotEmpty) {
+        return [title, desc].where((s) => s.isNotEmpty).join('\n\n');
+      }
+
       return '';
     } catch (_) {
       return '';

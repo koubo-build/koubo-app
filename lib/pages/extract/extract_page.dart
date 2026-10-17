@@ -264,7 +264,7 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
                   keyboardType: TextInputType.url,
                   style: const TextStyle(fontSize: 15, color: AppTheme.textPrimary),
                   decoration: InputDecoration(
-                    hintText: '请粘贴抖音/快手分享链接或口令\n如：https://v.douyin.com/xxx/ 或分享口令',
+                    hintText: '请粘贴抖音/快手/小红书分享链接\n如：https://v.douyin.com/xxx/ 或 https://xhslink.com/xxx',
                     hintStyle: const TextStyle(color: AppTheme.textHint, fontSize: 14),
                     filled: true,
                     fillColor: Colors.transparent,
@@ -554,7 +554,11 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            platform == '抖音' ? Icons.music_note : Icons.play_circle_outline,
+            platform == '抖音'
+                ? Icons.music_note
+                : platform == '小红书'
+                    ? Icons.auto_awesome
+                    : Icons.play_circle_outline,
             size: 12,
             color: AppTheme.accentColor,
           ),
@@ -633,7 +637,7 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
           ),
           SizedBox(height: 4),
-          _TipItem('1. 打开抖音/快手App，点击分享复制链接或口令'),
+          _TipItem('1. 打开抖音/快手/小红书App，点击分享复制链接'),
           _TipItem('2. 粘贴到上方输入框，自动识别平台'),
           _TipItem('3. 点击"提取文案"获取视频中的口播内容'),
           _TipItem('4. 只有口令无链接时，请点「手动输入」直接输入文案'),
