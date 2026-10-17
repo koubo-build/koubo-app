@@ -464,8 +464,10 @@ class AiRewriteService {
     final userMessage = '文案内容：\n$text';
 
     final result = await _apiClient.chatSmart(
-      systemPrompt: systemPrompt,
-      userMessage: userMessage,
+      messages: [
+        {'role': 'system', 'content': systemPrompt},
+        {'role': 'user', 'content': userMessage},
+      ],
       temperature: 0.8,
     );
 
