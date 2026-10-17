@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/theme.dart';
 import '../../config/routes.dart';
 import '../../providers/workflow_provider.dart';
+import '../../services/ai_rewrite_service.dart';
 import '../../widgets/common/app_button.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/common/api_config_indicator.dart';
@@ -31,6 +32,13 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
 
   // 提取是否完成（用于显示结果区）
   bool _hasExtracted = false;
+
+  // 爆款标题生成状态
+  bool _isGeneratingTitle = false;
+  String _generatedTitle = '';
+  List<String> _titleKeywords = [];
+  List<String> _titleEmotionWords = [];
+  String _titleHook = '';
 
   @override
   void initState() {
@@ -422,6 +430,9 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
               ),
             ),
 
+            // 爆款标题生成区
+            _buildTitleGenerator(),
+
             const SizedBox(height: AppTheme.spacingMedium),
 
             // 两个操作按钮
@@ -472,6 +483,241 @@ class _ExtractPageState extends ConsumerState<ExtractPage>
         ),
       ),
     );
+  }
+
+  // ==================== 爆款标题生成 ====================
+
+  /// 爆款标题生成区
+  Widget _buildTitleGenerator() {
+    return Container(
+      padding: const EdgeInsets.all(AppTheme.spacingMedium),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.primaryColor.withOpacity(0.1),
+            AppTheme.accentColor.withOpacity(0.08),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        border: Border.all(
+          color: AppTheme.primaryColor.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_awesome, size: 18, color: AppTheme.primaryColor),
+              const SizedBox(width: 8),
+              const Text(
+                '爆款标题生成',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+              const Spacer(),
+              if (_generatedTitle.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 18),
+                  tooltip: '重新生成',
+                  onPressed: _isGeneratingTitle ? null : _generateTitle,
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          if (_generatedTitle.isEmpty && !_isGeneratingTitle)
+            // 未生成状态
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '一键生成爆款标题、关键词和钩子句，提升视频完播率',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                AppButton(
+                  text: '生成标题',
+                  icon: Icons.bolt,
+                  fontSize: 13,
+                  backgroundColor: AppTheme.primaryColor,
+                  onPressed: _generateTitle,
+                ),
+              ],
+            ),
+
+          if (_isGeneratingTitle)
+            // 生成中
+            Row(
+              children: [
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '正在分析文案，生成爆款标题...',
+                  style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+
+          if (_generatedTitle.isNotEmpty && !_isGeneratingTitle)
+            // 生成结果
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 标题
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.darkSurface,
+                    borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _generatedTitle,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.primaryColor,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.copy, size: 18, color: AppTheme.textHint),
+                        tooltip: '复制标题',
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: _generatedTitle));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('标题已复制到剪贴板'),
+                              duration: Duration(seconds: 1),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // 关键词
+                if (_titleKeywords.isNotEmpty)
+                  _buildTitleTagRow('关键词', _titleKeywords, AppTheme.accentColor),
+                const SizedBox(height: 8),
+
+                // 情感词
+                if (_titleEmotionWords.isNotEmpty)
+                  _buildTitleTagRow('情绪', _titleEmotionWords, AppTheme.safeColor),
+                const SizedBox(height: 8),
+
+                // 钩子句
+                if (_titleHook.isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.darkSurface,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '🎣 钩子句',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _titleHook,
+                          style: const TextStyle(fontSize: 13, color: AppTheme.textPrimary),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 标题标签行
+  Widget _buildTitleTagRow(String label, List<String> tags, Color color) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 50,
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: tags.map((tag) {
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  tag,
+                  style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 生成爆款标题
+  Future<void> _generateTitle() async {
+    final text = _sourceTextController.text.trim();
+    if (text.isEmpty) return;
+
+    setState(() {
+      _isGeneratingTitle = true;
+    });
+
+    try {
+      final result = await ref.read(aiRewriteServiceProvider).generateTitle(text);
+      if (mounted) {
+        setState(() {
+          _generatedTitle = result.title;
+          _titleKeywords = result.keywords;
+          _titleEmotionWords = result.emotionWords;
+          _titleHook = result.hook;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('标题生成失败：${e.toString().substring(0, 50)}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGeneratingTitle = false;
+        });
+      }
+    }
   }
 
   // ==================== 导航方法 ====================

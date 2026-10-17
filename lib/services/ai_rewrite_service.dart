@@ -440,6 +440,87 @@ class AiRewriteService {
 
     return null;
   }
+
+  // ==================== 爆款标题生成 ====================
+
+  /// 生成爆款标题、关键词、情感词、钩子句
+  /// [text] 文案内容
+  /// 返回包含标题、关键词、情感词、钩子句的结果对象
+  Future<TitleResult> generateTitle(String text) async {
+    const systemPrompt = '''你是一位短视频爆款标题专家。根据给定的文案内容，生成以下内容：
+1. 一个吸引人的短视频标题（15字以内，要有悬念或情绪冲击力）
+2. 3-5个核心关键词（用于打标签和SEO）
+3. 3-5个情感词（描述标题传递的情绪）
+4. 一句钩子句（用于视频开头3秒，抓住观众好奇心，引导继续观看）
+
+标题要求：
+- 善用数字、对比、悬念、反问等爆款手法
+- 口语化，有网感，符合短视频平台调性
+- 15字以内（不含标点），标题党但不标题党
+
+请严格按以下JSON格式输出，不要输出其他内容：
+{"title": "标题内容", "keywords": ["关键词1", "关键词2"], "emotion_words": ["情感词1", "情感词2"], "hook": "钩子句内容"}''';
+
+    final userMessage = '文案内容：\n$text';
+
+    final result = await _apiClient.chatSmart(
+      systemPrompt: systemPrompt,
+      userMessage: userMessage,
+      temperature: 0.8,
+    );
+
+    // 解析JSON
+    final jsonStr = _extractJson(result);
+    if (jsonStr != null) {
+      try {
+        final data = jsonDecode(jsonStr);
+        return TitleResult(
+          title: (data['title'] as String? ?? '').trim(),
+          keywords: (data['keywords'] as List<dynamic>?)
+                  ?.map((e) => e.toString().trim())
+                  .where((e) => e.isNotEmpty)
+                  .toList() ??
+              [],
+          emotionWords: (data['emotion_words'] as List<dynamic>?)
+                  ?.map((e) => e.toString().trim())
+                  .where((e) => e.isNotEmpty)
+                  .toList() ??
+              [],
+          hook: (data['hook'] as String? ?? '').trim(),
+        );
+      } catch (_) {
+        // 解析失败，将整个结果作为标题
+        return TitleResult(
+          title: result.trim().length > 50 ? result.trim().substring(0, 50) : result.trim(),
+          keywords: const [],
+          emotionWords: const [],
+          hook: '',
+        );
+      }
+    }
+
+    return TitleResult(
+      title: result.trim().length > 50 ? result.trim().substring(0, 50) : result.trim(),
+      keywords: const [],
+      emotionWords: const [],
+      hook: '',
+    );
+  }
+}
+
+/// 爆款标题生成结果
+class TitleResult {
+  final String title;
+  final List<String> keywords;
+  final List<String> emotionWords;
+  final String hook;
+
+  TitleResult({
+    required this.title,
+    required this.keywords,
+    required this.emotionWords,
+    required this.hook,
+  });
 }
 
 /// AiRewriteService的Riverpod Provider
