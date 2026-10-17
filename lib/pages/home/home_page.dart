@@ -15,6 +15,7 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _recentRecords = [];
   bool _isLoading = true;
   String? _loadError;
+  Map<String, dynamic> _stats = {};
 
   @override
   void initState() {
@@ -26,14 +27,17 @@ class _HomePageState extends State<HomePage> {
     try {
       bool hasKey = false;
       List<Map<String, dynamic>> records = [];
-      
+      Map<String, dynamic> stats = {};
+
       try { hasKey = await StorageUtil.hasAnyApiKey(); } catch (e) { debugPrint('hasAnyApiKey: $e'); }
       try { records = await StorageUtil.getRecentRecords(limit: 3); } catch (e) { debugPrint('getRecentRecords: $e'); }
-      
+      try { stats = await StorageUtil.getDashboardStats(); } catch (e) { debugPrint('getDashboardStats: $e'); }
+
       if (mounted) {
         setState(() {
           _hasApiKey = hasKey;
           _recentRecords = records;
+          _stats = stats;
           _isLoading = false;
         });
       }
@@ -64,8 +68,20 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                       if (!_hasApiKey) _buildSetupGuide(),
+                      // 工作台数据概览
                       Padding(
-                        padding: const EdgeInsets.all(AppTheme.spacingMedium),
+                        padding: const EdgeInsets.fromLTRB(AppTheme.spacingMedium, 8, AppTheme.spacingMedium, AppTheme.spacingMedium),
+                        child: _buildStatsOverview(),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(AppTheme.spacingMedium, 0, AppTheme.spacingMedium, 4),
+                        child: const Text(
+                          '创作工具',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMedium),
                         child: _buildGrid(),
                       ),
                       Padding(
@@ -117,6 +133,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildHeader() {
+    final now = DateTime.now();
+    final hour = now.hour;
+    String greeting = '早上好';
+    if (hour >= 12 && hour < 14) greeting = '中午好';
+    else if (hour >= 14 && hour < 18) greeting = '下午好';
+    else if (hour >= 18 && hour < 24) greeting = '晚上好';
+    else if (hour >= 0 && hour < 5) greeting = '深夜了';
+
+    final dateStr = '${now.month}月${now.day}日 ${['一','二','三','四','五','六','日'][now.weekday-1]}';
+
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       decoration: const BoxDecoration(
@@ -132,10 +158,16 @@ class _HomePageState extends State<HomePage> {
           child: const Icon(Icons.smart_display, color: Color(0xFF1A73E8), size: 28),
         ),
         const SizedBox(width: 16),
-        const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('口播智能体', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-          SizedBox(height: 2),
-          Text('你的AI口播创作助手', style: TextStyle(fontSize: 14, color: Color(0xFFB0BEC5))),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Text(greeting, style: const TextStyle(fontSize: 14, color: Color(0xFFB0BEC5))),
+            const SizedBox(width: 8),
+            Text('👋', style: const TextStyle(fontSize: 14)),
+          ]),
+          const SizedBox(height: 2),
+          const Text('口播智能体', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+          const SizedBox(height: 2),
+          Text(dateStr, style: const TextStyle(fontSize: 12, color: Color(0xFF90A4AE))),
         ])),
         SizedBox(
           width: 40, height: 40,
@@ -174,6 +206,105 @@ class _HomePageState extends State<HomePage> {
         ]),
       ),
     );
+  }
+
+  /// 工作台数据概览卡片
+  Widget _buildStatsOverview() {
+    final totalScripts = _stats['totalScripts'] ?? 0;
+    final totalAudios = _stats['totalAudios'] ?? 0;
+    final totalVideos = _stats['totalVideos'] ?? 0;
+    final todayScripts = _stats['todayScripts'] ?? 0;
+    final todayWords = _stats['todayWords'] ?? 0;
+    final totalWords = _stats['totalWords'] ?? 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '数据概览',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(child: _buildStatCard(
+              '今日文案',
+              todayScripts.toString(),
+              Icons.description,
+              const Color(0xFF1A73E8),
+              subtitle: '总${totalScripts}篇',
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: _buildStatCard(
+              '今日字数',
+              _formatNumber(todayWords),
+              Icons.text_fields,
+              const Color(0xFF81C784),
+              subtitle: '总${_formatNumber(totalWords)}字',
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: _buildStatCard(
+              '音频作品',
+              totalAudios.toString(),
+              Icons.mic,
+              const Color(0xFFE57373),
+              subtitle: '已生成',
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: _buildStatCard(
+              '视频作品',
+              totalVideos.toString(),
+              Icons.movie,
+              const Color(0xFFBA68C8),
+              subtitle: '已生成',
+            )),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatCard(String title, String value, IconData icon, Color color, {String subtitle = ''}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F3460),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.15)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+          ),
+          if (subtitle.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: TextStyle(fontSize: 10, color: AppTheme.textHint),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatNumber(int num) {
+    if (num >= 10000) {
+      return '${(num / 10000).toStringAsFixed(1)}w';
+    } else if (num >= 1000) {
+      return '${(num / 1000).toStringAsFixed(1)}k';
+    }
+    return num.toString();
   }
 
   Widget _buildGrid() {

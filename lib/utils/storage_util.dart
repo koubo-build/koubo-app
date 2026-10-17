@@ -1044,6 +1044,92 @@ class StorageUtil {
     }).toList();
   }
 
+  // ==================== 工作台数据统计 ====================
+
+  /// 工作台统计数据
+  static Future<Map<String, dynamic>> getDashboardStats() async {
+    final now = DateTime.now();
+    final todayStr = '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+    final todayStart = '$todayStr 00:00:00';
+    final todayEnd = '$todayStr 23:59:59';
+
+    int totalScripts = 0;
+    int totalAudios = 0;
+    int totalVideos = 0;
+    int todayScripts = 0;
+    int todayAudios = 0;
+    int todayVideos = 0;
+    int totalWords = 0;
+    int todayWords = 0;
+
+    try {
+      final scriptsCount = await _ensureDb.rawQuery('SELECT COUNT(*) as count FROM scripts');
+      totalScripts = Sqflite.firstIntValue(scriptsCount) ?? 0;
+    } catch (_) {}
+
+    try {
+      final audiosCount = await _ensureDb.rawQuery('SELECT COUNT(*) as count FROM audio_files');
+      totalAudios = Sqflite.firstIntValue(audiosCount) ?? 0;
+    } catch (_) {}
+
+    try {
+      final videosCount = await _ensureDb.rawQuery('SELECT COUNT(*) as count FROM video_files');
+      totalVideos = Sqflite.firstIntValue(videosCount) ?? 0;
+    } catch (_) {}
+
+    // 今日新增
+    try {
+      final result = await _ensureDb.rawQuery(
+        'SELECT COUNT(*) as count FROM scripts WHERE created_at >= ? AND created_at <= ?',
+        [todayStart, todayEnd],
+      );
+      todayScripts = Sqflite.firstIntValue(result) ?? 0;
+    } catch (_) {}
+
+    try {
+      final result = await _ensureDb.rawQuery(
+        'SELECT COUNT(*) as count FROM audio_files WHERE created_at >= ? AND created_at <= ?',
+        [todayStart, todayEnd],
+      );
+      todayAudios = Sqflite.firstIntValue(result) ?? 0;
+    } catch (_) {}
+
+    try {
+      final result = await _ensureDb.rawQuery(
+        'SELECT COUNT(*) as count FROM video_files WHERE created_at >= ? AND created_at <= ?',
+        [todayStart, todayEnd],
+      );
+      todayVideos = Sqflite.firstIntValue(result) ?? 0;
+    } catch (_) {}
+
+    // 总字数
+    try {
+      final result = await _ensureDb.rawQuery('SELECT SUM(word_count) as total FROM scripts');
+      totalWords = (result.first['total'] as int?) ?? 0;
+    } catch (_) {}
+
+    try {
+      final result = await _ensureDb.rawQuery(
+        'SELECT SUM(word_count) as total FROM scripts WHERE created_at >= ? AND created_at <= ?',
+        [todayStart, todayEnd],
+      );
+      todayWords = (result.first['total'] as int?) ?? 0;
+    } catch (_) {}
+
+    return {
+      'totalScripts': totalScripts,
+      'totalAudios': totalAudios,
+      'totalVideos': totalVideos,
+      'todayScripts': todayScripts,
+      'todayAudios': todayAudios,
+      'todayVideos': todayVideos,
+      'totalWords': totalWords,
+      'todayWords': todayWords,
+    };
+  }
+
   // ==================== 最近记录（首页用） ====================
 
   /// 获取最近创作记录（混排文案/音频/视频，最多3条）
