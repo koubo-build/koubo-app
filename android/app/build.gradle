@@ -52,6 +52,9 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.debug
+            // 关闭R8混淆，避免插件Pigeon生成代码被优化导致运行时崩溃
+            minifyEnabled false
+            shrinkResources false
         }
     }
 }

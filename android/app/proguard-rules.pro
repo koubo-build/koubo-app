@@ -8,8 +8,7 @@
 
 # SharedPreferences Pigeon generated code
 -keep class io.flutter.plugins.sharedpreferences.** { *; }
--dontwarn io.flutter.plugins.sharedpreferences.**
 
-# Record plugin
--keep class com.llfbandit.record.** { *; }
--dontwarn com.llfbandit.record.**
+# Play Core (missing in release build, safe to ignore)
+-dontwarn com.google.android.play.core.**
+
