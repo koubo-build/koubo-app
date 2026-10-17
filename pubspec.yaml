@@ -28,6 +28,9 @@ dependencies:
   shared_preferences: 2.2.3
   shared_preferences_android: 2.2.3
   shared_preferences_platform_interface: 2.3.2
+  shared_preferences_linux: 2.3.2
+  shared_preferences_foundation: 2.3.5
+  shared_preferences_web: 2.3.0
 
   # 录音
   record: ^5.1.0
