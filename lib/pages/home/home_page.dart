@@ -68,11 +68,11 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                       if (!_hasApiKey) _buildSetupGuide(),
-                      // 工作台数据概览
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(AppTheme.spacingMedium, 8, AppTheme.spacingMedium, AppTheme.spacingMedium),
-                        child: _buildStatsOverview(),
-                      ),
+                      // 工作台数据概览（临时注释，排查Stack Overflow）
+                      // Padding(
+                      //   padding: const EdgeInsets.fromLTRB(AppTheme.spacingMedium, 8, AppTheme.spacingMedium, AppTheme.spacingMedium),
+                      //   child: _buildStatsOverview(),
+                      // ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(AppTheme.spacingMedium, 0, AppTheme.spacingMedium, 4),
                         child: const Text(
