@@ -180,7 +180,7 @@ class _ToonFlowPageState extends ConsumerState<ToonFlowPage> {
     final seen = <String>{};
     final result = <Map<String, String>>[];
     // 先加系统音色
-    for (final v in _allVoiceOptions) {
+    for (final v in ToonFlowService.voicePool) {
       final id = v['id']!;
       if (!seen.contains(id)) {
         seen.add(id);
