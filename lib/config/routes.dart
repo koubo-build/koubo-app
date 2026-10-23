@@ -18,6 +18,7 @@ import '../pages/drama/drama_editor_page.dart';
 import '../pages/drama/storyboard_page.dart';
 import '../pages/drama/task_log_page.dart';
 import '../pages/drama/toonflow_page.dart';
+import '../pages/ip_auto/ip_auto_page.dart';
 
 /// 路由配置 - 统一管理所有页面路由
 class AppRoutes {
@@ -43,6 +44,7 @@ class AppRoutes {
   static const String storyboard = '/drama/storyboard'; // 分镜工作台
   static const String taskLog = '/drama/task-log';    // 任务进度
   static const String toonFlow = '/drama/toonflow';   // ToonFlow短剧流水线
+  static const String ipAuto = '/ip_auto';            // IP口播全自动生成
 
   // ==================== 路由表 ====================
   static final Map<String, WidgetBuilder> routes = {
@@ -57,6 +59,7 @@ class AppRoutes {
     dramaList: (context) => const DramaListPage(),
     taskLog: (context) => const TaskLogPage(),
     toonFlow: (context) => const ToonFlowPage(),
+    ipAuto: (context) => const IpAutoPage(),
   };
 
   // ==================== 动态路由 ====================

@@ -309,6 +309,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildGrid() {
     final items = [
+      (Icons.bolt, 'IP全自动', const Color(0xFFFFB300), AppRoutes.ipAuto),
       (Icons.content_paste, '文案提取', const Color(0xFF1A73E8), AppRoutes.extract),
       (Icons.edit_note, 'AI改写', const Color(0xFF81C784), AppRoutes.rewrite),
       (Icons.shield_outlined, '法务审核', const Color(0xFFFFB74D), AppRoutes.audit),
