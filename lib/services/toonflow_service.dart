@@ -667,6 +667,12 @@ class ToonFlowService {
     final apiKey = await _getAgnesApiKey();
     int successCount = 0;
     const totalImages = 4;
+    // 修复：角色初始portraitUrls为空列表[]，直接索引赋值会抛RangeError导致图生图"没反应"
+    // 写入前先补齐到4个槽位（兼容旧数据长度不足4的情况）
+    while (character.portraitUrls.length < totalImages) {
+      character.portraitUrls.add('');
+    }
+    final List<String> errors = [];
 
     for (int angle = 0; angle < totalImages; angle++) {
       final angleLabel = ToonCharacter.angleLabels[angle];
@@ -689,7 +695,12 @@ class ToonFlowService {
         successCount++;
       } catch (e) {
         debugPrint('[ToonFlow] 图生图 ${character.name} $angleLabel 失败: $e');
+        errors.add('$angleLabel: ${e.toString().replaceAll('Exception: ', '')}');
       }
+    }
+    // 4张全部失败时抛出首个真实错误，让页面弹红色提示，而不是静默返回0让人以为"没反应"
+    if (successCount == 0 && errors.isNotEmpty) {
+      throw Exception(errors.first);
     }
     return successCount;
   }
