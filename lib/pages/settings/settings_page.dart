@@ -88,6 +88,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String _videoModel = 'wan2.2-s2v';
   String _ttsVoiceModel = 'cosyvoice-v3-flash';
   String _motionTransferModel = 'wan2.2-animate-move';
+  String _xhsParseMode = 'auto';
 
   // 缓存统计
   int _scriptCount = 0;
@@ -171,6 +172,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _videoModel = StorageUtil.getVideoModel();
     _ttsVoiceModel = StorageUtil.getTtsVoiceModel();
     _motionTransferModel = StorageUtil.getMotionTransferModel();
+    _xhsParseMode = StorageUtil.getXhsParseMode();
 
     // 加载缓存统计
     await _loadCacheStats();
@@ -618,6 +620,45 @@ class _SettingsPageState extends State<SettingsPage> {
                     value: _auditModel,
                     items: const ['qwen-plus', 'GLM-4-Flash'],
                     onChanged: (v) => setState(() => _auditModel = v!),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: AppTheme.spacingSmall),
+
+            // 小红书内容解析方式
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('小红书内容解析', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  const Text('选择贴小红书链接提取文案时用的解析方式', style: TextStyle(fontSize: 11, color: AppTheme.textHint)),
+                  const SizedBox(height: 8),
+                  _buildModelSelectorWithDesc(
+                    value: _xhsParseMode,
+                    items: const [
+                      {
+                        'value': 'auto',
+                        'label': '自动（推荐）',
+                        'desc': '先走TikHub接口，失败再用网页解析'
+                      },
+                      {
+                        'value': 'html',
+                        'label': '仅网页解析',
+                        'desc': '不耗TikHub额度，直接从小红书页面源码提取'
+                      },
+                      {
+                        'value': 'tikhub',
+                        'label': '仅TikHub',
+                        'desc': '只用TikHub接口，需有效Key和额度'
+                      },
+                    ],
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setState(() => _xhsParseMode = v);
+                    },
                   ),
                 ],
               ),
@@ -1225,6 +1266,7 @@ class _SettingsPageState extends State<SettingsPage> {
       // 保存模型偏好到SharedPreferences
       await StorageUtil.setRewriteModel(_rewriteModel);
       await StorageUtil.setAuditModel(_auditModel);
+      await StorageUtil.setXhsParseMode(_xhsParseMode);
       await StorageUtil.setTtsEngine(_ttsEngine);
       await StorageUtil.setScriptModel(_scriptModel);
       await StorageUtil.setVideoModel(_videoModel);

@@ -582,6 +582,16 @@ class StorageUtil {
     return setString('motion_transfer_model', model);
   }
 
+  /// 获取小红书文案解析方式偏好（auto/html/tikhub）
+  static String getXhsParseMode() {
+    return getString('xhs_parse_mode') ?? 'auto';
+  }
+
+  /// 保存小红书文案解析方式偏好
+  static Future<bool> setXhsParseMode(String mode) {
+    return setString('xhs_parse_mode', mode);
+  }
+
   // ==================== 数字人页面状态持久化 ====================
 
   /// 获取数字人页面草稿

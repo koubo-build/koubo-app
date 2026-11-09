@@ -633,26 +633,44 @@ class DouyinService {
   /// 策略优先级：
   /// 1. TikHub xiaohongshu/web端点获取笔记详情
   /// 2. HTML抓取笔记标题+正文
+  /// 解析方式由设置页「小红书内容解析」开关控制：
+  ///   auto    = 优先TikHub，失败再走网页解析（默认）
+  ///   html    = 只用网页解析（__INITIAL_STATE__/meta），不耗TikHub额度
+  ///   tikhub  = 只用TikHub接口
   Future<String> _parseXiaohongshu(String url) async {
+    final mode = StorageUtil.getXhsParseMode();
+
+    bool useTikhub = mode != 'html';
+    bool useHtml = mode != 'tikhub';
+
     // 策略1：TikHub API获取笔记详情
-    try {
-      final noteId = await _resolveXiaohongshuNoteId(url);
-      if (noteId.isNotEmpty) {
-        final result = await _tikhubXiaohongshuExtract(noteId);
-        if (result.isNotEmpty) return result;
-      }
-    } on ExtractException {
-      rethrow;
-    } catch (_) {}
+    if (useTikhub) {
+      try {
+        final noteId = await _resolveXiaohongshuNoteId(url);
+        if (noteId.isNotEmpty) {
+          final result = await _tikhubXiaohongshuExtract(noteId);
+          if (result.isNotEmpty) return result;
+        }
+      } on ExtractException {
+        rethrow;
+      } catch (_) {}
+    }
 
     // 策略2：直接抓取分享页面HTML，提取笔记标题和正文
-    try {
-      final desc = await _fetchXiaohongshuDescription(url);
-      if (desc.isNotEmpty) return desc;
-    } catch (_) {}
+    if (useHtml) {
+      try {
+        final desc = await _fetchXiaohongshuDescription(url);
+        if (desc.isNotEmpty) return desc;
+      } catch (_) {}
+    }
 
+    final modeHint = mode == 'html'
+        ? '当前为「仅网页解析」模式'
+        : (mode == 'tikhub'
+            ? '当前为「仅TikHub」模式，可检查TikHub Key或额度'
+            : '当前为「自动」模式');
     throw ExtractException(
-      '小红书文案提取失败，请尝试：\n1. 确认链接正确且笔记未设为私密\n2. 点击「手动输入」直接粘贴笔记文案\n3. 稍后重试',
+      '小红书文案提取失败（$modeHint），请尝试：\n1. 确认链接正确且笔记未设为私密\n2. 在设置页切换小红书解析方式\n3. 点击「手动输入」直接粘贴笔记文案\n4. 稍后重试',
       ExtractErrorType.extractFailed,
     );
   }
