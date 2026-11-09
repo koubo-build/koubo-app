@@ -39,7 +39,21 @@ jobs:
         run: dart run flutter_launcher_icons
 
       - name: 构建 APK
-        run: flutter build apk --release
+        run: |
+          set +e
+          flutter build apk --release > /tmp/build.log 2>&1
+          CODE=$?
+          echo "=== 构建输出尾部 ==="
+          tail -120 /tmp/build.log
+          exit $CODE
+
+      - name: 上传构建日志（失败排查用）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
+          if-no-files-found: ignore
 
       - name: 上传 APK Artifact
         uses: actions/upload-artifact@v4
