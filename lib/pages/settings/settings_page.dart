@@ -657,7 +657,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ],
                     onChanged: (v) {
                       if (v == null) return;
-                      setState(() => _xhsParseMode = v);
+                      setState(() => _xhsParseMode = v!);
                     },
                   ),
                 ],
