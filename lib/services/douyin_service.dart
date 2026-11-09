@@ -790,6 +790,12 @@ class DouyinService {
       final html = response.data?.toString() ?? '';
       if (html.isEmpty) return '';
 
+      // 方法0：从小红书网页源码的 __INITIAL_STATE__ 数据段解析完整标题+正文+标签（不依赖TikHub额度）
+      try {
+        final initialStateDesc = _extractFromXhsInitialState(html);
+        if (initialStateDesc.isNotEmpty) return initialStateDesc;
+      } catch (_) {}
+
       // 方法1：从meta标签提取description
       final metaMatch = RegExp(r'<meta[^>]*name="description"[^>]*content="([^"]*)"').firstMatch(html);
       if (metaMatch != null) {
@@ -810,6 +816,111 @@ class DouyinService {
     } catch (_) {
       return '';
     }
+  }
+
+  /// 从小红书网页HTML的 __INITIAL_STATE__ JSON数据段中提取笔记标题、正文和标签
+  /// 小红书前端会把笔记完整数据嵌在 window.__INITIAL_STATE__ 里，绕过登录墙也能拿到
+  String _extractFromXhsInitialState(String html) {
+    // 定位 __INITIAL_STATE__ 起始位置
+    final startIdx = html.indexOf('__INITIAL_STATE__');
+    if (startIdx < 0) return '';
+
+    // 找到 JSON 对象的起始大括号
+    final braceStart = html.indexOf('{', startIdx);
+    if (braceStart < 0) return '';
+
+    // 用括号配对找到 JSON 对象结束位置，避免截断
+    int depth = 0;
+    int endIdx = -1;
+    bool inString = false;
+    bool escape = false;
+    for (int i = braceStart; i < html.length; i++) {
+      final c = html[i];
+      if (inString) {
+        if (escape) {
+          escape = false;
+        } else if (c == '\\') {
+          escape = true;
+        } else if (c == '"') {
+          inString = false;
+        }
+      } else {
+        if (c == '"') {
+          inString = true;
+        } else if (c == '{') {
+          depth++;
+        } else if (c == '}') {
+          depth--;
+          if (depth == 0) {
+            endIdx = i + 1;
+            break;
+          }
+        }
+      }
+    }
+    if (endIdx < 0) return '';
+
+    final jsonStr = html.substring(braceStart, endIdx);
+    final decoded = jsonDecode(jsonStr);
+    if (decoded is! Map<String, dynamic>) return '';
+
+    // 递归查找 note 内容（noteDetailMap / note 字段），获取 title + desc + tagList
+    Map<String, dynamic>? note;
+    void findNote(dynamic node) {
+      if (note != null) return;
+      if (node is Map<String, dynamic>) {
+        // 命中小红书笔记数据
+        if (node.containsKey('noteDetail') && node['noteDetail'] is Map<String, dynamic>) {
+          note = node['noteDetail'] as Map<String, dynamic>;
+          return;
+        }
+        if (node.containsKey('title') && node.containsKey('desc') && node.containsKey('noteId')) {
+          note = node;
+          return;
+        }
+        // 递归遍历
+        for (final v in node.values) {
+          findNote(v);
+          if (note != null) return;
+        }
+      } else if (node is List) {
+        for (final v in node) {
+          findNote(v);
+          if (note != null) return;
+        }
+      }
+    }
+    findNote(decoded);
+    if (note == null) return '';
+
+    final title = note['title']?.toString() ?? '';
+    final desc = note['desc']?.toString() ?? '';
+    StringBuffer buffer = StringBuffer();
+    if (title.isNotEmpty) {
+      buffer.writeln(title);
+      buffer.writeln();
+    }
+    if (desc.isNotEmpty) {
+      buffer.write(desc);
+    }
+    // 标签
+    try {
+      final tagList = note['tagList'];
+      if (tagList is List && tagList.isNotEmpty) {
+        final tags = tagList
+            .whereType<Map<String, dynamic>>()
+            .map((t) => t['name']?.toString() ?? '')
+            .where((n) => n.isNotEmpty)
+            .map((n) => '#$n')
+            .toList();
+        if (tags.isNotEmpty) {
+          buffer.writeln();
+          buffer.write(tags.join(' '));
+        }
+      }
+    } catch (_) {}
+
+    return buffer.toString().trim();
   }
 
   /// 解析快手链接 - 多策略提取文案
