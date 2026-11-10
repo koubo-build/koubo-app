@@ -911,8 +911,10 @@ class DouyinService {
     findNote(decoded);
     if (note == null) return '';
 
-    final title = note['title']?.toString() ?? '';
-    final desc = note['desc']?.toString() ?? '';
+    // 用局部非空变量承接（note 是闭包捕获的可空变量，Dart 不做提升）
+    final n = note!;
+    final title = n['title']?.toString() ?? '';
+    final desc = n['desc']?.toString() ?? '';
     StringBuffer buffer = StringBuffer();
     if (title.isNotEmpty) {
       buffer.writeln(title);
@@ -923,7 +925,7 @@ class DouyinService {
     }
     // 标签
     try {
-      final tagList = note['tagList'];
+      final tagList = n['tagList'];
       if (tagList is List && tagList.isNotEmpty) {
         final tags = tagList
             .whereType<Map<String, dynamic>>()
